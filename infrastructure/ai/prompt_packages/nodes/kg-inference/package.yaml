@@ -1,0 +1,20 @@
+name: 知识图谱推断
+category: extraction
+source: application/engine/dag/nodes/validation_nodes.py::KGInferNode
+description: 根据章节结果推断可入库的知识图谱关系
+builtin: true
+tags:
+- DAG
+- 知识图谱
+output_format: json
+variables:
+- name: novel_id
+  desc: 小说 ID
+  type: string
+  required: false
+- name: chapter_number
+  desc: 章节编号
+  type: integer
+  required: false
+id: kg-inference
+sort_order: 109

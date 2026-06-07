@@ -144,6 +144,14 @@ import { useMessage } from 'naive-ui'
 import { guardrailApi, type GuardrailCheckResponse } from '@/api/engineCore'
 import { chapterApi } from '@/api/chapter'
 import { useWorkbenchRefreshStore } from '@/stores/workbenchRefreshStore'
+import {
+  GUARDRAIL_MODE_OPTIONS,
+  getGuardrailDimensionLabel,
+  getGuardrailScoreColor,
+  getGuardrailSeverityLabel,
+  getGuardrailSeverityTagType,
+  type GuardrailMode,
+} from '@/domain/chapterWriting'
 
 interface Chapter {
   id: number | string
@@ -168,47 +176,25 @@ const workbenchRefresh = useWorkbenchRefreshStore()
 const { deskTick } = storeToRefs(workbenchRefresh)
 
 const checking = ref(false)
-const checkMode = ref<'advise' | 'enforce'>('advise')
+const checkMode = ref<GuardrailMode>('advise')
 const lastReport = ref<GuardrailCheckResponse | null>(null)
 
-const modeOptions = [
-  { label: '建议模式', value: 'advise' },
-  { label: '强制模式', value: 'enforce' },
-]
+const modeOptions = GUARDRAIL_MODE_OPTIONS
 
 function scoreColor(score: number): string {
-  if (score >= 0.75) return '#10b981'
-  if (score >= 0.5) return '#f59e0b'
-  return '#ef4444'
+  return getGuardrailScoreColor(score)
 }
 
 function severityType(sev: string): 'error' | 'warning' | 'info' | 'default' {
-  const s = (sev || '').toLowerCase()
-  if (s === 'critical' || s === 'error') return 'error'
-  if (s === 'important' || s === 'warning') return 'warning'
-  if (s === 'minor' || s === 'info') return 'info'
-  return 'default'
+  return getGuardrailSeverityTagType(sev)
 }
 
 function severityLabel(sev: string): string {
-  const s = (sev || '').toLowerCase()
-  if (s === 'critical' || s === 'error') return '严重'
-  if (s === 'important' || s === 'warning') return '重要'
-  if (s === 'minor' || s === 'info') return '轻微'
-  return sev || '—'
-}
-
-const DIM_LABELS: Record<string, string> = {
-  language_style: '语言风格',
-  character_consistency: '角色一致性',
-  plot_density: '情节密度',
-  naming: '命名',
-  viewpoint: '视角',
-  rhythm: '节奏',
+  return getGuardrailSeverityLabel(sev)
 }
 
 function dimLabel(key: string): string {
-  return DIM_LABELS[key] || key
+  return getGuardrailDimensionLabel(key)
 }
 
 async function runCheck() {

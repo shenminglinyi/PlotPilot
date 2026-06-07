@@ -24,7 +24,7 @@ export const AUTOPILOT_SUBSTEP_PRIMARY_RULES: readonly SubstepPrimaryRule[] = [
   { substeps: ['llm_calling'], primaryNodeType: 'exec_writer' },
   { substeps: ['chapter_found', 'context_assembly', 'beat_magnification'], primaryNodeType: 'exec_beat' },
   {
-    substeps: ['soft_landing', 'persisting', 'continuity_check', 'chapter_persist'],
+    substeps: ['persisting', 'continuity_check', 'chapter_persist'],
     primaryNodeType: 'exec_writer',
   },
   { substeps: ['audit_voice_check'], primaryNodeType: 'val_style' },

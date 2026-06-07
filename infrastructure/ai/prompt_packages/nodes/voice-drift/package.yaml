@@ -1,0 +1,25 @@
+name: 文风漂移检测
+category: review
+source: application/engine/dag/nodes/validation_nodes.py::StyleNode
+description: 判断章节文本是否偏离既定角色声线与叙述风格
+builtin: true
+tags:
+- DAG
+- 文风
+output_format: json
+variables:
+- name: content
+  desc: 章节正文
+  type: string
+  required: true
+- name: voice_fingerprint
+  desc: 声线指纹
+  type: string
+  required: false
+- name: drift_threshold
+  desc: 漂移阈值
+  type: number
+  required: false
+  default: 0.5
+id: voice-drift
+sort_order: 105

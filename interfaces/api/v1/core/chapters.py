@@ -10,6 +10,10 @@ from application.core.services.novel_service import NovelService
 from application.core.dtos.chapter_dto import ChapterDTO
 from application.core.dtos.novel_dto import NovelDTO
 from application.audit.dtos.chapter_review_dto import ChapterReviewDTO
+from application.audit.services.chapter_ai_review_service import (
+    ChapterAIReviewContractError,
+    ChapterAIReviewService,
+)
 from application.core.dtos.chapter_structure_dto import ChapterStructureDTO
 from application.engine.services.chapter_aftermath_pipeline import ChapterAftermathPipeline
 from application.manuscript.reindex_job import reindex_chapter_entity_mentions
@@ -20,6 +24,7 @@ from interfaces.api.dependencies import (
     get_chapter_aftermath_pipeline,
     get_chapter_repository,
     get_knowledge_service,
+    get_chapter_ai_review_service,
 )
 from application.world.services.knowledge_service import KnowledgeService
 from infrastructure.persistence.database.chapter_draft_repository import ChapterDraftRepository
@@ -60,6 +65,9 @@ class ChapterMicroBeatPayload(BaseModel):
     target_words: int = Field(default=0, ge=0)
     focus: str = Field(default="pacing")
     location_id: str = Field(default="")
+    active_action: str = Field(default="")
+    emotion_gap: str = Field(default="")
+    forbidden_drift: str = Field(default="")
 
 
 class ChapterMicroBeatsRequest(BaseModel):
@@ -87,6 +95,21 @@ class ChapterReviewResponse(BaseModel):
     memo: str
     created_at: str
     updated_at: str
+
+
+class ChapterAIReviewRequest(BaseModel):
+    """AI 审阅请求"""
+    save: bool = Field(default=False, description="是否保存到章节审阅记录")
+
+
+class ChapterAIReviewResponse(BaseModel):
+    """AI 审阅响应"""
+    ok: bool
+    status: str
+    memo: str
+    saved: bool
+    score: int
+    suggestions: List[str] = Field(default_factory=list)
 
 
 class ChapterStructureResponse(BaseModel):
@@ -287,6 +310,25 @@ async def update_chapter(
     return chapter
 
 
+class UpdateChapterHintRequest(BaseModel):
+    """更新章节生成约束请求"""
+    generation_hint: str = Field(default="", max_length=2000, description="用户手写的本章生成约束文本")
+
+
+@router.patch("/{novel_id}/chapters/{chapter_number}/hint", response_model=ChapterDTO)
+async def update_chapter_hint(
+    novel_id: str,
+    request: UpdateChapterHintRequest,
+    chapter_number: int = Path(..., gt=0, description="章节编号"),
+    service: ChapterService = Depends(get_chapter_service),
+):
+    """更新章节生成约束文本，直接注入 AI 上下文（不触发章后管线）。"""
+    try:
+        return service.update_chapter_generation_hint(novel_id, chapter_number, request.generation_hint)
+    except EntityNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 @router.get("/{novel_id}/chapters/{chapter_number}/review", response_model=ChapterReviewResponse)
 async def get_chapter_review(
     novel_id: str,
@@ -359,8 +401,10 @@ async def save_chapter_review(
 @router.post("/{novel_id}/chapters/{chapter_number}/review-ai")
 async def ai_review_chapter(
     novel_id: str,
+    request: ChapterAIReviewRequest = ChapterAIReviewRequest(),
     chapter_number: int = Path(..., gt=0, description="章节编号"),
-    service: ChapterService = Depends(get_chapter_service)
+    service: ChapterService = Depends(get_chapter_service),
+    ai_review_service: ChapterAIReviewService = Depends(get_chapter_ai_review_service),
 ):
     """AI 审阅章节
 
@@ -385,14 +429,34 @@ async def ai_review_chapter(
         if not chapter.content or not chapter.content.strip():
             raise HTTPException(status_code=400, detail="Chapter content is empty")
 
-        # TODO: 实现 AI 审阅逻辑
-        # 这里需要集成 LLM 服务进行审阅
-        return {
-            "message": "AI review not yet implemented",
-            "status": "pending"
-        }
+        result = await ai_review_service.review(
+            chapter_number=chapter_number,
+            chapter_title=chapter.title,
+            chapter_content=chapter.content,
+            chapter_outline="",
+            generation_hint=getattr(chapter, "generation_hint", "") or "",
+        )
+        saved = False
+        if request.save:
+            service.save_chapter_review(
+                novel_id,
+                chapter_number,
+                result.status,
+                result.memo,
+            )
+            saved = True
+        return ChapterAIReviewResponse(
+            ok=True,
+            status=result.status,
+            memo=result.memo,
+            saved=saved,
+            score=result.score,
+            suggestions=result.suggestions,
+        )
     except EntityNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ChapterAIReviewContractError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
 
 
 @router.get("/{novel_id}/chapters/{chapter_number}/structure", response_model=ChapterStructureResponse)

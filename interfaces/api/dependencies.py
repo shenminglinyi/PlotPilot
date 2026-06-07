@@ -3,7 +3,6 @@
 提供 FastAPI 依赖注入函数，用于创建服务和仓储实例。
 """
 import logging
-import os
 from pathlib import Path
 from functools import lru_cache
 from typing import TYPE_CHECKING, Optional
@@ -52,6 +51,8 @@ from domain.novel.services.consistency_checker import ConsistencyChecker
 from domain.novel.services.storyline_manager import StorylineManager
 from domain.bible.services.relationship_engine import RelationshipEngine
 from domain.ai.services.vector_store import VectorStore
+from interfaces.api.container import get_container
+from interfaces.api.settings import get_backend_settings
 
 if TYPE_CHECKING:
     from application.analyst.services.narrative_entity_state_service import NarrativeEntityStateService
@@ -65,16 +66,12 @@ _storage = None
 
 def _anthropic_api_key() -> Optional[str]:
     """优先 ANTHROPIC_API_KEY，否则 ANTHROPIC_AUTH_TOKEN（与部分代理/IDE 配置命名一致）。"""
-    raw = os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN")
-    if raw is None:
-        return None
-    key = raw.strip()
-    return key or None
+    llm_settings = get_backend_settings().llm
+    return llm_settings.anthropic_api_key or llm_settings.anthropic_auth_token or None
 
 
 def _anthropic_base_url() -> Optional[str]:
-    u = os.getenv("ANTHROPIC_BASE_URL")
-    return u.strip() if u and u.strip() else None
+    return get_backend_settings().llm.anthropic_base_url or None
 
 
 def _anthropic_settings(require_key: bool = True) -> Optional[Settings]:
@@ -89,21 +86,16 @@ def _anthropic_settings(require_key: bool = True) -> Optional[Settings]:
     return Settings(
         api_key=key,
         base_url=_anthropic_base_url(),
-        default_model=os.getenv("WRITING_MODEL", ""),
+        default_model=get_backend_settings().llm.writing_model,
     )
 
 
 def _openai_api_key() -> Optional[str]:
-    raw = os.getenv("OPENAI_API_KEY")
-    if raw is None:
-        return None
-    key = raw.strip()
-    return key or None
+    return get_backend_settings().llm.openai_api_key or None
 
 
 def _openai_base_url() -> Optional[str]:
-    u = os.getenv("OPENAI_BASE_URL")
-    return u.strip() if u and u.strip() else None
+    return get_backend_settings().llm.openai_base_url or None
 
 
 def _openai_settings(require_key: bool = True) -> Optional[Settings]:
@@ -118,18 +110,21 @@ def _openai_settings(require_key: bool = True) -> Optional[Settings]:
     return Settings(
         api_key=key,
         base_url=_openai_base_url(),
-        default_model=os.getenv("WRITING_MODEL") or os.getenv("ARK_MODEL", ""),
+        default_model=(
+            get_backend_settings().llm.writing_model
+            or get_backend_settings().llm.ark_model
+        ),
     )
 
 
 @lru_cache
 def get_llm_control_service() -> LLMControlService:
-    return LLMControlService()
+    return get_container().get_llm_control_service()
 
 
 @lru_cache
 def get_llm_provider_factory() -> LLMProviderFactory:
-    return LLMProviderFactory(get_llm_control_service())
+    return get_container().get_llm_provider_factory()
 
 
 def llm_runtime_is_mock(llm_service: Optional[LLMService] = None) -> bool:
@@ -144,8 +139,7 @@ def get_storage() -> FileStorage:
         FileStorage 实例
     """
     global _storage
-    if _storage is None:
-        _storage = FileStorage(DATA_DIR)
+    _storage = get_container().get_storage()
     return _storage
 
 
@@ -177,6 +171,67 @@ def get_chapter_element_repository():
     from infrastructure.persistence.database.chapter_element_repository import ChapterElementRepository
     from application.paths import get_db_path
     return ChapterElementRepository(get_db_path())
+
+
+def get_chapter_scene_repository():
+    """获取章节场景仓储"""
+    from application.paths import get_db_path
+    from infrastructure.persistence.database.chapter_scene_repository import (
+        ChapterSceneRepository,
+    )
+
+    return ChapterSceneRepository(get_db_path())
+
+
+def get_character_narrative_kernel():
+    """获取角色叙事内核（统一选角、上下文锁、章后对账与角色 read model）。"""
+    from application.character.services.character_narrative_kernel import CharacterNarrativeKernel
+    from infrastructure.persistence.database.triple_repository import TripleRepository
+    from infrastructure.persistence.database.sqlite_character_state_repository import SqliteCharacterStateRepository
+    from infrastructure.persistence.database.sqlite_narrative_debt_repository import SqliteNarrativeDebtRepository
+
+    db = get_database()
+    return CharacterNarrativeKernel(
+        bible_service=get_bible_service(),
+        bible_repository=get_bible_repository(),
+        chapter_element_repository=get_chapter_element_repository(),
+        story_node_repository=get_story_node_repository(),
+        triple_repository=TripleRepository(db),
+        character_state_repository=SqliteCharacterStateRepository(db),
+        debt_repository=SqliteNarrativeDebtRepository(db),
+        unified_character_repository=get_unified_character_repository(),
+    )
+
+
+def get_narrative_memory_service():
+    """获取统一叙事记忆服务。"""
+    from application.memory.services.narrative_memory_service import NarrativeMemoryService
+    from infrastructure.persistence.database.sqlite_memory_repository import SqliteNarrativeMemoryRepository
+
+    return NarrativeMemoryService(SqliteNarrativeMemoryRepository(get_database()))
+
+
+def get_character_projection_service():
+    """获取角色记忆投影服务。"""
+    from application.memory.services.character_projection_service import CharacterProjectionService
+    from infrastructure.persistence.database.sqlite_character_state_repository import SqliteCharacterStateRepository
+    from infrastructure.persistence.database.sqlite_narrative_debt_repository import SqliteNarrativeDebtRepository
+    from infrastructure.persistence.database.triple_repository import TripleRepository
+
+    db = get_database()
+    return CharacterProjectionService(
+        memory_service=get_narrative_memory_service(),
+        unified_character_repository=get_unified_character_repository(),
+        character_state_repository=SqliteCharacterStateRepository(db),
+        triple_repository=TripleRepository(db),
+        debt_repository=SqliteNarrativeDebtRepository(db),
+    )
+
+
+def get_unified_character_repository():
+    """获取统一角色仓储（unified_characters 表）。"""
+    from infrastructure.persistence.database.unified_character_repository import SqliteUnifiedCharacterRepository
+    return SqliteUnifiedCharacterRepository(get_database())
 
 
 def get_bible_repository() -> SqliteBibleRepository:
@@ -385,6 +440,8 @@ def get_chapter_aftermath_pipeline():
         bible_repository=bible_repo,
         unified_checkpoint_service=get_unified_checkpoint_service(),
         prop_lifecycle_syncer=_get_prop_lifecycle_syncer_safe(),
+        evolution_snapshot_service=get_evolution_snapshot_service(),
+        character_narrative_kernel=get_character_narrative_kernel(),
     )
 
 
@@ -405,7 +462,7 @@ def get_llm_service():
     返回长生命周期包装器：每次 generate/stream_generate 时重新读取当前激活配置，
     因此前台控制面板修改后无需重启 API / 守护进程即可生效。
     """
-    return DynamicLLMService(get_llm_provider_factory())
+    return get_container().get_llm_service()
 
 
 def get_setup_main_plot_suggestion_service():
@@ -421,13 +478,23 @@ def get_setup_main_plot_suggestion_service():
     )
 
 
+def get_setup_plot_outline_service():
+    """向导 Step 4：剧情总纲生成上下文服务。"""
+    from application.blueprint.services.setup_plot_outline_service import SetupPlotOutlineService
+
+    return SetupPlotOutlineService(
+        llm_service=get_llm_service(),
+        bible_service=get_bible_service(),
+        novel_service=get_novel_service(),
+    )
+
+
 def get_bible_service() -> BibleService:
     """获取 Bible 服务
 
     Returns:
         BibleService 实例
     """
-    from application.paths import get_db_path
     from application.world.services.bible_location_triple_sync import BibleLocationTripleSyncService
     from infrastructure.persistence.database.triple_repository import TripleRepository
 
@@ -437,6 +504,7 @@ def get_bible_service() -> BibleService:
         novel_repository=get_novel_repository(),
         chapter_repository=get_chapter_repository(),
         location_triple_sync=sync,
+        unified_character_repository=get_unified_character_repository(),
     )
 
 
@@ -485,7 +553,8 @@ def get_embedding_service():
 
     如果 VECTOR_STORE_ENABLED=false，返回 None。
     """
-    if os.getenv("VECTOR_STORE_ENABLED", "true").lower() != "true":
+    fallback_settings = get_backend_settings()
+    if not fallback_settings.vector_store.enabled:
         return None
 
     # 尝试从数据库读取配置
@@ -512,17 +581,19 @@ def get_embedding_service():
         )
     except Exception as exc:
         # 数据库不可用时回退到环境变量
-        _mode = os.getenv("EMBEDDING_SERVICE", "local").lower()
-        _api_key = os.getenv("EMBEDDING_API_KEY") or ""
-        _base_url = os.getenv("EMBEDDING_BASE_URL") or ""
-        _model = (os.getenv("EMBEDDING_MODEL") or "").strip()
-        _model_path = (os.getenv("EMBEDDING_MODEL_PATH") or "").strip()
-        _use_gpu = os.getenv("EMBEDDING_USE_GPU", "true").lower() == "true"
+        embedding_settings = get_backend_settings().embedding
+        _mode = embedding_settings.service
+        _api_key = embedding_settings.api_key
+        _base_url = embedding_settings.base_url
+        _model = embedding_settings.model
+        _model_path = embedding_settings.model_path
+        _use_gpu = embedding_settings.use_gpu
         logger.warning("读取嵌入配置失败，回退到环境变量: %s", exc)
 
     try:
         if _mode == "openai":
-            key = _api_key or os.getenv("EMBEDDING_API_KEY") or os.getenv("OPENAI_API_KEY") or ""
+            live_settings = get_backend_settings()
+            key = _api_key or live_settings.embedding.api_key or live_settings.llm.openai_api_key or ""
             if not key:
                 logger.warning("embedding mode=openai 但未配置 API Key，向量检索已禁用")
                 return None
@@ -579,10 +650,11 @@ _vector_store_init_failed: bool = False
 def get_vector_store() -> Optional[VectorStore]:
     """获取向量存储（单例，整个进程共享同一实例）
 
-    使用本地 FAISS 向量存储（ChromaDBVectorStore），无需外部服务。
+    默认使用本地 FAISS/轻量后端向量存储；显式配置 qdrant 时使用远程 Qdrant。
 
     环境变量配置：
     - VECTOR_STORE_ENABLED: 是否启用（"true" 启用，默认 "true"）
+    - VECTOR_STORE_TYPE: chromadb 或 qdrant（默认 chromadb）
     - VECTOR_STORE_PATH: 本地存储路径（默认 "./data/chromadb"）
 
     Returns:
@@ -590,32 +662,20 @@ def get_vector_store() -> Optional[VectorStore]:
     """
     global _vector_store_singleton, _vector_store_init_failed
 
-    # 如果已经初始化过（成功或失败），直接返回结果
-    if _vector_store_singleton is not None:
-        return _vector_store_singleton
-    if _vector_store_init_failed:
-        return None
+    container = get_container()
+    if _vector_store_singleton is None and not _vector_store_init_failed:
+        container.reload_settings()
+    if (
+        _vector_store_singleton is None
+        and not _vector_store_init_failed
+        and (container._vector_store is not None or container._vector_store_init_failed)
+    ):
+        # Keep legacy tests and callers that reset module globals compatible.
+        container.reset_vector_store()
 
-    enabled = os.getenv("VECTOR_STORE_ENABLED", "true").lower() == "true"
-    if not enabled:
-        _vector_store_init_failed = True
-        return None
-
-    try:
-        from infrastructure.ai.chromadb_vector_store import ChromaDBVectorStore
-        persist_dir = os.getenv("VECTOR_STORE_PATH", "./data/chromadb")
-        _vector_store_singleton = ChromaDBVectorStore(persist_directory=persist_dir)
-        logger.info("向量存储初始化成功: %s", persist_dir)
-        return _vector_store_singleton
-    except Exception as e:
-        _vector_store_init_failed = True
-        logger.warning(
-            "向量存储初始化失败，已降级禁用。"
-            "如需使用向量功能，请安装依赖: pip install -r requirements-local.txt"
-            " 或设置 VECTOR_STORE_TYPE=qdrant。错误: %s",
-            e,
-        )
-        return None
+    _vector_store_singleton = container.get_vector_store()
+    _vector_store_init_failed = container._vector_store_init_failed
+    return _vector_store_singleton
 
 
 def get_relationship_engine() -> RelationshipEngine:
@@ -681,6 +741,8 @@ def get_context_builder() -> ContextBuilder:
         storyline_repository=get_storyline_manager().repository,
         confluence_point_repository=get_confluence_point_repository(),
         worldbuilding_repository=WorldbuildingRepository(get_db_path()),
+        evolution_presenter=get_context_presenter(),
+        evolution_repository=get_evolution_repository(),
     )
 
 
@@ -702,6 +764,7 @@ def build_auto_workflow(llm_service: LLMService) -> AutoNovelGenerationWorkflow:
         voice_fingerprint_service=get_voice_fingerprint_service(),
         conflict_detection_service=ConflictDetectionService(),
         cliche_scanner=ClicheScanner(),
+        evolution_gate_service=get_evolution_gate_service(),
     )
 
 
@@ -830,6 +893,19 @@ def get_scene_generation_service():
         scene_director=get_scene_director_service(),
         vector_store=get_vector_store(),
         embedding_service=get_embedding_service()
+    )
+
+
+def get_scene_generation_context_provider():
+    """获取场景生成上下文装配服务"""
+    from application.core.services.scene_generation_context import (
+        SceneGenerationContextProvider,
+    )
+
+    return SceneGenerationContextProvider(
+        chapter_scene_repository=get_chapter_scene_repository(),
+        chapter_repository=get_chapter_repository(),
+        bible_service=get_bible_service(),
     )
 
 
@@ -1048,6 +1124,15 @@ def get_chapter_review_service():
     )
 
 
+def get_chapter_ai_review_service():
+    """获取章节 AI 审阅服务"""
+    from application.audit.services.chapter_ai_review_service import (
+        ChapterAIReviewService,
+    )
+
+    return ChapterAIReviewService(get_llm_service())
+
+
 def get_foreshadow_ledger_service():
     """获取伏笔台账服务
 
@@ -1091,8 +1176,65 @@ def get_quality_guardrail():
 def get_narrative_engine_read_facade():
     """叙事引擎只读门面（小说家工作流聚合）。"""
     from application.narrative_engine.read_facade import NarrativeEngineReadFacade
+    from application.narrative_engine.story_phase_resolution import resolve_story_phase_payload
 
-    return NarrativeEngineReadFacade()
+    return NarrativeEngineReadFacade(
+        story_phase_resolver=lambda novel_id: resolve_story_phase_payload(
+            novel_id,
+            novel_service=get_novel_service(),
+            chapter_repository=get_chapter_repository(),
+        ),
+        evolution_repository_factory=get_evolution_repository,
+        context_presenter_factory=get_context_presenter,
+        bible_service=get_bible_service(),
+        sandbox_dialogue_service=get_sandbox_dialogue_service(),
+    )
+
+
+def get_evolution_repository():
+    from infrastructure.persistence.database.sqlite_evolution_repository import SqliteEvolutionRepository
+
+    return SqliteEvolutionRepository(get_database())
+
+
+def get_evolution_action_extractor():
+    from application.evolution.services.action_extractor import EvolutionActionExtractor
+
+    return EvolutionActionExtractor()
+
+
+def get_evolution_reducer():
+    from domain.evolution.reducer import EvolutionReducer
+
+    return EvolutionReducer()
+
+
+def get_context_presenter():
+    from application.evolution.services.context_presenter import ContextPresenter
+
+    return ContextPresenter()
+
+
+def get_evolution_snapshot_service():
+    from application.evolution.services.snapshot_service import EvolutionSnapshotService
+
+    return EvolutionSnapshotService(
+        snapshot_repository=get_evolution_repository(),
+        action_extractor=get_evolution_action_extractor(),
+        reducer=get_evolution_reducer(),
+    )
+
+
+def get_evolution_gate_service():
+    from application.evolution.services.gate_service import EvolutionGateService
+
+    return EvolutionGateService(get_evolution_repository(), get_unified_character_repository())
+
+
+def get_evolution_override_service():
+    from application.evolution.services.override_service import EvolutionOverrideService
+
+    return EvolutionOverrideService(get_evolution_repository())
 
 
 def get_unified_checkpoint_service():
@@ -1131,18 +1273,31 @@ def _get_prop_lifecycle_syncer_safe():
 def get_prop_lifecycle_syncer():
     """构建 PropLifecycleSyncer，注入 PatternExtractor + LlmExtractor + TripleHandler。"""
     from application.prop.services.lifecycle_syncer import PropLifecycleSyncer
+    from application.narrative.entity_resolver import EntityResolver
     from application.prop.extractors.pattern_extractor import PatternExtractor
     from application.prop.extractors.llm_extractor import LlmExtractor
+    from application.prop.handlers.narrative_event_handler import NarrativePropEventHandler
     from application.prop.handlers.triple_handler import TriplePropEventHandler
+    from infrastructure.persistence.database.sqlite_narrative_event_repository import (
+        SqliteNarrativeEventRepository,
+    )
 
     prop_repo = get_unified_prop_repository()
     event_repo = get_prop_event_repository()
+    entity_resolver = EntityResolver(
+        character_repo=get_unified_character_repository(),
+        prop_repo=prop_repo,
+    )
     extractors = [PatternExtractor()]
     try:
-        extractors.append(LlmExtractor(get_llm_service()))
+        extractors.append(LlmExtractor(get_llm_service(), entity_resolver))
     except Exception:
         pass
-    handlers = [TriplePropEventHandler(get_database())]
+    db = get_database()
+    handlers = [
+        NarrativePropEventHandler(SqliteNarrativeEventRepository(db)),
+        TriplePropEventHandler(db),
+    ]
     return PropLifecycleSyncer(prop_repo, event_repo, extractors, handlers)
 
 
@@ -1153,4 +1308,3 @@ def get_unified_prop_context_builder():
         get_unified_prop_repository(),
         get_prop_event_repository(),
     )
-

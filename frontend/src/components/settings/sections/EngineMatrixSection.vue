@@ -1,120 +1,111 @@
 <template>
-  <div class="engine-matrix">
-    <n-alert type="info" :show-icon="false" class="mb-4">
-      配置不同场景下使用的模型端点。统一模式下，所有角色共享同一组 API 地址与密钥；
-      独立模式下可按标签切换各角色。展开「推理超参」可调整温度、最大输出 token 与请求超时。
-    </n-alert>
+  <div class="em">
+    <header class="em-head">
+      <div class="em-head-copy">
+        <h4>模型引擎</h4>
+        <p>多角色端点配置；统一或独立 API Key。保存后立即切换路由通道。</p>
+      </div>
+      <n-button type="primary" size="small" :loading="saving" @click="handleSave">保存配置</n-button>
+    </header>
 
-    <div class="mode-switch mb-4">
-      <n-switch v-model:value="isUnifiedMode" size="large">
-        <template #checked>统一端点配置</template>
-        <template #unchecked>独立端点配置</template>
+    <section class="em-mode" :class="{ 'em-mode--unified': isUnifiedMode }">
+      <div class="em-mode-copy">
+        <span class="em-mode-badge">{{ isUnifiedMode ? '统一端点' : '独立端点' }}</span>
+        <p v-if="isUnifiedMode">所有场景共用一组 Base URL、API Key 与模型 ID。</p>
+        <p v-else>主力 / 经济 / 知识图谱可分别配置端点与密钥。</p>
+      </div>
+      <n-switch v-model:value="isUnifiedMode" size="medium">
+        <template #checked>统一</template>
+        <template #unchecked>独立</template>
       </n-switch>
+    </section>
+
+    <div v-if="!isUnifiedMode" class="em-role-tabs">
+      <button
+        v-for="tab in independentTabs"
+        :key="tab.key"
+        type="button"
+        class="em-role-tab"
+        :class="{ active: activeRole === tab.key }"
+        @click="activeRole = tab.key"
+      >
+        <strong>{{ tab.label }}</strong>
+        <span>{{ tab.hint }}</span>
+      </button>
     </div>
 
-    <div class="engine-matrix-body">
-      <template v-if="isUnifiedMode">
-        <n-card size="small" :bordered="true" class="role-card mb-3">
-          <template #header>
-            <div class="role-card-header">
-              <span class="role-title">✍️ 主力模型</span>
-              <n-tag size="small" type="success">写作 / 分析 / 规划</n-tag>
-            </div>
-          </template>
-          <endpoint-grid
-            v-model:provider="formData.default_model_provider"
-            v-model:api-key="formData.default_model_api_key"
-            v-model:base-url="formData.default_model_base_url"
-            v-model:model="formData.default_model"
-            base-url-placeholder="例如：https://api.openai.com/v1 或兼容网关地址"
-            model-placeholder="网关文档中的主模型 ID"
-          />
-          <inference-collapse
-            v-model:temperature="formData.default_temperature"
-            v-model:max-tokens="formData.default_max_tokens"
-            v-model:timeout-seconds="formData.default_timeout_seconds"
-          />
-        </n-card>
-      </template>
+    <div class="em-body">
+      <article
+        v-show="isUnifiedMode || activeRole === 'main'"
+        class="em-role-card em-role-card--main"
+      >
+        <div class="em-role-head">
+          <span class="em-role-title">主力模型</span>
+          <span class="em-role-tag">写作 · 分析 · 规划</span>
+        </div>
+        <endpoint-grid
+          v-model:provider="formData.default_model_provider"
+          v-model:api-key="formData.default_model_api_key"
+          v-model:base-url="formData.default_model_base_url"
+          v-model:model="formData.default_model"
+          base-url-placeholder="例如 https://api.openai.com/v1 或兼容网关"
+          model-placeholder="网关文档中的主模型 ID"
+        />
+        <inference-collapse
+          v-model:temperature="formData.default_temperature"
+          v-model:max-tokens="formData.default_max_tokens"
+          v-model:timeout-seconds="formData.default_timeout_seconds"
+        />
+      </article>
 
-      <n-tabs v-else type="line" animated class="independent-tabs">
-        <n-tab-pane name="main" tab="主力模型">
-          <n-card size="small" :bordered="true" class="role-card inner-tab-card">
-            <template #header>
-              <div class="role-card-header">
-                <span class="role-title">✍️ 主力模型</span>
-                <n-tag size="small" type="success">写作 / 分析 / 规划</n-tag>
-              </div>
-            </template>
-            <endpoint-grid
-              v-model:provider="formData.default_model_provider"
-              v-model:api-key="formData.default_model_api_key"
-              v-model:base-url="formData.default_model_base_url"
-              v-model:model="formData.default_model"
-              base-url-placeholder="留空则使用协议默认"
-              model-placeholder="主模型 ID"
-            />
-            <inference-collapse
-              v-model:temperature="formData.default_temperature"
-              v-model:max-tokens="formData.default_max_tokens"
-              v-model:timeout-seconds="formData.default_timeout_seconds"
-            />
-          </n-card>
-        </n-tab-pane>
-        <n-tab-pane name="cheap" tab="经济模型">
-          <n-card size="small" :bordered="true" class="role-card inner-tab-card">
-            <template #header>
-              <div class="role-card-header">
-                <span class="role-title">⚡ 经济模型</span>
-                <n-tag size="small" type="warning">批量操作 / 嵌入</n-tag>
-              </div>
-            </template>
-            <endpoint-grid
-              v-model:provider="formData.cheap_model_provider"
-              v-model:api-key="formData.cheap_model_api_key"
-              v-model:base-url="formData.cheap_model_base_url"
-              v-model:model="formData.cheap_model"
-              base-url-placeholder="留空则跟随主力模型"
-              model-placeholder="轻量/低成本模型 ID（按网关文档填写）"
-            />
-            <inference-collapse
-              v-model:temperature="formData.cheap_temperature"
-              v-model:max-tokens="formData.cheap_max_tokens"
-              v-model:timeout-seconds="formData.cheap_timeout_seconds"
-            />
-          </n-card>
-        </n-tab-pane>
-        <n-tab-pane name="kg" tab="知识图谱">
-          <n-card size="small" :bordered="true" class="role-card inner-tab-card">
-            <template #header>
-              <div class="role-card-header">
-                <span class="role-title">🕸️ 知识图谱模型</span>
-                <n-tag size="small" type="info">三元组抽取</n-tag>
-              </div>
-            </template>
-            <endpoint-grid
-              v-model:provider="formData.knowledge_model_provider"
-              v-model:api-key="formData.knowledge_model_api_key"
-              v-model:base-url="formData.knowledge_model_base_url"
-              v-model:model="formData.knowledge_model"
-              base-url-placeholder="留空则跟随主力模型"
-              model-placeholder="需要较强遵循指令与结构化输出能力"
-            />
-            <inference-collapse
-              v-model:temperature="formData.knowledge_temperature"
-              v-model:max-tokens="formData.knowledge_max_tokens"
-              v-model:timeout-seconds="formData.knowledge_timeout_seconds"
-            />
-          </n-card>
-        </n-tab-pane>
-      </n-tabs>
+      <article
+        v-show="!isUnifiedMode && activeRole === 'cheap'"
+        class="em-role-card em-role-card--cheap"
+      >
+        <div class="em-role-head">
+          <span class="em-role-title">经济模型</span>
+          <span class="em-role-tag">批量 · 嵌入</span>
+        </div>
+        <endpoint-grid
+          v-model:provider="formData.cheap_model_provider"
+          v-model:api-key="formData.cheap_model_api_key"
+          v-model:base-url="formData.cheap_model_base_url"
+          v-model:model="formData.cheap_model"
+          base-url-placeholder="留空则跟随主力模型"
+          model-placeholder="轻量 / 低成本模型 ID"
+        />
+        <inference-collapse
+          v-model:temperature="formData.cheap_temperature"
+          v-model:max-tokens="formData.cheap_max_tokens"
+          v-model:timeout-seconds="formData.cheap_timeout_seconds"
+        />
+      </article>
+
+      <article
+        v-show="!isUnifiedMode && activeRole === 'kg'"
+        class="em-role-card em-role-card--kg"
+      >
+        <div class="em-role-head">
+          <span class="em-role-title">知识图谱</span>
+          <span class="em-role-tag">三元组抽取</span>
+        </div>
+        <endpoint-grid
+          v-model:provider="formData.knowledge_model_provider"
+          v-model:api-key="formData.knowledge_model_api_key"
+          v-model:base-url="formData.knowledge_model_base_url"
+          v-model:model="formData.knowledge_model"
+          base-url-placeholder="留空则跟随主力模型"
+          model-placeholder="需较强指令遵循与结构化输出"
+        />
+        <inference-collapse
+          v-model:temperature="formData.knowledge_temperature"
+          v-model:max-tokens="formData.knowledge_max_tokens"
+          v-model:timeout-seconds="formData.knowledge_timeout_seconds"
+        />
+      </article>
     </div>
 
-    <div class="engine-footer">
-      <n-space justify="end" :size="12">
-        <n-button :loading="saving" @click="handleSave">保存配置</n-button>
-      </n-space>
-    </div>
+    <p class="em-foot-note">密钥仅存于本地配置，不会写入作品数据。修改后请点击「保存配置」生效。</p>
   </div>
 </template>
 
@@ -128,6 +119,13 @@ import InferenceCollapse from './EngineMatrixInferenceCollapse.vue'
 const message = useMessage()
 const saving = ref(false)
 const isUnifiedMode = ref(true)
+const activeRole = ref<'main' | 'cheap' | 'kg'>('main')
+
+const independentTabs = [
+  { key: 'main' as const, label: '主力', hint: '写作' },
+  { key: 'cheap' as const, label: '经济', hint: '批量' },
+  { key: 'kg' as const, label: '图谱', hint: '抽取' },
+]
 
 const ROLE_MAIN = '主力模型'
 const ROLE_CHEAP = '经济模型'
@@ -399,44 +397,172 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.engine-matrix {
-  padding-bottom: 8px;
+.em {
+  max-width: 760px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
-.mb-4 { margin-bottom: 16px; }
-.mb-3 { margin-bottom: 12px; }
-.mt-3 { margin-top: 12px; }
+.em-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
 
-.engine-matrix-body {
-  max-height: min(72vh, 760px);
-  overflow-x: hidden;
+.em-head-copy h4 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--app-text-primary);
+}
+
+.em-head-copy p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--app-text-muted);
+  max-width: 520px;
+}
+
+.em-mode {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+}
+
+.em-mode--unified {
+  border-color: color-mix(in srgb, var(--color-brand) 35%, var(--app-border));
+  background: color-mix(in srgb, var(--color-brand-light, rgba(37, 99, 235, 0.08)) 55%, var(--app-surface));
+}
+
+.em-mode-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.em-mode-badge {
+  display: inline-flex;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--app-border);
+  color: var(--app-text-muted);
+}
+
+.em-mode--unified .em-mode-badge {
+  background: var(--color-brand-light);
+  color: var(--color-brand);
+}
+
+.em-mode-copy p {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--app-text-muted);
+}
+
+.em-role-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.em-role-tab {
+  display: grid;
+  gap: 2px;
+  padding: 8px 6px;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  background: var(--app-surface);
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.em-role-tab:hover {
+  border-color: color-mix(in srgb, var(--color-brand) 28%, var(--app-border));
+}
+
+.em-role-tab.active {
+  border-color: var(--color-brand-border);
+  background: var(--color-brand-light);
+}
+
+.em-role-tab strong {
+  font-size: 12px;
+  color: var(--app-text-primary);
+}
+
+.em-role-tab span {
+  font-size: 10px;
+  color: var(--app-text-muted);
+}
+
+.em-body {
+  max-height: min(68vh, 640px);
   overflow-y: auto;
-  padding-right: 6px;
+  padding-right: 4px;
+  scrollbar-width: thin;
 }
 
-.role-card-header {
+.em-role-card {
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--app-border);
+  border-left-width: 3px;
+  background: var(--app-surface);
+}
+
+.em-role-card--main { border-left-color: var(--color-brand); }
+.em-role-card--cheap { border-left-color: var(--color-warning); }
+.em-role-card--kg { border-left-color: var(--color-info, #3b82f6); }
+
+.em-role-head {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  margin-bottom: 10px;
 }
 
-.role-title {
+.em-role-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--app-text-primary);
+}
+
+.em-role-tag {
+  font-size: 10px;
   font-weight: 600;
-  font-size: 14px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--app-surface-subtle);
+  color: var(--app-text-muted);
 }
 
-.inner-tab-card {
-  margin-top: 8px;
+.em-foot-note {
+  margin: 0;
+  font-size: 11px;
+  color: var(--app-text-muted);
+  line-height: 1.5;
 }
 
-.independent-tabs :deep(.n-tabs-nav) {
-  flex-wrap: wrap;
-}
+@media (max-width: 560px) {
+  .em-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
 
-.engine-footer {
-  margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px solid var(--n-divider-color);
+  .em-mode {
+    flex-direction: column;
+  }
 }
 </style>

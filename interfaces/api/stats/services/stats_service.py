@@ -1,6 +1,6 @@
 """Statistics service layer for business logic."""
-from typing import Optional, List, Dict
-from datetime import datetime
+from typing import Any, Optional, List, Dict
+from datetime import datetime, timedelta, time
 import logging
 
 from ..repositories.stats_repository import StatsRepository
@@ -201,17 +201,75 @@ class StatsService:
     def get_writing_progress(self, slug: str, days: int = 30) -> List[WritingProgress]:
         """Get writing progress over time.
 
-        TODO: Implement in Week 2
-        - Track when chapters were created/modified
-        - Calculate daily word count
-        - Show progress trends
+        Aggregates chapter records by their latest available write timestamp.
+        Repository adapters may expose ``get_chapter_progress_records``; when a
+        repository cannot provide timestamps, this method returns an empty list
+        instead of fabricating progress.
 
         Args:
             slug: The book's slug (directory name)
             days: Number of days to look back (default 30)
 
         Returns:
-            Empty list for now, to be implemented in Week 2
+            List of daily writing progress records within the lookback window
         """
-        logger.info(f"Getting writing progress for: {slug}, days={days} (TODO: Week 2)")
-        return []
+        safe_days = max(1, min(int(days or 30), 365))
+        logger.info(f"Getting writing progress for: {slug}, days={safe_days}")
+
+        provider = getattr(self.repository, "get_chapter_progress_records", None)
+        if not callable(provider):
+            logger.info("Repository does not expose chapter progress records: %s", type(self.repository).__name__)
+            return []
+
+        records = provider(slug)
+        if not records:
+            return []
+
+        now = datetime.now()
+        start_day = (now - timedelta(days=safe_days - 1)).date()
+        buckets: Dict[Any, Dict[str, int]] = {}
+
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+            written_at = self._coerce_progress_datetime(record.get("written_at") or record.get("updated_at") or record.get("created_at"))
+            if written_at is None or written_at.date() < start_day or written_at.date() > now.date():
+                continue
+
+            content = str(record.get("content") or "")
+            words = record.get("word_count")
+            if not isinstance(words, int):
+                words = self.repository.count_words(content)
+            if words <= 0:
+                continue
+
+            day = written_at.date()
+            bucket = buckets.setdefault(day, {"words_written": 0, "chapters_completed": 0})
+            bucket["words_written"] += words
+            bucket["chapters_completed"] += 1
+
+        return [
+            WritingProgress(
+                date=datetime.combine(day, time.min),
+                words_written=data["words_written"],
+                chapters_completed=data["chapters_completed"],
+            )
+            for day, data in sorted(buckets.items())
+        ]
+
+    @staticmethod
+    def _coerce_progress_datetime(value: Any) -> Optional[datetime]:
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, (int, float)):
+            try:
+                return datetime.fromtimestamp(value)
+            except (OSError, OverflowError, ValueError):
+                return None
+        if isinstance(value, str) and value.strip():
+            raw = value.strip()
+            try:
+                return datetime.fromisoformat(raw.replace("Z", "+00:00")).replace(tzinfo=None)
+            except ValueError:
+                return None
+        return None

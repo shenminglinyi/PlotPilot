@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import Mock, AsyncMock
-from application.services.state_extractor import StateExtractor
+from application.services.state_extractor import StateExtractionError, StateExtractor
 from domain.ai.services.llm_service import LLMService, GenerationConfig, GenerationResult
 from domain.ai.value_objects.prompt import Prompt
 from domain.ai.value_objects.token_usage import TokenUsage
@@ -144,8 +144,23 @@ class TestStateExtractor:
         assert isinstance(call_args[1]['config'], GenerationConfig)
 
     @pytest.mark.asyncio
-    async def test_extract_chapter_state_invalid_contract_returns_empty(self):
-        """顶层多字段时契约拒绝，回退空状态（与宽松 json.loads 行为不同）。"""
+    async def test_extract_chapter_state_uses_injected_model(self):
+        """显式注入模型时不依赖环境变量默认值。"""
+        extractor = StateExtractor(llm_service=self.llm_service, model="writing-test-model")
+        self.llm_service.generate = AsyncMock(return_value=GenerationResult(
+            content='{"new_characters": [], "character_actions": [], "relationship_changes": [], "foreshadowing_planted": [], "foreshadowing_resolved": [], "events": []}',
+            token_usage=TokenUsage(input_tokens=100, output_tokens=50)
+        ))
+
+        await extractor.extract_chapter_state(content="测试内容")
+
+        config = self.llm_service.generate.call_args[1]["config"]
+        assert isinstance(config, GenerationConfig)
+        assert config.model == "writing-test-model"
+
+    @pytest.mark.asyncio
+    async def test_extract_chapter_state_invalid_contract_blocks(self):
+        """顶层多字段时契约拒绝，流程阻塞，不再伪造空状态。"""
         self.llm_service.generate = AsyncMock(
             return_value=GenerationResult(
                 content=(
@@ -155,9 +170,8 @@ class TestStateExtractor:
                 token_usage=TokenUsage(input_tokens=10, output_tokens=10),
             )
         )
-        state = await self.extractor.extract_chapter_state(content="正文")
-        assert len(state.new_characters) == 0
-        assert len(state.events) == 0
+        with pytest.raises(StateExtractionError):
+            await self.extractor.extract_chapter_state(content="正文")
 
     @pytest.mark.asyncio
     async def test_extract_chapter_state_with_complex_content(self):

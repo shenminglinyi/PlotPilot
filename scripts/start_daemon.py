@@ -4,21 +4,20 @@
 规划/写作/节拍；另可设 LOG_FILE 仅写文件。
 """
 import os
-os.environ['HF_HUB_OFFLINE'] = '1'
-os.environ['TRANSFORMERS_OFFLINE'] = '1'
-os.environ['HF_DATASETS_OFFLINE'] = '1'
-if os.getenv('DISABLE_SSL_VERIFY', 'false').lower() == 'true':
-    os.environ['CURL_CA_BUNDLE'] = ''
-    os.environ['REQUESTS_CA_BUNDLE'] = ''
-
 import sys
 import logging
 import time
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from infrastructure.ai.process_environment import configure_huggingface_process_environment
+
+configure_huggingface_process_environment()
+
 from dotenv import load_dotenv
 
 load_dotenv()
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from application.paths import PLOTPILOT_ROOT, get_db_path, DATA_DIR
 from infrastructure.persistence.database.connection import get_database
@@ -31,7 +30,6 @@ from infrastructure.persistence.database.sqlite_storyline_repository import Sqli
 from infrastructure.persistence.database.sqlite_plot_arc_repository import SqlitePlotArcRepository
 from infrastructure.persistence.database.sqlite_narrative_event_repository import SqliteNarrativeEventRepository
 
-from application.engine.services.autopilot_daemon import AutopilotDaemon
 from application.engine.services.background_task_service import BackgroundTaskService
 from application.engine.services.chapter_aftermath_pipeline import ChapterAftermathPipeline
 from application.engine.services.circuit_breaker import CircuitBreaker
@@ -50,18 +48,22 @@ from interfaces.api.dependencies import (
     get_knowledge_service,
     get_chapter_indexing_service,
 )
-from interfaces.api.middleware.logging_config import setup_logging
+from interfaces.api.middleware.logging_config import parse_log_level, setup_logging
+from interfaces.api.settings import get_backend_settings
 
 (DATA_DIR / "logs").mkdir(parents=True, exist_ok=True)
-_log_level = getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO)
+_settings = get_backend_settings()
+_log_level = parse_log_level(_settings.log_level)
 _default_log = str(PLOTPILOT_ROOT / "logs" / "plotpilot.log")
-_log_file = os.getenv("LOG_FILE", _default_log)
+_log_file = _settings.log_file
+if _log_file == "logs/plotpilot.log":
+    _log_file = _default_log
 setup_logging(level=_log_level, log_file=_log_file)
 
 logger = logging.getLogger(__name__)
 
 
-def build_daemon() -> AutopilotDaemon:
+def build_daemon():
     db_path = get_db_path()
     db = get_database(db_path)
 
@@ -181,7 +183,14 @@ def build_daemon() -> AutopilotDaemon:
         reset_timeout=180,     # 从 120 增加到 180 秒，给 API 更多恢复时间
     )
 
-    return AutopilotDaemon(
+    from engine.runtime.engine_daemon import EngineDaemon
+    from engine.runtime.writing_delegate import (
+        get_story_pipeline_mode,
+        story_pipeline_mode_was_unset,
+    )
+
+    pipeline_mode = get_story_pipeline_mode()
+    daemon_kwargs = dict(
         novel_repository=novel_repo,
         llm_service=llm_service,
         context_builder=context_builder,
@@ -189,12 +198,36 @@ def build_daemon() -> AutopilotDaemon:
         planning_service=planning_service,
         story_node_repo=story_node_repo,
         chapter_repository=chapter_repo,
-        poll_interval=10,  # 从 5 秒增加到 10 秒，降低轮询频率以减少 API 压力
+        poll_interval=10,
         voice_drift_service=voice_drift_service,
         circuit_breaker=circuit_breaker,
         chapter_workflow=chapter_workflow,
         aftermath_pipeline=aftermath_pipeline,
         knowledge_service=get_knowledge_service(),
+    )
+
+    use_pipeline_writing = pipeline_mode in ("writing", "full")
+    if pipeline_mode == "full":
+        logger.info(
+            "PLOTPILOT_USE_STORY_PIPELINE=full — EngineDaemon（StoryPipeline 写作）"
+        )
+    elif pipeline_mode == "writing":
+        if story_pipeline_mode_was_unset():
+            logger.info(
+                "PLOTPILOT_USE_STORY_PIPELINE 未设置 — 默认 StoryPipeline 写作（Phase 4）"
+            )
+        else:
+            logger.info(
+                "PLOTPILOT_USE_STORY_PIPELINE=writing — EngineDaemon（StoryPipeline 写作）"
+            )
+    else:
+        logger.info(
+            "PLOTPILOT_USE_STORY_PIPELINE=off — EngineDaemon（legacy 节拍写作，紧急回退）"
+        )
+
+    return EngineDaemon(
+        **daemon_kwargs,
+        use_story_pipeline_for_writing=use_pipeline_writing,
     )
 
 

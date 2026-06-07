@@ -21,6 +21,14 @@ from application.engine.dag.models import (
     PortDataType,
 )
 from application.engine.dag.registry import BaseNode, NodeRegistry
+from infrastructure.ai.prompt_keys import (
+    CHAPTER_AFTERMATH,
+    CLICHE_SCAN,
+    FORESHADOW_CHECK,
+    KG_INFERENCE,
+    TENSION_SCORING,
+    VOICE_DRIFT,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,9 +42,9 @@ class StyleNode(BaseNode):
 
     meta = NodeMeta(
         node_type="val_style",
-        display_name="🎭 文风警报器",
+        display_name="文风警报器",
         category=NodeCategory.VALIDATION,
-        icon="🎭",
+        icon="",
         color="#ec4899",
         input_ports=[
             NodePort(name="content", data_type=PortDataType.TEXT, required=True),
@@ -46,12 +54,11 @@ class StyleNode(BaseNode):
             NodePort(name="drift_score", data_type=PortDataType.SCORE),
             NodePort(name="drift_alert", data_type=PortDataType.BOOLEAN),
         ],
-        prompt_template="评估以下文本是否符合角色声线...",
         prompt_variables=["voice_fingerprint", "scene_type", "drift_threshold", "content"],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=180,
-        cpms_node_key="voice-drift",
+        cpms_node_key=VOICE_DRIFT,
         description="VoiceDriftService 文风偏离检测",
         default_edges=["gw_circuit"],
     )
@@ -102,9 +109,9 @@ class TensionNode(BaseNode):
 
     meta = NodeMeta(
         node_type="val_tension",
-        display_name="📈 张力评估器",
+        display_name="张力评估器",
         category=NodeCategory.VALIDATION,
-        icon="📈",
+        icon="",
         color="#f59e0b",
         input_ports=[
             NodePort(name="content", data_type=PortDataType.TEXT, required=True),
@@ -115,12 +122,11 @@ class TensionNode(BaseNode):
             NodePort(name="pacing_tension", data_type=PortDataType.SCORE),
             NodePort(name="composite", data_type=PortDataType.SCORE),
         ],
-        prompt_template="评估以下文本的叙事张力...",
         prompt_variables=["content"],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=60,
-        cpms_node_key="tension-scoring",
+        cpms_node_key=TENSION_SCORING,
         description="TensionScoringService 叙事张力评估",
         default_edges=["gw_circuit"],
     )
@@ -176,9 +182,9 @@ class AntiAINode(BaseNode):
 
     meta = NodeMeta(
         node_type="val_anti_ai",
-        display_name="🛡️ Anti-AI 审计",
+        display_name="Anti-AI 审计",
         category=NodeCategory.VALIDATION,
-        icon="🛡️",
+        icon="",
         color="#ef4444",
         input_ports=[
             NodePort(name="content", data_type=PortDataType.TEXT, required=True),
@@ -188,12 +194,11 @@ class AntiAINode(BaseNode):
             NodePort(name="hits", data_type=PortDataType.LIST),
             NodePort(name="recommendations", data_type=PortDataType.LIST),
         ],
-        prompt_template="",
         prompt_variables=["content"],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=60,
-        cpms_node_key="cliche-scan",
+        cpms_node_key=CLICHE_SCAN,
         description="ClicheScanner AI 模式检测与审计",
         default_edges=["gw_circuit"],
     )
@@ -241,9 +246,9 @@ class ForeshadowCheckNode(BaseNode):
 
     meta = NodeMeta(
         node_type="val_foreshadow",
-        display_name="📖 伏笔雷达",
+        display_name="伏笔雷达",
         category=NodeCategory.VALIDATION,
-        icon="📖",
+        icon="",
         color="#22c55e",
         input_ports=[
             NodePort(name="novel_id", data_type=PortDataType.TEXT, required=True),
@@ -254,12 +259,11 @@ class ForeshadowCheckNode(BaseNode):
             NodePort(name="pending", data_type=PortDataType.SCORE),
             NodePort(name="recovery_rate", data_type=PortDataType.SCORE),
         ],
-        prompt_template="",
         prompt_variables=[],
         is_configurable=False,
         can_disable=True,
         default_timeout_seconds=30,
-        cpms_node_key="foreshadow-check",
+        cpms_node_key=FORESHADOW_CHECK,
         description="ForeshadowingRegistry 伏笔回收检测",
         default_edges=["val_kg_infer"],
     )
@@ -309,9 +313,9 @@ class NarrativeNode(BaseNode):
 
     meta = NodeMeta(
         node_type="val_narrative",
-        display_name="🧬 叙事同步",
+        display_name="叙事同步",
         category=NodeCategory.VALIDATION,
-        icon="🧬",
+        icon="",
         color="#06b6d4",
         input_ports=[
             NodePort(name="content", data_type=PortDataType.TEXT, required=True),
@@ -322,12 +326,11 @@ class NarrativeNode(BaseNode):
             NodePort(name="triples", data_type=PortDataType.LIST),
             NodePort(name="causal_edges", data_type=PortDataType.LIST),
         ],
-        prompt_template="同步以下章节的叙事内容...",
         prompt_variables=["content"],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=180,
-        cpms_node_key="chapter-aftermath",
+        cpms_node_key=CHAPTER_AFTERMATH,
         description="ChapterAftermathPipeline 叙事同步",
         default_edges=["val_foreshadow"],
     )
@@ -377,9 +380,9 @@ class KGInferNode(BaseNode):
 
     meta = NodeMeta(
         node_type="val_kg_infer",
-        display_name="🕸️ KG推断",
+        display_name="KG推断",
         category=NodeCategory.VALIDATION,
-        icon="🕸️",
+        icon="",
         color="#8b5cf6",
         input_ports=[
             NodePort(name="novel_id", data_type=PortDataType.TEXT, required=True),
@@ -388,12 +391,11 @@ class KGInferNode(BaseNode):
         output_ports=[
             NodePort(name="inferred_triples", data_type=PortDataType.LIST),
         ],
-        prompt_template="",
         prompt_variables=[],
         is_configurable=False,
         can_disable=True,
         default_timeout_seconds=120,
-        cpms_node_key="kg-inference",
+        cpms_node_key=KG_INFERENCE,
         description="KnowledgeGraphService.infer_from_chapter",
         default_edges=["gw_review"],
     )

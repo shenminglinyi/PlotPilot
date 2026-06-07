@@ -1,15 +1,13 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
+import { storageKeys } from '@/config/storageKeys'
+import { readStorageString, writeStorageString } from '@/utils/storage'
 
 export type ThemeMode = 'light' | 'dark' | 'anchor' | 'auto'
 
-const STORAGE_KEY = 'plotpilot-theme-mode'
-
 function getStoredTheme(): ThemeMode {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY)
-    if (stored === 'light' || stored === 'dark' || stored === 'anchor' || stored === 'auto') return stored
-  } catch { /* ignore */ }
+  const stored = readStorageString(storageKeys.themeMode)
+  if (stored === 'light' || stored === 'dark' || stored === 'anchor' || stored === 'auto') return stored
   return 'light'
 }
 
@@ -38,9 +36,7 @@ export const useThemeStore = defineStore('theme', () => {
 
   function setTheme(newMode: ThemeMode) {
     mode.value = newMode
-    try {
-      localStorage.setItem(STORAGE_KEY, newMode)
-    } catch { /* ignore */ }
+    writeStorageString(storageKeys.themeMode, newMode)
   }
 
   // 监听系统主题变化，更新响应式 systemDark 使 auto 模式即时生效

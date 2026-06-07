@@ -1,6 +1,7 @@
 """
 Repository for Worldbuilding
 """
+import json
 from typing import Optional
 from datetime import datetime
 
@@ -45,13 +46,25 @@ class WorldbuildingRepository:
                     language_slang TEXT DEFAULT '',
                     entertainment TEXT DEFAULT '',
 
+                    schema_version INTEGER NOT NULL DEFAULT 1,
+                    dimensions TEXT NOT NULL DEFAULT '{}',
+
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
                     FOREIGN KEY (novel_id) REFERENCES novels(id) ON DELETE CASCADE
                 )
             """)
+        self._ensure_v2_columns(db)
         db.commit()
+
+    def _ensure_v2_columns(self, db) -> None:
+        cur = db.execute("PRAGMA table_info(worldbuilding)")
+        cols = {row[1] for row in cur.fetchall()}
+        if "schema_version" not in cols:
+            db.execute("ALTER TABLE worldbuilding ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 1")
+        if "dimensions" not in cols:
+            db.execute("ALTER TABLE worldbuilding ADD COLUMN dimensions TEXT NOT NULL DEFAULT '{}'")
 
     def get_by_novel_id(self, novel_id: str) -> Optional[Worldbuilding]:
         """根据小说ID获取世界观"""
@@ -65,6 +78,9 @@ class WorldbuildingRepository:
 
         if not row:
             return None
+
+        dimensions = self._parse_dimensions(row["dimensions"] if "dimensions" in row.keys() else None)
+        schema_version = int(row["schema_version"] or 1) if "schema_version" in row.keys() else 1
 
         return Worldbuilding(
             id=row["id"],
@@ -85,15 +101,40 @@ class WorldbuildingRepository:
             food_clothing=row["food_clothing"] or "",
             language_slang=row["language_slang"] or "",
             entertainment=row["entertainment"] or "",
+            schema_version=schema_version,
+            dimensions=dimensions,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
+
+    def _parse_dimensions(self, raw: Optional[str]) -> dict:
+        if not raw:
+            return {}
+        try:
+            parsed = json.loads(raw)
+        except (TypeError, json.JSONDecodeError):
+            return {}
+        if not isinstance(parsed, dict):
+            return {}
+        out = {}
+        for dim, block in parsed.items():
+            if not isinstance(block, dict):
+                continue
+            fields = {
+                str(k): str(v or "")
+                for k, v in block.items()
+                if str(v or "").strip()
+            }
+            if fields:
+                out[str(dim)] = fields
+        return out
 
     def save(self, worldbuilding: Worldbuilding) -> None:
         """保存世界观"""
         from infrastructure.persistence.database.connection import get_database
 
         db = get_database(self.db_path)
+        dimensions = worldbuilding.normalized_dimensions()
         db.execute(
             """
                 INSERT OR REPLACE INTO worldbuilding (
@@ -103,8 +144,9 @@ class WorldbuildingRepository:
                     politics, economy, class_system,
                     history, religion, taboos,
                     food_clothing, language_slang, entertainment,
+                    schema_version, dimensions,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 worldbuilding.id,
@@ -125,6 +167,8 @@ class WorldbuildingRepository:
                 worldbuilding.food_clothing,
                 worldbuilding.language_slang,
                 worldbuilding.entertainment,
+                int(worldbuilding.schema_version or 2),
+                json.dumps(dimensions, ensure_ascii=False),
                 worldbuilding.created_at.isoformat() if isinstance(worldbuilding.created_at, datetime) else worldbuilding.created_at,
                 datetime.now().isoformat(),
             ),

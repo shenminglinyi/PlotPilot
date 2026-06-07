@@ -9,9 +9,59 @@ tags:
 - suggestion
 output_format: json
 variables:
-- name: context_blob
-  desc: JSON context blob (world, characters, locations)
+- name: novel.title
+  desc: Novel title
   type: string
-  required: true
+- name: novel.premise
+  desc: Original premise and setup
+  type: string
+- name: novel.genre_major
+  desc: Major genre label
+  type: string
+- name: novel.genre_theme
+  desc: Genre theme label
+  type: string
+- name: novel.genre_label
+  desc: Full genre label
+  type: string
+- name: novel.world_preset
+  desc: World preset or tonal baseline
+  type: string
+- name: novel.story_structure
+  desc: Story structure profile
+  type: string
+- name: novel.pacing_control
+  desc: Pacing control profile
+  type: string
+- name: novel.writing_style
+  desc: Writing style profile
+  type: string
+- name: novel.special_requirements
+  desc: Special requirements profile
+  type: string
+- name: novel.target_chapters
+  desc: Target chapter count
+  type: integer
+- name: novel.target_words_per_chapter
+  desc: Target words per chapter
+  type: integer
+- name: plot.fusion_contract
+  desc: Fusion storyline contract
+  type: string
+- name: characters.protagonist
+  desc: Protagonist setup
+  type: object
+- name: characters.list
+  desc: Character list
+  type: list
+- name: locations.list
+  desc: Location list
+  type: list
+- name: worldbuilding.style
+  desc: Style convention hints
+  type: string
+- name: worldbuilding.content
+  desc: Structured worldbuilding context
+  type: object
 id: planning-main-plot-option
 sort_order: 23

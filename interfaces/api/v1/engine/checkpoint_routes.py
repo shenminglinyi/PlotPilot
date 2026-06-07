@@ -503,41 +503,44 @@ async def update_story_phase(novel_id: str, body: StoryPhaseDTO):
 # ─── Character Psyche Endpoints ──────────────────────────────────
 
 def _get_bible_characters(novel_id: str) -> List[Dict[str, Any]]:
-    """从 bible_characters 表直接读取角色数据（始终可靠的主数据源）"""
+    """读取统一角色真源，并投影为心理画像面板需要的基础字段。"""
     try:
-        from interfaces.api.dependencies import get_database
-        db = get_database()
-        with db.get_connection() as conn:
-            rows = conn.execute(
-                """
-                SELECT id, name, description, mental_state, verbal_tic, idle_behavior,
-                       mental_state_reason, public_profile, hidden_profile, reveal_chapter,
-                       core_belief, moral_taboos_json, voice_profile_json, active_wounds_json
-                FROM bible_characters WHERE novel_id = ? ORDER BY name
-                """,
-                (novel_id,),
-            ).fetchall()
-            import json as _json
-            out: List[Dict[str, Any]] = []
-            for r in rows:
-                d = dict(r)
-                for jk, dk, empty in (
-                    ("moral_taboos_json", "moral_taboos", []),
-                    ("voice_profile_json", "voice_profile", {}),
-                    ("active_wounds_json", "active_wounds", []),
-                ):
-                    raw_j = d.pop(jk, None)
-                    try:
-                        parsed = json.loads(raw_j) if raw_j else empty
-                        if not isinstance(parsed, type(empty)):
-                            parsed = empty
-                        d[dk] = parsed
-                    except Exception:
-                        d[dk] = empty
-                out.append(d)
-            return out
+        from interfaces.api.dependencies import get_unified_character_repository
+
+        out: List[Dict[str, Any]] = []
+        for char in get_unified_character_repository().list_by_novel(novel_id):
+            voice_profile: Dict[str, Any] = {}
+            voice_style = getattr(char, "voice_style", "") or ""
+            if voice_style:
+                voice_profile["style"] = voice_style
+            sentence_pattern = getattr(char, "sentence_pattern", "") or ""
+            if sentence_pattern:
+                voice_profile["sentence_pattern"] = sentence_pattern
+            speech_tempo = getattr(char, "speech_tempo", "") or ""
+            if speech_tempo:
+                voice_profile["speech_tempo"] = speech_tempo
+            out.append(
+                {
+                    "id": getattr(getattr(char, "id", None), "value", None) or str(getattr(char, "id", "")),
+                    "name": getattr(char, "name", ""),
+                    "description": getattr(char, "description", "") or getattr(char, "public_profile", ""),
+                    "mental_state": getattr(char, "mental_state", "") or "",
+                    "verbal_tic": getattr(char, "verbal_tic", "") or "",
+                    "idle_behavior": getattr(char, "idle_behavior", "") or "",
+                    "mental_state_reason": getattr(char, "mental_state_reason", "") or "",
+                    "public_profile": getattr(char, "public_profile", "") or "",
+                    "hidden_profile": getattr(char, "hidden_profile", "") or "",
+                    "reveal_chapter": getattr(char, "reveal_chapter", None),
+                    "role": getattr(char, "role", "") or "",
+                    "core_belief": getattr(char, "core_belief", "") or "",
+                    "moral_taboos": list(getattr(char, "moral_taboos", []) or []),
+                    "voice_profile": voice_profile,
+                    "active_wounds": list(getattr(char, "active_wounds", []) or []),
+                }
+            )
+        return out
     except Exception as e:
-        logger.debug("读取 bible_characters 失败: %s", e)
+        logger.debug("读取 unified_characters 失败: %s", e)
         return []
 
 
@@ -547,10 +550,20 @@ def _merge_character_from_extract(base: Any, data: Dict[str, Any]) -> tuple[Any,
 
     applied: List[str] = []
 
+    def _text_field(key: str, current: str, limit: int) -> str:
+        value = (data.get(key) or "").strip()
+        if not value:
+            return current
+        applied.append(key)
+        return value[:limit]
+
     d_core = (data.get("core_belief") or "").strip()
     core_belief = d_core[:2000] if d_core else base.core_belief
     if d_core:
         applied.append("core_belief")
+
+    core_motivation = _text_field("core_motivation", base.core_motivation, 1200)
+    inner_lack = _text_field("inner_lack", base.inner_lack, 1200)
 
     moral_taboos = list(base.moral_taboos)
     d_taboo = data.get("moral_taboos")
@@ -627,6 +640,8 @@ def _merge_character_from_extract(base: Any, data: Dict[str, Any]) -> tuple[Any,
     merged = replace(
         base,
         core_belief=core_belief,
+        core_motivation=core_motivation,
+        inner_lack=inner_lack,
         moral_taboos=moral_taboos,
         voice_profile=voice_profile,
         active_wounds=active_wounds,
@@ -644,6 +659,10 @@ def _merge_character_from_extract(base: Any, data: Dict[str, Any]) -> tuple[Any,
 def _character_needs_gaps_fill(char: Any) -> bool:
     """gaps 模式：缺核心信念、或缺声线风格、或缺口癖/小动作、或缺禁忌/创伤之一即补。"""
     cb = (getattr(char, "core_belief", None) or "").strip()
+    cm = (getattr(char, "core_motivation", None) or "").strip()
+    il = (getattr(char, "inner_lack", None) or "").strip()
+    if not cm or not il:
+        return True
     vp = getattr(char, "voice_profile", None) or {}
     style = ""
     if isinstance(vp, dict):
@@ -671,6 +690,16 @@ def _build_heuristic_seed_dict(target: Any) -> Dict[str, Any]:
     out: Dict[str, Any] = {}
     if not desc:
         return out
+
+    if not (getattr(target, "core_motivation", None) or "").strip():
+        motivation = _extract_core_motivation(desc)
+        if motivation:
+            out["core_motivation"] = motivation[:1200]
+
+    if not (getattr(target, "inner_lack", None) or "").strip():
+        lack = _extract_inner_lack(desc)
+        if lack:
+            out["inner_lack"] = lack[:1200]
 
     if not (getattr(target, "core_belief", None) or "").strip():
         cb = _extract_core_belief(desc, [])
@@ -779,6 +808,43 @@ def _extract_core_belief(description: str, relationships: list) -> str:
         m = re.search(pat, description)
         if m:
             return m.group(0).strip()
+    return ""
+
+
+def _extract_core_motivation(description: str) -> str:
+    """从简介推断表层目标/核心驱动力。"""
+    if not description:
+        return ""
+    import re
+
+    patterns = [
+        r'(?:为了|为的是|试图|想要|渴望|必须|立志|誓要)([^，。！？；\n]{2,40})',
+        r'(?:以[^，。！？；\n]{1,20}为[^，。！？；\n]{1,20})([^，。！？；\n]{2,40})',
+        r'(?:专杀|追查|守护|寻找|夺回|阻止|打破|复仇|证明)([^，。！？；\n]{2,40})',
+    ]
+    for pat in patterns:
+        m = re.search(pat, description)
+        if m:
+            return m.group(0).strip()
+    return ""
+
+
+def _extract_inner_lack(description: str) -> str:
+    """从反噬/创伤/执念句推断深层缺口。"""
+    if not description:
+        return ""
+    import re
+
+    patterns = [
+        r'(?:却被|反被)([^，。！？；\n]{2,40})(?:反噬|困住|吞噬|束缚|拖入)',
+        r'(?:身负|背负|困于|受制于)([^，。！？；\n]{2,40})',
+        r'(?:害怕|恐惧|无法|不敢|拒绝)([^，。！？；\n]{2,40})',
+    ]
+    for pat in patterns:
+        m = re.search(pat, description)
+        text = m.group(0).strip() if m else ""
+        if text:
+            return f"需要面对并修正：{text}"
     return ""
 
 

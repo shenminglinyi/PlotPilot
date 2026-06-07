@@ -1,0 +1,16 @@
+name: 章节后置叙事同步
+category: extraction
+source: application/engine/dag/nodes/validation_nodes.py::NarrativeNode
+description: 从已生成正文提取摘要、事件、三元组和因果边
+builtin: true
+tags:
+- DAG
+- 叙事同步
+output_format: json
+variables:
+- name: content
+  desc: 章节正文
+  type: string
+  required: true
+id: chapter-aftermath
+sort_order: 108

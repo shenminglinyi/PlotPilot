@@ -10,16 +10,23 @@
 - 降级友好：共享内存无数据时返回空/默认值
 - 零阻塞：永不进行同步 DB 操作
 """
+import json
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 from application.engine.services.shared_state_repository import (
     SharedStateRepository,
     NovelState,
     ChapterSummary,
     get_shared_state_repository,
+)
+from application.ai_invocation.autopilot.review_gate import (
+    INVOCATION_FAILED_STATUSES,
+    PENDING_INVOCATION_STATUSES,
+    review_gate_from_status,
+    stage_needs_human_review,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,7 +50,141 @@ _RUNTIME_STATUS_KEYS: tuple[str, ...] = (
     "outline_plan_mode",
     "current_act_title",
     "current_act_description",
+    # StoryPipeline 十步管线可观测性
+    "story_pipeline_wave_index",
+    "story_pipeline_wave_total",
+    "story_pipeline_wave_id",
+    "story_pipeline_wave_label",
+    "story_pipeline_wave_entered_at",
+    "story_pipeline_events",
+    "active_invocation_session_id",
+    "active_invocation_operation",
+    "active_invocation_node_key",
+    "active_invocation_status",
+    "active_invocation_policy",
+    "has_active_invocation",
+    "requires_ai_review",
+    "autopilot_pause_reason",
+    "autopilot_pending_chapter_number",
+    "autopilot_pending_chapter_plan",
+    "autopilot_pending_macro_plan",
+    "autopilot_pending_macro_target_chapters",
+    "autopilot_pending_act_plan_id",
+    "autopilot_pending_act_chapters",
+    "macro_structure_ready",
+    "last_autopilot_invocation_payload",
 )
+
+
+def _json_contains_novel_id(raw: Any, novel_id: str) -> bool:
+    try:
+        payload = json.loads(str(raw or "{}"))
+    except Exception:
+        return False
+
+    def walk(value: Any) -> bool:
+        if isinstance(value, Mapping):
+            if str(value.get("novel_id") or "") == novel_id:
+                return True
+            return any(walk(child) for child in value.values())
+        if isinstance(value, list):
+            return any(walk(child) for child in value)
+        return False
+
+    return walk(payload)
+
+
+def _hydrate_pending_invocation_from_db(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Recover an active autopilot invocation when shared runtime fields were lost.
+
+    The daemon publishes active_invocation_* through shared memory, but those
+    fields can be cleared by restarts or start/stop races while the durable
+    ai_invocation_sessions row is still awaiting user/system action. Without
+    this recovery, /status can only say "waiting" and the frontend has no
+    session id to open or auto-advance.
+    """
+    if str(payload.get("active_invocation_session_id") or "").strip():
+        return payload
+    if isinstance(payload.get("autopilot_pending_macro_plan"), dict) or payload.get("macro_structure_ready") is True:
+        return payload
+    if str(payload.get("autopilot_status") or "").strip().lower() in {"stopped", "completed"}:
+        return payload
+
+    novel_id = str(payload.get("novel_id") or "").strip()
+    if not novel_id:
+        return payload
+
+    stage = str(payload.get("current_stage") or "").strip().lower()
+    substep = str(payload.get("writing_substep") or "").strip().lower()
+    if stage not in {"planning", "macro_planning", "act_planning", "paused_for_review", "reviewing"} and not substep:
+        return payload
+
+    try:
+        from application.paths import get_db_path
+        from infrastructure.persistence.database.connection import get_database
+
+        statuses = tuple(sorted(PENDING_INVOCATION_STATUSES))
+        placeholders = ",".join("?" for _ in statuses)
+        rows = get_database(get_db_path()).fetch_all(
+            f"""
+            SELECT id, operation, node_key, policy, status, context_json, metadata_json
+              FROM ai_invocation_sessions
+             WHERE operation LIKE 'autopilot.%'
+               AND status IN ({placeholders})
+             ORDER BY updated_at DESC, created_at DESC
+             LIMIT 25
+            """,
+            statuses,
+        )
+        row = next(
+            (
+                candidate
+                for candidate in rows
+                if _json_contains_novel_id(candidate.get("context_json"), novel_id)
+                or _json_contains_novel_id(candidate.get("metadata_json"), novel_id)
+            ),
+            None,
+        )
+    except Exception as exc:
+        logger.debug("恢复待处理 AI invocation 失败 novel=%s: %s", novel_id, exc)
+        return payload
+
+    if not row:
+        return payload
+
+    status_value = str(row["status"] or "")
+    operation = str(row["operation"] or "")
+    payload["active_invocation_session_id"] = row["id"]
+    payload["active_invocation_operation"] = operation
+    payload["active_invocation_node_key"] = row["node_key"] or ""
+    payload["active_invocation_status"] = status_value
+    payload["active_invocation_policy"] = row["policy"] or ""
+    payload["has_active_invocation"] = True
+    payload["requires_ai_review"] = True
+    payload["autopilot_pause_reason"] = (
+        "ai_invocation_retry_required"
+        if status_value in INVOCATION_FAILED_STATUSES
+        else "awaiting_ai_review"
+    )
+    if operation == "autopilot.macro.plan":
+        payload.setdefault("writing_substep", "macro_planning")
+        payload.setdefault("writing_substep_label", "宏观规划 · AI 请求面板")
+        payload["macro_structure_ready"] = False
+    elif operation == "autopilot.act.plan":
+        payload.setdefault("writing_substep", "act_planning")
+        payload.setdefault("writing_substep_label", "幕级规划 · AI 请求面板")
+    return payload
+
+
+def _augment_review_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
+    payload = _hydrate_pending_invocation_from_db(payload)
+    payload["needs_review"] = stage_needs_human_review(payload.get("current_stage"))
+    gate = review_gate_from_status(payload)
+    if gate:
+        payload["review_gate"] = gate
+    else:
+        payload.pop("review_gate", None)
+    return payload
 
 
 def _merge_runtime_fields_from_raw(
@@ -66,7 +207,7 @@ def _merge_runtime_fields_from_raw(
             pass
     if raw.get("last_chapter_audit") is not None:
         payload["last_chapter_audit"] = raw.get("last_chapter_audit")
-    return payload
+    return _augment_review_fields(payload)
 
 
 @dataclass
@@ -168,7 +309,7 @@ class WorkbenchContextResponse:
 class QueryService:
     """查询服务 - API 层的唯一查询入口
 
-    🔥 核心原则：所有查询都从共享内存读取，永不阻塞事件循环
+    核心原则：所有查询都从共享内存读取，永不阻塞事件循环
     """
 
     def __init__(self, shared_state: Optional[SharedStateRepository] = None):
@@ -188,7 +329,7 @@ class QueryService:
             # 尝试获取原始数据（兼容旧格式）
             raw_data = self._shared.get_raw_state(novel_id)
             if raw_data is None:
-                # 🔥 降级：从数据库加载
+                # 降级：从数据库加载
                 logger.debug(f"共享内存中没有小说 {novel_id} 的数据，尝试从数据库加载")
                 return self._fallback_from_db(novel_id)
             # 直接从原始数据构建响应
@@ -230,7 +371,7 @@ class QueryService:
             manuscript_chapters=completed_chapters,
             progress_pct_manuscript=round(progress_pct, 1),
             current_chapter_number=current_chapter_number,
-            needs_review=state.needs_review,
+            needs_review=stage_needs_human_review(state.current_stage),
             auto_approve_mode=state.auto_approve_mode,
             last_chapter_audit=None,  # 需要单独存储
             audit_progress=None,
@@ -276,7 +417,7 @@ class QueryService:
             manuscript_chapters=completed_chapters,
             progress_pct_manuscript=round(progress_pct, 1),
             current_chapter_number=current_chapter_number,
-            needs_review=raw_data.get("needs_review", False),
+            needs_review=stage_needs_human_review(raw_data.get("current_stage", "writing")),
             auto_approve_mode=raw_data.get("auto_approve_mode", False),
             last_chapter_audit=None,
             audit_progress=raw_data.get("audit_progress"),
@@ -286,7 +427,7 @@ class QueryService:
         )
 
     def _fallback_from_db(self, novel_id: str) -> Optional[NovelStatusResponse]:
-        """🔥 降级：从数据库加载小说状态
+        """降级：从数据库加载小说状态
 
         当共享内存没有数据时（如新创建的小说未同步到共享内存），
         从数据库直接读取并返回状态。
@@ -420,7 +561,7 @@ class QueryService:
         foreshadows = self._shared.get_foreshadows(novel_id)
         chapters = self._shared.get_chapters(novel_id)
 
-        # 🔥 如果共享内存中没有数据，降级到数据库查询
+        # 如果共享内存中没有数据，降级到数据库查询
         if not storylines and not chapters:
             logger.debug(f"共享内存中没有小说 {novel_id} 的工作台数据，从数据库加载")
             return self._fallback_workbench_from_db(novel_id)
@@ -448,7 +589,7 @@ class QueryService:
         )
 
     def _fallback_workbench_from_db(self, novel_id: str) -> WorkbenchContextResponse:
-        """🔥 降级：从数据库加载工作台上下文"""
+        """降级：从数据库加载工作台上下文"""
         from datetime import datetime, timezone
         from application.engine.services.state_bootstrap import StateBootstrap
 

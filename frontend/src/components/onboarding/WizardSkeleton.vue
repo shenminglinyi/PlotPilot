@@ -132,19 +132,24 @@ const dimensions = [
   padding: 12px 16px;
   border-radius: 8px;
   margin-bottom: 8px;
-  background: var(--n-color-modal);
-  border: 1px solid var(--n-border-color);
-  transition: all 0.3s ease;
+  background: var(--app-surface, var(--n-color-modal));
+  border: 1px solid var(--app-border, var(--n-border-color));
+  transition: border-color 0.3s ease, background 0.3s ease, box-shadow 0.3s ease;
 }
 
 .skeleton-dimension--done {
-  border-color: #18a05840;
-  background: #18a05808;
+  border-color: color-mix(in srgb, var(--color-success, #22c55e) 34%, var(--app-border, transparent));
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--color-success, #22c55e) 7%, transparent), transparent 48%),
+    var(--app-surface, var(--n-color-modal));
 }
 
 .skeleton-dimension--active {
-  border-color: #2080f040;
-  background: #2080f006;
+  border-color: color-mix(in srgb, var(--color-brand, #2563eb) 42%, var(--app-border, transparent));
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--color-brand, #2563eb) 9%, transparent), transparent 52%),
+    var(--app-surface, var(--n-color-modal));
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--color-brand, #2563eb) 8%, transparent);
 }
 
 .skeleton-dimension__header {
@@ -156,6 +161,7 @@ const dimensions = [
 .skeleton-dimension__title {
   font-weight: 500;
   font-size: 14px;
+  color: var(--app-text-primary, var(--n-text-color-1));
   flex: 1;
 }
 
@@ -174,7 +180,7 @@ const dimensions = [
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  border: 2px solid #ddd;
+  border: 2px solid var(--app-border-strong, var(--n-border-color));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -183,13 +189,13 @@ const dimensions = [
 }
 
 .skeleton-dot--active {
-  border-color: #2080f0;
-  background: #2080f020;
+  border-color: var(--color-brand, var(--n-primary-color));
+  background: var(--color-brand-light, rgba(37, 99, 235, 0.08));
 }
 
 .skeleton-dot--done {
-  border-color: #18a058;
-  background: #18a058;
+  border-color: var(--color-success, var(--n-success-color));
+  background: var(--color-success, var(--n-success-color));
 }
 
 .skeleton-dot__check {
@@ -202,7 +208,7 @@ const dimensions = [
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #2080f0;
+  background: var(--color-brand, var(--n-primary-color));
   animation: pulse-glow 1.2s ease-in-out infinite;
 }
 

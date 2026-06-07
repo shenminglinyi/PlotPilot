@@ -13,7 +13,7 @@
       <n-space class="header-actions" :size="8" align="center" :wrap="false">
         <n-radio-group v-model:value="viewMode" size="small" class="view-switcher">
           <n-radio-button value="list">列表</n-radio-button>
-          <n-radio-button value="graph">Git Graph</n-radio-button>
+          <n-radio-button value="graph">分支图</n-radio-button>
         </n-radio-group>
         <n-button
           class="panel-header-btn"
@@ -37,7 +37,7 @@
       </n-space>
     </header>
 
-    <!-- Git Graph 视图 -->
+    <!-- 分支图视图 -->
     <div v-if="viewMode === 'graph'" class="panel-graph">
       <StorylineGitGraph :slug="slug" :current-chapter="currentChapterNumber" />
     </div>
@@ -168,6 +168,16 @@ import { useMessage, useDialog } from 'naive-ui'
 import { workflowApi } from '../../api/workflow'
 import type { StorylineDTO } from '../../api/workflow'
 import { useWorkbenchRefreshStore } from '../../stores/workbenchRefreshStore'
+import { formatApiError } from '../../utils/apiError'
+import {
+  DEFAULT_STORYLINE_TYPE,
+  STORYLINE_TYPE_OPTIONS,
+  getStorylineStatusLabel,
+  getStorylineStatusTagType,
+  getStorylineTypeLabel,
+  getStorylineTypeTagType,
+  isMainStoryline,
+} from '../../domain/storyline'
 import StorylineGitGraph from './StorylineGitGraph.vue'
 
 interface Props {
@@ -189,14 +199,20 @@ const storylines = ref<StorylineDTO[]>([])
 
 // 自动寻找主线作为默认展开项
 const mainPlotId = computed(() => {
-  const main = storylines.value.find(s => s.storyline_type === 'main_plot')
+  const main = storylines.value.find(isMainStoryline)
   return main ? main.id : storylines.value[0]?.id || ''
 })
 const showCreateModal = ref(false)
 const editingStoryline = ref<StorylineDTO | null>(null)
 
-const formData = ref({
-  storyline_type: 'main_plot',
+interface StorylineFormData {
+  storyline_type: string
+  estimated_chapter_start: number
+  estimated_chapter_end: number
+}
+
+const formData = ref<StorylineFormData>({
+  storyline_type: DEFAULT_STORYLINE_TYPE,
   estimated_chapter_start: 1,
   estimated_chapter_end: 10
 })
@@ -207,58 +223,18 @@ const formRules = {
   estimated_chapter_end: { required: true, type: 'number', message: '请输入结束章节', trigger: 'blur' }
 }
 
-const typeOptions = [
-  { label: '主线', value: 'main_plot' },
-  { label: '爱情线', value: 'romance' },
-  { label: '复仇线', value: 'revenge' },
-  { label: '悬疑线', value: 'mystery' },
-  { label: '成长线', value: 'growth' },
-  { label: '政治线', value: 'political' },
-  { label: '冒险线', value: 'adventure' },
-  { label: '家庭线', value: 'family' },
-  { label: '友情线', value: 'friendship' }
-]
-
-const getTypeLabel = (type: string) => {
-  const option = typeOptions.find(o => o.value === type)
-  return option?.label || type
-}
-
-const getTypeColor = (type: string) => {
-  const colors: Record<string, any> = {
-    main_plot: 'primary',
-    romance: 'error',
-    revenge: 'warning',
-    mystery: 'info',
-    growth: 'success'
-  }
-  return colors[type] || 'default'
-}
-
-const getStatusLabel = (status: string) => {
-  const labels: Record<string, string> = {
-    active: '进行中',
-    completed: '已完成',
-    abandoned: '已废弃'
-  }
-  return labels[status] || status
-}
-
-const getStatusColor = (status: string) => {
-  const colors: Record<string, any> = {
-    active: 'success',
-    completed: 'info',
-    abandoned: 'default'
-  }
-  return colors[status] || 'default'
-}
+const typeOptions = STORYLINE_TYPE_OPTIONS
+const getTypeLabel = getStorylineTypeLabel
+const getTypeColor = getStorylineTypeTagType
+const getStatusLabel = getStorylineStatusLabel
+const getStatusColor = getStorylineStatusTagType
 
 const loadStorylines = async () => {
   loading.value = true
   try {
     storylines.value = await workflowApi.getStorylines(props.slug)
-  } catch (error: any) {
-    message.error(error?.response?.data?.detail || '加载故事线失败')
+  } catch (error: unknown) {
+    message.error(formatApiError(error, '加载故事线失败'))
   } finally {
     loading.value = false
   }
@@ -266,7 +242,7 @@ const loadStorylines = async () => {
 
 const openCreate = () => {
   editingStoryline.value = null
-  formData.value = { storyline_type: 'main_plot', estimated_chapter_start: 1, estimated_chapter_end: 10 }
+  formData.value = { storyline_type: DEFAULT_STORYLINE_TYPE, estimated_chapter_start: 1, estimated_chapter_end: 10 }
   showCreateModal.value = true
 }
 
@@ -287,8 +263,8 @@ const handleSubmit = async () => {
     }
     showCreateModal.value = false
     await loadStorylines()
-  } catch (error: any) {
-    message.error(error?.response?.data?.detail || (editingStoryline.value ? '更新失败' : '创建失败'))
+  } catch (error: unknown) {
+    message.error(formatApiError(error, editingStoryline.value ? '更新失败' : '创建失败'))
   } finally {
     saving.value = false
   }
@@ -315,8 +291,8 @@ const deleteStoryline = (id: string) => {
         await workflowApi.deleteStoryline(props.slug, id)
         message.success('已删除')
         await loadStorylines()
-      } catch (error: any) {
-        message.error(error?.response?.data?.detail || '删除失败')
+      } catch (error: unknown) {
+        message.error(formatApiError(error, '删除失败'))
       }
     },
   })

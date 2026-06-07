@@ -157,6 +157,18 @@ export interface PromptNode {
 export interface PromptNodeDetail extends PromptNode {
   system: string
   user_template: string
+  dag_bindings?: Array<{
+    node_id: string
+    node_type: string
+    label: string
+    display_name: string
+    prompt_mode: string
+  }>
+  dag_registry_bindings?: Array<{
+    node_type: string
+    display_name: string
+    prompt_mode: string
+  }>
 }
 
 /** 版本信息 */

@@ -222,6 +222,7 @@ import DOMPurify from 'dompurify'
 import { chapterApi } from '../api/chapter'
 import { knowledgeGraphApi, type InferenceFactBundle } from '../api/knowledgeGraph'
 import { useStatsStore } from '../stores/statsStore'
+import { formatApiError } from '../utils/apiError'
 
 // Status mapping: old API (pending/ok/revise) <-> new API (draft/reviewed/approved)
 const statusToNew = (oldStatus: string): string => {
@@ -432,8 +433,8 @@ const runAiReview = async (save: boolean) => {
     reviewStatus.value = statusToOld(r.status)
     reviewMemo.value = r.memo
     message.success(save ? '已写入审定意见' : '已填入审读意见')
-  } catch (e: any) {
-    message.error(e?.response?.data?.detail || '生成失败')
+  } catch (e: unknown) {
+    message.error(formatApiError(e, '生成失败'))
   } finally {
     savingAiReview.value = false
   }
@@ -571,8 +572,8 @@ const revokeOneInference = (tripleId: string) => {
         await knowledgeGraphApi.revokeInferredTriple(slug, tripleId)
         message.success('已撤销')
         await loadInferenceEvidence()
-      } catch (err: any) {
-        message.error(err?.response?.data?.detail || '撤销失败')
+      } catch (err: unknown) {
+        message.error(formatApiError(err, '撤销失败'))
       } finally {
         revokingId.value = null
       }
@@ -591,8 +592,8 @@ const revokeAllInference = async () => {
       `已处理：删除 ${r.data.deleted_inferred_facts} 条推断三元组（涉及 ${r.data.removed_provenance_triples} 条证据关联）`
     )
     await loadInferenceEvidence()
-  } catch (err: any) {
-    message.error(err?.response?.data?.detail || '撤销失败')
+  } catch (err: unknown) {
+    message.error(formatApiError(err, '撤销失败'))
   } finally {
     revokeAllLoading.value = false
   }

@@ -173,7 +173,7 @@ async def dag_event_stream(novel_id: str = Query(..., description="小说 ID")):
 
     async def event_generator():
         try:
-            from interfaces.main import get_shared_novel_state
+            from interfaces.runtime_state import get_shared_novel_state
 
             # 发送初始连接确认
             yield f"event: connected\ndata: {json.dumps({'novel_id': novel_id, 'timestamp': time.time()})}\n\n"
@@ -297,7 +297,7 @@ async def toggle_node(novel_id: str, node_id: str):
 @router.get("/{novel_id}/status")
 async def get_dag_status(novel_id: str):
     """获取运行状态（含所有节点状态）— 由全托管共享状态投影，与 DAG 定义节点 id 对齐。"""
-    from interfaces.main import get_shared_novel_state
+    from interfaces.runtime_state import get_shared_novel_state
 
     dag = _get_dag_for_novel(novel_id)
     shared = get_shared_novel_state(novel_id)

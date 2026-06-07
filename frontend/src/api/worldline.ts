@@ -10,6 +10,21 @@ export interface CheckpointNode {
   branch_name: string
   created_at: string
   anchor_chapter: number | null
+  world_slice?: {
+    chapter_number?: number
+    time_anchor?: string
+    location?: string
+    emotional_residue?: string
+    characters?: Array<{ id: string; name: string; status: string; location?: string }>
+    items?: Array<{ id: string; name: string; holder?: string }>
+    actions_count?: number
+    conflicts_count?: number
+  }
+  rollback_slice?: {
+    to_checkpoint_id: string
+    to_chapter: number | null
+    branch_name: string
+  }
 }
 
 export interface BranchInfo {
@@ -22,7 +37,7 @@ export interface BranchInfo {
 
 export interface WorldlineGraph {
   nodes: CheckpointNode[]
-  edges: { from: string; to: string }[]
+  edges: { from: string; to: string; kind?: string }[]
   branches: BranchInfo[]
   head_id: string | null
 }
@@ -87,4 +102,14 @@ export const worldlineApi = {
       `/novels/${novelId}/worldline/branches/${branchId}`,
       body,
     ) as unknown as Promise<BranchInfo>,
+
+  mergeBranch: (
+    novelId: string,
+    branchId: string,
+    body: { target_branch_name?: string; name?: string; description?: string },
+  ) =>
+    apiClient.post<{ checkpoint_id: string; message: string }>(
+      `/novels/${novelId}/worldline/branches/${branchId}/merge`,
+      body,
+    ) as unknown as Promise<{ checkpoint_id: string; message: string }>,
 }

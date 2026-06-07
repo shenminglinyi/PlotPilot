@@ -23,8 +23,6 @@ from __future__ import annotations
 # ── Bible ────────────────────────────────────────────────────────────────
 BIBLE_ALL = "bible-all"
 BIBLE_WORLDBUILDING = "bible-worldbuilding"
-BIBLE_WORLDBUILDING_DIMENSION = "bible-worldbuilding-dimension"
-BIBLE_WORLDBUILDING_FIELD = "bible-worldbuilding-field"
 BIBLE_CHARACTERS = "bible-characters"
 BIBLE_LOCATIONS = "bible-locations"
 BIBLE_STYLE_CONVENTION = "bible-style-convention"
@@ -32,6 +30,7 @@ BIBLE_STYLE_CONVENTION = "bible-style-convention"
 # ── Chapter generation ───────────────────────────────────────────────────
 CHAPTER_GENERATION_MAIN = "chapter-generation-main"
 CHAPTER_GENERATION_BASIC = "chapter-generation-basic"
+CHAPTER_PROSE_GENERATION = "chapter-prose-generation"
 CHAPTER_NARRATIVE_SYNC = "chapter-narrative-sync"
 CHAPTER_STATE_EXTRACTION = "chapter-state-extraction"
 CHAPTER_SUMMARIZER = "chapter-summarizer"
@@ -43,6 +42,10 @@ CHAPTER_BRIDGE_FIX = "chapter-bridge-fix"
 SCENE_GENERATION = "scene-generation"
 SCENE_DIRECTOR = "scene-director"
 BEAT_SHEET_DECOMPOSITION = "beat-sheet-decomposition"
+
+# ── Script / Prose (两阶段生成) ──────────────────────────────────────────
+SCRIPT_GENERATION = "script-generation"
+PROSE_FROM_SCRIPT = "prose-from-script"
 
 # ── Dialogue ─────────────────────────────────────────────────────────────
 DIALOGUE_GENERATION = "dialogue-generation"
@@ -56,21 +59,31 @@ REVIEW_TIMELINE_CONSISTENCY = "review-timeline-consistency"
 REVIEW_STORYLINE_CONSISTENCY = "review-storyline-consistency"
 REVIEW_FORESHADOWING_USAGE = "review-foreshadowing-usage"
 REVIEW_IMPROVEMENT_SUGGESTIONS = "review-improvement-suggestions"
+CHAPTER_AI_REVIEW = "chapter-ai-review"
+CLICHE_SCAN = "cliche-scan"
 
 # ── Memory ───────────────────────────────────────────────────────────────
 MEMORY_EXTRACTION = "memory-extraction"
+EMOTION_LEDGER_EXTRACTION = "emotion-ledger-extraction"
 
 # ── Planning ─────────────────────────────────────────────────────────────
+MACRO_PLANNING = "macro-planning"
 PLANNING_QUICK_MACRO = "planning-quick-macro"
+PLANNING_PRECISE_MACRO = "planning-precise-macro"
+PLANNING_PRECISE_VOLUME = "planning-precise-volume"
+PLANNING_PRECISE_REPAIR = "planning-precise-repair"
 PLANNING_ACT = "planning-act"
-PLANNING_MAIN_PLOT_SUGGEST = "planning-main-plot-suggest"
+PLANNING_CHAPTER_PREPLAN = "planning-chapter-preplan"
+CONTINUOUS_PLANNING_NEXT_ACT = "continuous-planning-next-act"
 OUTLINE_BEAT_PARTITION = "outline-beat-partition"
+BEAT_COT_BRIDGE = "beat-cot-bridge"
 
 # ── Style / Voice ────────────────────────────────────────────────────────
 STYLE_ANALYSIS = "style-analysis"
 VOICE_STYLE_ANALYSIS = "voice-style-analysis"
 VOICE_BASELINE_ANALYSIS = "voice-baseline-analysis"
 VOICE_REWRITE = "voice-rewrite"
+VOICE_DRIFT = "voice-drift"
 
 # ── Tension ──────────────────────────────────────────────────────────────
 TENSION_SCORING = "tension-scoring"
@@ -84,6 +97,19 @@ SUMMARY_PART = "summary-part"
 
 # ── Knowledge ────────────────────────────────────────────────────────────
 KNOWLEDGE_INITIAL = "knowledge-initial"
+KG_INFERENCE = "kg-inference"
+
+# ── DAG context / gateways ───────────────────────────────────────────────
+CONTEXT_BLUEPRINT = "context-blueprint"
+CONTEXT_FORESHADOW = "context-foreshadow"
+CONTEXT_MEMORY = "context-memory"
+CONTEXT_DEBT = "context-debt"
+FORESHADOW_CHECK = "foreshadow-check"
+CHAPTER_AFTERMATH = "chapter-aftermath"
+CIRCUIT_BREAKER = "circuit-breaker"
+REVIEW_GATEWAY = "review-gateway"
+CONDITION_GATEWAY = "condition-gateway"
+RETRY_GATEWAY = "retry-gateway"
 
 # ── Anti-AI defense ──────────────────────────────────────────────────────
 ANTI_AI_BEHAVIOR_PROTOCOL = "anti-ai-behavior-protocol"
@@ -96,12 +122,11 @@ ANTI_AI_MID_GENERATION_REFRESH = "anti-ai-mid-generation-refresh"
 # ── Autopilot / Workflow ─────────────────────────────────────────────────
 WORKFLOW_CHAPTER_GENERATION = "workflow-chapter-generation"
 AUTOPILOT_STREAM_BEAT = "autopilot-stream-beat"
-AUTOPILOT_INFO_DENSITY_SUPPLEMENT = "autopilot-info-density-supplement"
 BEAT_FOCUS_INSTRUCTIONS = "beat-focus-instructions"
 LIFECYCLE_PHASE_DIRECTIVES = "lifecycle-phase-directives"
-REFACTOR_PROPOSAL = "refactor-proposal"
 REFACTOR_PROPOSAL_MACRO = "refactor-proposal-macro"
 PLANNING_MAIN_PLOT_OPTION = "planning-main-plot-option"
+PLANNING_PLOT_OUTLINE = "planning-plot-outline"
 
 # ── Theme ────────────────────────────────────────────────────────────────
 # Theme keys follow pattern: theme-{genre}-{method}
@@ -117,13 +142,15 @@ PLANNING_MAIN_PLOT_OPTION = "planning-main-plot-option"
 ALL_KEYS: frozenset[str] = frozenset({
     # Bible
     BIBLE_ALL, BIBLE_WORLDBUILDING, BIBLE_CHARACTERS, BIBLE_LOCATIONS,
-    BIBLE_STYLE_CONVENTION, BIBLE_WORLDBUILDING_DIMENSION, BIBLE_WORLDBUILDING_FIELD,
+    BIBLE_STYLE_CONVENTION,
     # Chapter
-    CHAPTER_GENERATION_MAIN, CHAPTER_GENERATION_BASIC,
+    CHAPTER_GENERATION_MAIN, CHAPTER_GENERATION_BASIC, CHAPTER_PROSE_GENERATION,
     CHAPTER_NARRATIVE_SYNC, CHAPTER_STATE_EXTRACTION, CHAPTER_SUMMARIZER,
     CHAPTER_BRIDGE_EXTRACT, CHAPTER_BRIDGE_CHECK, CHAPTER_BRIDGE_FIX,
     # Scene
     SCENE_GENERATION, SCENE_DIRECTOR, BEAT_SHEET_DECOMPOSITION,
+    # Script / Prose
+    SCRIPT_GENERATION, PROSE_FROM_SCRIPT,
     # Dialogue
     DIALOGUE_GENERATION,
     # Prop
@@ -131,30 +158,36 @@ ALL_KEYS: frozenset[str] = frozenset({
     # Review
     REVIEW_CHARACTER_CONSISTENCY, REVIEW_TIMELINE_CONSISTENCY,
     REVIEW_STORYLINE_CONSISTENCY, REVIEW_FORESHADOWING_USAGE,
-    REVIEW_IMPROVEMENT_SUGGESTIONS,
+    REVIEW_IMPROVEMENT_SUGGESTIONS, CHAPTER_AI_REVIEW, CLICHE_SCAN,
     # Memory
-    MEMORY_EXTRACTION,
+    MEMORY_EXTRACTION, EMOTION_LEDGER_EXTRACTION,
     # Planning
-    PLANNING_QUICK_MACRO, PLANNING_ACT, PLANNING_MAIN_PLOT_SUGGEST,
-    OUTLINE_BEAT_PARTITION,
+    MACRO_PLANNING, PLANNING_QUICK_MACRO, PLANNING_PRECISE_MACRO,
+    PLANNING_PRECISE_VOLUME, PLANNING_PRECISE_REPAIR, PLANNING_ACT,
+    PLANNING_CHAPTER_PREPLAN, CONTINUOUS_PLANNING_NEXT_ACT,
+    OUTLINE_BEAT_PARTITION, BEAT_COT_BRIDGE,
     # Style
     STYLE_ANALYSIS, VOICE_STYLE_ANALYSIS, VOICE_BASELINE_ANALYSIS,
-    VOICE_REWRITE,
+    VOICE_REWRITE, VOICE_DRIFT,
     # Tension
     TENSION_SCORING, TENSION_ANALYSIS_DIAGNOSIS,
     # Summary
     SUMMARY_CHECKPOINT, SUMMARY_ACT, SUMMARY_VOLUME, SUMMARY_PART,
     # Knowledge
-    KNOWLEDGE_INITIAL,
+    KNOWLEDGE_INITIAL, KG_INFERENCE,
+    # DAG context / gateways
+    CONTEXT_BLUEPRINT, CONTEXT_FORESHADOW, CONTEXT_MEMORY, CONTEXT_DEBT,
+    FORESHADOW_CHECK, CHAPTER_AFTERMATH, CIRCUIT_BREAKER, REVIEW_GATEWAY,
+    CONDITION_GATEWAY, RETRY_GATEWAY,
     # Anti-AI
     ANTI_AI_BEHAVIOR_PROTOCOL, ANTI_AI_ALLOWLIST_EXPLAIN,
     ANTI_AI_CHAPTER_AUDIT, ANTI_AI_CHARACTER_STATE_LOCK,
     ANTI_AI_FINALE_ENHANCEMENT, ANTI_AI_MID_GENERATION_REFRESH,
     # Autopilot / Workflow
     WORKFLOW_CHAPTER_GENERATION, AUTOPILOT_STREAM_BEAT,
-    AUTOPILOT_INFO_DENSITY_SUPPLEMENT, BEAT_FOCUS_INSTRUCTIONS,
-    LIFECYCLE_PHASE_DIRECTIVES, REFACTOR_PROPOSAL,
+    BEAT_FOCUS_INSTRUCTIONS, LIFECYCLE_PHASE_DIRECTIVES,
     REFACTOR_PROPOSAL_MACRO, PLANNING_MAIN_PLOT_OPTION,
+    PLANNING_PLOT_OUTLINE,
 })
 
 

@@ -1,11 +1,7 @@
-"""Tests for narrative state replay pure function."""
-
-import pytest
 from domain.novel.services.narrative_state_replay import replay_entity_state
 
 
 def test_replay_add_and_remove():
-    """Test that add action overwrites attributes and remove action deletes them."""
     base = {"魔法": "水系"}
     events = [
         {"mutations": [{"attribute": "魔法", "action": "add", "value": "火系"}]},
@@ -16,40 +12,36 @@ def test_replay_add_and_remove():
             ]
         },
     ]
+
     state = replay_entity_state(base, events)
+
     assert state["魔法"] == "火系"
     assert "临时" not in state
 
 
-def test_replay_empty_events():
-    """Test that empty events list returns a copy of base attributes."""
+def test_replay_empty_events_returns_copy():
     base = {"魔法": "水系", "等级": "5"}
-    events = []
-    state = replay_entity_state(base, events)
 
-    # Should return a copy with same content
+    state = replay_entity_state(base, [])
+
     assert state == base
-    # Should be a different object (not mutating original)
     assert state is not base
 
 
-def test_replay_unknown_action():
-    """Test that unknown actions are ignored (with debug logging)."""
+def test_replay_unknown_action_is_ignored():
     base = {"魔法": "水系"}
     events = [
         {"mutations": [{"attribute": "魔法", "action": "unknown", "value": "火系"}]},
         {"mutations": [{"attribute": "等级", "action": "add", "value": "10"}]},
     ]
+
     state = replay_entity_state(base, events)
 
-    # Unknown action should be ignored, base value preserved
     assert state["魔法"] == "水系"
-    # Valid add action should work
     assert state["等级"] == "10"
 
 
 def test_replay_multiple_mutations_in_single_event():
-    """Test that multiple mutations in a single event are applied in order."""
     base = {"a": "1"}
     events = [
         {
@@ -60,6 +52,7 @@ def test_replay_multiple_mutations_in_single_event():
             ]
         }
     ]
+
     state = replay_entity_state(base, events)
 
     assert "a" not in state
@@ -68,19 +61,17 @@ def test_replay_multiple_mutations_in_single_event():
 
 
 def test_replay_remove_nonexistent_attribute():
-    """Test that removing a non-existent attribute doesn't cause errors."""
     base = {"魔法": "水系"}
     events = [
         {"mutations": [{"attribute": "不存在", "action": "remove", "value": ""}]}
     ]
+
     state = replay_entity_state(base, events)
 
-    # Should not raise error, base preserved
     assert state == base
 
 
 def test_replay_preserves_base_immutability():
-    """Test that the base dictionary is not modified during replay."""
     base = {"魔法": "水系"}
     original_base = base.copy()
     events = [
@@ -89,7 +80,75 @@ def test_replay_preserves_base_immutability():
 
     state = replay_entity_state(base, events)
 
-    # Base should remain unchanged
     assert base == original_base
-    # State should have the mutation applied
     assert state["魔法"] == "火系"
+
+
+def test_replay_filters_entity_scoped_mutations():
+    state = replay_entity_state(
+        {"status": "old"},
+        [
+            {
+                "mutations": [
+                    {
+                        "entity_id": "prop-1",
+                        "attribute": "status",
+                        "action": "add",
+                        "value": "active",
+                    },
+                    {
+                        "entity_id": "prop-2",
+                        "attribute": "status",
+                        "action": "add",
+                        "value": "lost",
+                    },
+                ]
+            }
+        ],
+        target_entity_id="prop-1",
+    )
+
+    assert state["status"] == "active"
+
+
+def test_replay_appends_list_mutations():
+    state = replay_entity_state(
+        {"related_props": [{"prop_id": "old"}]},
+        [
+            {
+                "mutations": [
+                    {
+                        "entity_id": "char-1",
+                        "attribute": "related_props",
+                        "action": "append",
+                        "value": {"prop_id": "prop-1"},
+                    }
+                ]
+            }
+        ],
+        target_entity_id="char-1",
+    )
+
+    assert state["related_props"] == [{"prop_id": "old"}, {"prop_id": "prop-1"}]
+
+
+def test_replay_append_unique_is_idempotent():
+    value = {"prop_id": "prop-1", "relation": "used"}
+    state = replay_entity_state(
+        {"related_props": [value]},
+        [
+            {
+                "mutations": [
+                    {
+                        "entity_id": "char-1",
+                        "attribute": "related_props",
+                        "action": "append_unique",
+                        "value": value,
+                    }
+                ]
+            }
+        ],
+        target_entity_id="char-1",
+    )
+
+    assert state["related_props"] == [value]

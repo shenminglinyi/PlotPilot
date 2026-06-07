@@ -24,6 +24,13 @@ class CharacterDTO:
     name: str
     description: str
     relationships: List[Any]
+    gender: str = ""
+    age: str = ""
+    appearance: str = ""
+    personality: str = ""
+    background: str = ""
+    core_motivation: str = ""
+    inner_lack: str = ""
     public_profile: str = ""
     hidden_profile: str = ""
     reveal_chapter: Optional[int] = None
@@ -56,6 +63,13 @@ class CharacterDTO:
             name=character.name,
             description=character.description,
             relationships=character.relationships.copy(),
+            gender=getattr(character, 'gender', ''),
+            age=getattr(character, 'age', ''),
+            appearance=getattr(character, 'appearance', ''),
+            personality=getattr(character, 'personality', ''),
+            background=getattr(character, 'background', ''),
+            core_motivation=getattr(character, 'core_motivation', ''),
+            inner_lack=getattr(character, 'inner_lack', ''),
             public_profile=getattr(character, 'public_profile', ''),
             hidden_profile=getattr(character, 'hidden_profile', ''),
             reveal_chapter=getattr(character, 'reveal_chapter', None),
@@ -184,6 +198,7 @@ class BibleDTO:
     locations: List[LocationDTO]
     timeline_notes: List[TimelineNoteDTO]
     style_notes: List[StyleNoteDTO]
+    style: str = ""
 
     @classmethod
     def from_domain(cls, bible: 'Bible') -> 'BibleDTO':
@@ -202,5 +217,10 @@ class BibleDTO:
             world_settings=[WorldSettingDTO.from_domain(s) for s in bible.world_settings],
             locations=[LocationDTO.from_domain(loc) for loc in bible.locations],
             timeline_notes=[TimelineNoteDTO.from_domain(n) for n in bible.timeline_notes],
-            style_notes=[StyleNoteDTO.from_domain(n) for n in bible.style_notes]
+            style_notes=[StyleNoteDTO.from_domain(n) for n in bible.style_notes],
+            style="\n\n".join(
+                str(getattr(note, "content", "") or "").strip()
+                for note in bible.style_notes
+                if str(getattr(note, "content", "") or "").strip()
+            ),
         )

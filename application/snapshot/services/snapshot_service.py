@@ -9,7 +9,9 @@ import json
 import uuid
 import logging
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
+
+from application.world.services.bible_snapshot_state import collect_bible_snapshot_state
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +65,8 @@ class SnapshotService:
         chapters = self.chapter_repository.list_by_novel(NovelId(novel_id))
         chapter_pointers = [c.id for c in chapters if c.status.value == "completed"]
 
-        # 2. 序列化 Bible 状态（简化版：只记录存在性）
-        bible_state = {"exists": True, "timestamp": datetime.utcnow().isoformat()}
+        # 2. 采集 Bible 结构化状态；只记录 Bible 元数据和结构化条目，不深拷贝章节正文。
+        bible_state = collect_bible_snapshot_state(self.db, novel_id)
 
         # 3. 序列化伏笔状态
         foreshadow_state = {}
@@ -118,7 +120,7 @@ class SnapshotService:
             engine_active_foreshadows,
             engine_outline,
             engine_recent_summary,
-            datetime.utcnow().isoformat()
+            datetime.now(timezone.utc).isoformat()
         ))
         self.db.get_connection().commit()
 
@@ -200,6 +202,63 @@ class SnapshotService:
         snapshot["recent_chapters_summary"] = snapshot.get("recent_chapters_summary", "")
 
         return snapshot
+
+    def delete_snapshot(self, snapshot_id: str, novel_id: Optional[str] = None) -> bool:
+        """删除快照，并把子快照重新挂到被删快照的父节点上。
+
+        快照只保存章节指针，不拥有章节正文；删除快照不应删除任何章节。
+        当被删除快照存在子节点时，显式重挂子节点，避免依赖不同 SQLite
+        测试库/旧库是否正确启用外键约束。
+
+        Args:
+            snapshot_id: 快照 ID
+            novel_id: 可选作品 ID，用于防止跨作品删除
+
+        Returns:
+            快照存在并已删除返回 True；快照不存在返回 False
+
+        Raises:
+            ValueError: 快照存在但不属于指定作品
+        """
+        from infrastructure.persistence.database.write_dispatch import (
+            sqlite_writes_bypass_queue,
+        )
+
+        with sqlite_writes_bypass_queue():
+            with self.db.transaction() as conn:
+                row = conn.execute(
+                    """
+                    SELECT id, novel_id, parent_snapshot_id, name
+                    FROM novel_snapshots
+                    WHERE id = ?
+                    """,
+                    (snapshot_id,),
+                ).fetchone()
+                if row is None:
+                    return False
+
+                snapshot = dict(row)
+                if novel_id is not None and snapshot.get("novel_id") != novel_id:
+                    raise ValueError("快照不属于该作品")
+
+                parent_snapshot_id = snapshot.get("parent_snapshot_id")
+                conn.execute(
+                    """
+                    UPDATE novel_snapshots
+                    SET parent_snapshot_id = ?
+                    WHERE parent_snapshot_id = ?
+                    """,
+                    (parent_snapshot_id, snapshot_id),
+                )
+                cursor = conn.execute(
+                    "DELETE FROM novel_snapshots WHERE id = ?",
+                    (snapshot_id,),
+                )
+
+        deleted = getattr(cursor, "rowcount", 0) > 0
+        if deleted:
+            logger.info("[Snapshot] 删除快照：%s", snapshot.get("name"))
+        return deleted
 
     def rollback_to_snapshot(self, novel_id: str, snapshot_id: str) -> Dict[str, Any]:
         """回滚到快照：删除当前作品中不在快照 chapter_pointers 内的章节行，并恢复引擎状态。

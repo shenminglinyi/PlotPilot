@@ -110,7 +110,7 @@ class PersistenceQueue:
         """初始化队列（在主进程调用）"""
         if self._queue is None:
             self._queue = mp.Queue()
-            logger.info("✅ 持久化队列已初始化")
+            logger.info("持久化队列已初始化")
         return self._queue
 
     def get_queue(self) -> Optional[mp.Queue]:
@@ -120,7 +120,7 @@ class PersistenceQueue:
     def inject_queue(self, queue: mp.Queue) -> None:
         """注入队列（守护进程启动时调用）"""
         self._queue = queue
-        logger.info("✅ 持久化队列已注入")
+        logger.info("持久化队列已注入")
 
     def register_handler(self, command_type: str, handler: Callable) -> None:
         """注册命令处理器"""
@@ -174,7 +174,7 @@ class PersistenceQueue:
             daemon=True,
         )
         self._consumer_thread.start()
-        logger.info("✅ 持久化消费者线程已启动")
+        logger.info("持久化消费者线程已启动")
 
     def stop_consumer(self) -> None:
         """停止消费者线程"""
@@ -184,7 +184,7 @@ class PersistenceQueue:
         if self._consumer_thread:
             self._consumer_thread.join(timeout=5)
         clear_sqlite_writer_thread()
-        logger.info("🛑 持久化消费者线程已停止")
+        logger.info("持久化消费者线程已停止")
 
     def _consume_loop(self) -> None:
         """消费者主循环（运行在 API 进程）"""
@@ -551,7 +551,7 @@ def register_persistence_handlers() -> None:
             novel_id = payload.get("novel_id")
 
             # 更新小说状态字段
-            # 🔥 needs_review 是计算字段（由 current_stage == paused_for_review 推导），
+            # needs_review 是计算字段（由 current_stage == paused_for_review 推导），
             # novels 表无此列，不能写入 DB，否则会导致 "no such column: needs_review" 错误
             fields = {
                 "autopilot_status": payload.get("autopilot_status"),
@@ -673,7 +673,7 @@ def register_persistence_handlers() -> None:
     pq.register_handler(PersistenceCommandType.UPDATE_CHAPTER_WORD_COUNT.value, handle_update_chapter_word_count)
     pq.register_handler(PersistenceCommandType.UPDATE_FORESHADOWS.value, handle_update_foreshadows)
 
-    # 🔥 故事线更新处理器（守护进程通过持久化队列写入，避免长连接锁竞争）
+    # 故事线更新处理器（守护进程通过持久化队列写入，避免长连接锁竞争）
     def handle_update_storylines(payload: Dict) -> None:
         """处理故事线更新"""
         try:
@@ -729,7 +729,7 @@ def register_persistence_handlers() -> None:
     pq.register_handler(PersistenceCommandType.UPDATE_STORYLINES.value, handle_update_storylines)
 
     logger.info(
-        "✅ 持久化处理器已注册: execute_sql, txn_batch, delete_chapter, upsert_chapter, "
+        "持久化处理器已注册: execute_sql, txn_batch, delete_chapter, upsert_chapter, "
         "update_chapter_tension, patch_novel, update_novel_state, update_chapter_status, "
         "update_foreshadows, update_storylines"
     )

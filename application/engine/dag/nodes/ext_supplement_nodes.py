@@ -23,6 +23,15 @@ from application.engine.dag.models import (
     PromptMode,
 )
 from application.engine.dag.registry import BaseNode, NodeRegistry
+from infrastructure.ai.prompt_keys import (
+    CHAPTER_NARRATIVE_SYNC,
+    CHAPTER_STATE_EXTRACTION,
+    STYLE_ANALYSIS,
+    SUMMARY_ACT,
+    SUMMARY_CHECKPOINT,
+    SUMMARY_PART,
+    SUMMARY_VOLUME,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,9 +45,9 @@ class StateExtractionNode(BaseNode):
 
     meta = NodeMeta(
         node_type="ext_state",
-        display_name="🔬 状态提取",
+        display_name="状态提取",
         category=NodeCategory.VALIDATION,
-        icon="🔬",
+        icon="",
         color="#0891b2",
         input_ports=[
             NodePort(name="content", data_type=PortDataType.TEXT, required=True),
@@ -46,12 +55,11 @@ class StateExtractionNode(BaseNode):
         output_ports=[
             NodePort(name="state_json", data_type=PortDataType.JSON),
         ],
-        prompt_template="",
         prompt_variables=["content"],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=60,
-        cpms_node_key="chapter-state-extraction",  # prompt_keys: CHAPTER_STATE_EXTRACTION
+        cpms_node_key=CHAPTER_STATE_EXTRACTION,
         prompt_mode=PromptMode.CPMS_FIRST,
         description="9维度结构化状态提取：人物、关系、伏笔、事件、时间线、故事线",
         default_edges=["val_narrative"],
@@ -114,9 +122,9 @@ class StyleAnalysisNode(BaseNode):
 
     meta = NodeMeta(
         node_type="ext_style",
-        display_name="🎨 文风指纹",
+        display_name="文风指纹",
         category=NodeCategory.VALIDATION,
-        icon="🎨",
+        icon="",
         color="#0e7490",
         input_ports=[
             NodePort(name="content", data_type=PortDataType.TEXT, required=True),
@@ -124,12 +132,11 @@ class StyleAnalysisNode(BaseNode):
         output_ports=[
             NodePort(name="style_fingerprint", data_type=PortDataType.JSON),
         ],
-        prompt_template="",
         prompt_variables=["content"],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=60,
-        cpms_node_key="style-analysis",
+        cpms_node_key=STYLE_ANALYSIS,
         prompt_mode=PromptMode.CPMS_FIRST,
         description="8维度文风指纹提取：叙事视角、台词比、描写深度、情绪浓度、节奏、感官、修辞、句式",
         default_edges=["val_style"],
@@ -192,9 +199,9 @@ class NarrativeSyncExtractionNode(BaseNode):
 
     meta = NodeMeta(
         node_type="ext_narrative_sync",
-        display_name="🔄 叙事同步提取",
+        display_name="叙事同步提取",
         category=NodeCategory.VALIDATION,
-        icon="🔄",
+        icon="",
         color="#155e75",
         input_ports=[
             NodePort(name="content", data_type=PortDataType.TEXT, required=True),
@@ -203,12 +210,11 @@ class NarrativeSyncExtractionNode(BaseNode):
         output_ports=[
             NodePort(name="sync_json", data_type=PortDataType.JSON),
         ],
-        prompt_template="",
         prompt_variables=["content", "foreshadow_context"],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=60,
-        cpms_node_key="chapter-narrative-sync",  # prompt_keys: CHAPTER_NARRATIVE_SYNC
+        cpms_node_key=CHAPTER_NARRATIVE_SYNC,
         prompt_mode=PromptMode.CPMS_FIRST,
         description="增强版叙事提取：为后续大纲修正提供精准的'状态机'快照",
         default_edges=["val_foreshadow"],
@@ -274,9 +280,9 @@ class SummaryNode(BaseNode):
 
     meta = NodeMeta(
         node_type="ext_summary",
-        display_name="📋 摘要生成",
+        display_name="摘要生成",
         category=NodeCategory.VALIDATION,
-        icon="📋",
+        icon="",
         color="#164e63",
         input_ports=[
             NodePort(name="content", data_type=PortDataType.TEXT, required=True),
@@ -285,12 +291,11 @@ class SummaryNode(BaseNode):
         output_ports=[
             NodePort(name="summary_text", data_type=PortDataType.TEXT),
         ],
-        prompt_template="",
         prompt_variables=["content", "summary_type"],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=60,
-        cpms_node_key="summary-checkpoint",
+        cpms_node_key=SUMMARY_CHECKPOINT,
         prompt_mode=PromptMode.CPMS_FIRST,
         description="多粒度摘要生成：checkpoint/act/part/volume",
         default_edges=["ctx_memory"],
@@ -307,14 +312,14 @@ class SummaryNode(BaseNode):
 
             # 根据 summary_type 选择 CPMS node_key
             cpms_key_map = {
-                "checkpoint": "summary-checkpoint",
-                "act": "summary-act",
-                "part": "summary-part",
-                "volume": "summary-volume",
+                "checkpoint": SUMMARY_CHECKPOINT,
+                "act": SUMMARY_ACT,
+                "part": SUMMARY_PART,
+                "volume": SUMMARY_VOLUME,
             }
             original_key = self.meta.cpms_node_key
             # 动态覆盖 cpms_node_key
-            target_key = cpms_key_map.get(summary_type, "summary-checkpoint")
+            target_key = cpms_key_map.get(summary_type, SUMMARY_CHECKPOINT)
             self.meta.cpms_node_key = target_key
 
             try:

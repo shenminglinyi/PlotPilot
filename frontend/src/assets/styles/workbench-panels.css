@@ -1,0 +1,418 @@
+/* ═══════════════════════════════════════════════════════
+   PlotPilot Workbench Panel 统一原子样式
+   所有右侧 Tab 面板共享这套原子类，确保视觉一致性。
+   ═══════════════════════════════════════════════════════ */
+
+/* ─── Panel anatomy ─────────────────────────────────── */
+
+.pp-panel {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--plotpilot-panel-muted);
+}
+
+.pp-panel-header {
+  flex-shrink: 0;
+  padding: 10px 14px;
+  background: var(--app-surface);
+  border-bottom: 1px solid var(--plotpilot-split-border);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.pp-panel-header-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.pp-panel-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--app-text-primary);
+  line-height: 1.3;
+}
+
+.pp-panel-lead {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: var(--app-text-muted);
+  line-height: 1.6;
+}
+
+.pp-panel-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pp-panel-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 14px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--app-border) transparent;
+}
+
+.pp-panel-content::-webkit-scrollbar {
+  width: 4px;
+}
+.pp-panel-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+.pp-panel-content::-webkit-scrollbar-thumb {
+  background: var(--app-border);
+  border-radius: 2px;
+}
+
+.pp-panel-footer {
+  flex-shrink: 0;
+  padding: 9px 14px;
+  border-top: 1px solid var(--plotpilot-split-border);
+  background: var(--app-surface);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.pp-panel-footer-note {
+  font-size: 11px;
+  color: var(--app-text-muted);
+  line-height: 1.4;
+}
+
+/* ─── Section block ──────────────────────────────────── */
+
+.pp-section {
+  border-radius: var(--app-radius-md, 10px);
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  overflow: hidden;
+}
+
+.pp-section + .pp-section {
+  margin-top: 8px;
+}
+
+.pp-section-header {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--app-border);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+}
+
+.pp-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--app-text-muted);
+  flex: 1;
+  min-width: 0;
+}
+
+.pp-section-body {
+  padding: 10px 12px;
+}
+
+/* ─── KV row ─────────────────────────────────────────── */
+
+.pp-kv {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.55;
+  align-items: flex-start;
+}
+
+.pp-kv + .pp-kv {
+  margin-top: 5px;
+}
+
+.pp-kv-key {
+  flex-shrink: 0;
+  width: 56px;
+  color: var(--app-text-muted);
+  font-weight: 600;
+  font-size: 11px;
+  padding-top: 1px;
+}
+
+.pp-kv-val {
+  flex: 1;
+  min-width: 0;
+  color: var(--app-text-secondary);
+  word-break: break-all;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ─── Status chips ───────────────────────────────────── */
+
+.pp-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.pp-chip--success {
+  background: var(--color-success-dim, rgba(34, 197, 94, 0.12));
+  color: var(--color-success, #22c55e);
+}
+
+.pp-chip--warning {
+  background: var(--color-warning-dim, rgba(245, 158, 11, 0.12));
+  color: var(--color-warning, #f59e0b);
+}
+
+.pp-chip--danger {
+  background: var(--color-danger-dim, rgba(239, 68, 68, 0.12));
+  color: var(--color-danger, #ef4444);
+}
+
+.pp-chip--muted {
+  background: var(--app-border);
+  color: var(--app-text-muted);
+}
+
+.pp-chip--brand {
+  background: var(--color-brand-light, rgba(37, 99, 235, 0.08));
+  color: var(--color-brand, #2563eb);
+}
+
+.pp-chip--gold {
+  background: var(--color-gold-dim, rgba(212, 168, 83, 0.15));
+  color: var(--color-gold, #d4a853);
+}
+
+/* ─── Info bar ───────────────────────────────────────── */
+
+.pp-info-bar {
+  padding: 7px 11px;
+  border-radius: 7px;
+  background: var(--color-brand-light, rgba(37, 99, 235, 0.08));
+  border: 1px solid var(--color-brand-border, rgba(37, 99, 235, 0.18));
+  font-size: 11px;
+  color: var(--color-brand, #2563eb);
+  line-height: 1.55;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ─── Empty state ────────────────────────────────────── */
+
+.pp-empty {
+  padding: 28px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.pp-empty-icon {
+  font-size: 28px;
+  opacity: 0.55;
+  line-height: 1;
+}
+
+.pp-empty-text {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  line-height: 1.55;
+}
+
+/* ─── Left accent bar ────────────────────────────────── */
+/* 用法：<div class="pp-accent-bar" style="--pp-accent-color: var(--color-danger)"> */
+
+.pp-accent-bar {
+  position: relative;
+  padding-left: 10px;
+}
+
+.pp-accent-bar::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--pp-accent-color, var(--app-border));
+}
+
+/* ─── Avatar circle ──────────────────────────────────── */
+
+.pp-avatar {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--pp-avatar-bg, var(--color-brand));
+  letter-spacing: 0;
+  line-height: 1;
+  user-select: none;
+}
+
+/* ─── Jump link ──────────────────────────────────────── */
+
+.pp-jump {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--color-brand, #2563eb);
+  cursor: pointer;
+  opacity: 0.75;
+  transition: opacity 0.15s;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.pp-jump:hover {
+  opacity: 1;
+}
+
+/* ─── Stat strip (above/below header) ───────────────── */
+
+.pp-stat-strip {
+  flex-shrink: 0;
+  padding: 6px 14px;
+  background: var(--app-surface);
+  border-bottom: 1px solid var(--plotpilot-split-border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ─── Filter chips strip ─────────────────────────────── */
+
+.pp-filter-strip {
+  flex-shrink: 0;
+  padding: 6px 14px;
+  background: var(--app-surface-subtle);
+  border-bottom: 1px solid var(--plotpilot-split-border);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.pp-filter-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.pp-filter-btn {
+  flex-shrink: 0;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--app-border);
+  background: transparent;
+  color: var(--app-text-muted);
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.pp-filter-btn:hover {
+  background: var(--app-border);
+  color: var(--app-text-secondary);
+}
+
+.pp-filter-btn--active {
+  background: var(--color-brand-light);
+  color: var(--color-brand);
+  border-color: var(--color-brand-border);
+}
+
+/* ─── Progress bar strip ─────────────────────────────── */
+
+.pp-progress-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 5px;
+}
+
+.pp-progress-label {
+  font-size: 11px;
+  color: var(--app-text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ─── Tag cloud ──────────────────────────────────────── */
+
+.pp-tag-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+}
+
+/* ─── Vertical card list ─────────────────────────────── */
+
+.pp-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+/* ─── Colored icon badge (WorldbuildingPanel section headers, etc.) ── */
+/* Usage: <div class="wb-icon-badge" style="background:#6366f1"><n-icon size="14">...</n-icon></div> */
+
+.wb-icon-badge {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+}
+
+/* ─── Horizontal scroll rail ─────────────────────────── */
+
+.pp-rail {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 2px 0 4px;
+}
+
+.pp-rail::-webkit-scrollbar {
+  display: none;
+}

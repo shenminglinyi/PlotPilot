@@ -75,7 +75,7 @@
             <div class="toggle-row">
               <div class="toggle-label">
                 <span class="toggle-name">阶段模式</span>
-                <span class="toggle-hint">开启后以「阶段」替代「章」展示进度，同时关闭智能截断</span>
+                <span class="toggle-hint">开启后以「阶段」替代「章」展示进度</span>
               </div>
               <n-switch
                 :value="phaseDisplay"
@@ -202,11 +202,7 @@ async function onPhaseDisplaySwitch(phaseOn: boolean) {
   if (!slug) return
   patching.value = 'phase_display_mode'
   try {
-    if (phaseOn) {
-      await mergePrefs({ phase_display_mode: true, smart_truncate_enabled: false })
-    } else {
-      await mergePrefs({ phase_display_mode: false })
-    }
+    await mergePrefs({ phase_display_mode: phaseOn })
     message.success('已保存')
   } catch (e) {
     message.error(e instanceof Error ? e.message : '保存失败')

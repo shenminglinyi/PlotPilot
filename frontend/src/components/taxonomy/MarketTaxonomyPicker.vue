@@ -60,9 +60,23 @@
         </template>
       </div>
 
-      <div class="mtp-track" v-if="activeMajor.facets?.market_track">
-        <span class="mtp-mini-label">赛道</span>
-        <span class="mtp-track-txt">{{ activeMajor.facets.market_track }}</span>
+      <div class="mtp-classify-strip">
+        <div class="mtp-classify-item">
+          <span class="mtp-mini-label">市场大类</span>
+          <strong>{{ activeMajorLabel }}</strong>
+        </div>
+        <div class="mtp-classify-item">
+          <span class="mtp-mini-label">细分主题</span>
+          <strong>{{ activeThemeLabel || '未选择' }}</strong>
+        </div>
+        <div class="mtp-classify-item mtp-classify-item--wide">
+          <span class="mtp-mini-label">赛道属性</span>
+          <strong>{{ activeMarketTrack || '未配置' }}</strong>
+        </div>
+        <div class="mtp-classify-item">
+          <span class="mtp-mini-label">引擎大类</span>
+          <strong>{{ themeAgentKeyDisplay || 'theme:other' }}</strong>
+        </div>
       </div>
 
       <div class="mtp-section-head mtp-mt">
@@ -79,18 +93,33 @@
       />
 
       <div class="mtp-section-head mtp-mt">
-        <span class="mtp-k">④ 类型字符串（建档字段）</span>
+        <span class="mtp-k">④ 写作原则</span>
+        <span class="mtp-hint">四个大类均按当前主题独立生成，可修改</span>
       </div>
-      <n-input :value="genre" readonly :disabled="disabled" placeholder="例：玄幻 / 东方玄幻">
-        <template #suffix>
-          <n-tooltip v-if="themeAgentTooltip" placement="top-end">
-            <template #trigger>
-              <span class="mtp-engine-hint">{{ themeAgentKeyDisplay }}</span>
-            </template>
-            {{ themeAgentTooltip }}
-          </n-tooltip>
-        </template>
-      </n-input>
+      <div class="mtp-writing-grid">
+        <div
+          v-for="item in writingPrincipleCards"
+          :key="item.key"
+          class="mtp-principle-card"
+        >
+          <div class="mtp-principle-head">
+            <span class="mtp-principle-index">{{ item.index }}</span>
+            <div class="mtp-principle-title">
+              <strong>{{ item.title }}</strong>
+              <span>{{ item.scope }}</span>
+            </div>
+          </div>
+          <p class="mtp-principle-note">{{ item.note }}</p>
+          <n-input
+            type="textarea"
+            :autosize="{ minRows: 8, maxRows: 18 }"
+            v-model:value="item.model.value"
+            :disabled="disabled"
+            :placeholder="item.title"
+            class="mtp-world-input mtp-principle-input"
+          />
+        </div>
+      </div>
     </div>
     <div v-else-if="filteredMajors.length === 0" class="mtp-empty-search">
       <span>没有找到匹配的分类，换一个关键词试试</span>
@@ -106,6 +135,7 @@ import {
   marketMajorThemeGenre,
   worldToneForSelection,
   themeAgentKeyForSelection,
+  writingProfileForSelection,
   BUILTIN_CN_MARKET_V1,
 } from '@/domain/taxonomy/cnMarket'
 import { pickLocaleLabel } from '@/domain/taxonomy/types'
@@ -133,6 +163,10 @@ const props = withDefaults(
 
 const genre = defineModel<string>('genre', { default: '' })
 const worldPreset = defineModel<string>('worldPreset', { default: '' })
+const storyStructure = defineModel<string>('storyStructure', { default: '' })
+const pacingControl = defineModel<string>('pacingControl', { default: '' })
+const writingStyle = defineModel<string>('writingStyle', { default: '' })
+const specialRequirements = defineModel<string>('specialRequirements', { default: '' })
 
 const roots = BUILTIN_CN_MARKET_V1.roots
 const rootsCount = computed(() => roots.length)
@@ -163,6 +197,61 @@ const activeMajor = computed(() => {
   if (!id) return undefined
   return roots.find((r) => r.id === id)
 })
+
+const activeTheme = computed(() => {
+  const major = activeMajor.value
+  const id = pickedThemeId.value
+  if (!major || !id) return undefined
+  return major.children?.find((c) => c.id === id)
+})
+
+const activeMajorLabel = computed(() => {
+  return activeMajor.value ? pickLocaleLabel(activeMajor.value, props.locale) : ''
+})
+
+const activeThemeLabel = computed(() => {
+  return activeTheme.value ? pickLocaleLabel(activeTheme.value, props.locale) : ''
+})
+
+const activeMarketTrack = computed(() => {
+  const raw = activeMajor.value?.facets?.market_track
+  return typeof raw === 'string' ? raw : ''
+})
+
+const writingPrincipleCards = computed(() => [
+  {
+    key: 'story_structure',
+    index: '01',
+    title: '剧情结构',
+    scope: `${activeMajorLabel.value || '大类'} / ${activeThemeLabel.value || '主题'} 的开篇、发展、高潮、结尾`,
+    note: '沿用四段框架，但切入点、推进对象、高潮落点和续作伏笔必须落到主题主句。',
+    model: storyStructure,
+  },
+  {
+    key: 'pacing_control',
+    index: '02',
+    title: '节奏把控',
+    scope: `${activeMarketTrack.value || '赛道'} 的小 / 中 / 大爽点排布`,
+    note: '不按固定字数阈值切分，按具体压力、选择、可见回报和新增代价安排触发点。',
+    model: pacingControl,
+  },
+  {
+    key: 'writing_style',
+    index: '03',
+    title: '写作风格',
+    scope: `${activeThemeLabel.value || '主题'} 的叙事、环境描写、人物对话`,
+    note: '分别约束叙事推进、场景质感和角色声口，避免只套用大类通用语气。',
+    model: writingStyle,
+  },
+  {
+    key: 'special_requirements',
+    index: '04',
+    title: '特殊要求',
+    scope: `${activeMajorLabel.value || '大类'} / ${activeThemeLabel.value || '主题'} 的专属创作细则`,
+    note: '围绕大类、主题主句和赛道约束定制禁忌与要求，避免只复述分类名。',
+    model: specialRequirements,
+  },
+])
 
 watch(filteredMajors, (list) => {
   if (!pickedMajorId.value) return
@@ -205,13 +294,23 @@ function pickMajor(root: TaxonomyNode) {
   pickedThemeId.value = first?.id ?? null
 
   genre.value = first ? marketMajorThemeGenre(root, first, props.locale) : ''
-  worldPreset.value = worldToneForSelection(root)
+  worldPreset.value = worldToneForSelection(root, first)
+  applyWritingProfile(root, first)
 }
 
 function pickTheme(root: TaxonomyNode, leaf: TaxonomyNode) {
   pickedThemeId.value = leaf.id
   genre.value = marketMajorThemeGenre(root, leaf, props.locale)
-  worldPreset.value = worldToneForSelection(root)
+  worldPreset.value = worldToneForSelection(root, leaf)
+  applyWritingProfile(root, leaf)
+}
+
+function applyWritingProfile(root: TaxonomyNode, leaf: TaxonomyNode | undefined) {
+  const profile = writingProfileForSelection(root, leaf)
+  storyStructure.value = profile.story_structure?.trim() || ''
+  pacingControl.value = profile.pacing_control?.trim() || ''
+  writingStyle.value = profile.writing_style?.trim() || ''
+  specialRequirements.value = profile.special_requirements?.trim() || ''
 }
 
 const themeAgentKeyDisplay = computed(() => {
@@ -219,11 +318,6 @@ const themeAgentKeyDisplay = computed(() => {
   if (!r || !pickedThemeId.value) return ''
   const k = themeAgentKeyForSelection(r)
   return k ? `theme:${k}` : ''
-})
-
-const themeAgentTooltip = computed(() => {
-  const k = themeAgentKeyDisplay.value
-  return k ? '供后台 Theme Agent 匹配的体裁路由键（与引擎注册表对应）' : ''
 })
 
 </script>
@@ -292,32 +386,104 @@ const themeAgentTooltip = computed(() => {
   border-radius: 999px !important;
   font-weight: 600 !important;
 }
-.mtp-track {
-  font-size: 12px;
-  line-height: 1.55;
-  color: var(--app-text-secondary);
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: var(--app-surface-subtle);
-  border-left: 3px solid rgba(139, 92, 246, 0.6);
-}
 .mtp-mini-label {
-  display: inline-block;
-  margin-right: 8px;
+  display: block;
+  margin-bottom: 3px;
   font-size: 11px;
   font-weight: 700;
   color: var(--app-text-muted);
 }
-.mtp-track-txt {
-  display: inline;
+.mtp-classify-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+.mtp-classify-item {
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--app-surface-subtle);
+  border: 1px solid var(--app-border);
+}
+.mtp-classify-item--wide {
+  grid-column: span 2;
+}
+.mtp-classify-item strong {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--app-text-primary);
 }
 .mtp-world-input :deep(textarea) {
-  font-size: 13px;
+  font-size: 14px;
+  line-height: 1.75;
+  white-space: pre-wrap;
 }
-.mtp-engine-hint {
+.mtp-writing-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.mtp-principle-input :deep(textarea) {
+  padding: 14px 16px;
+}
+.mtp-principle-card {
+  min-width: 0;
+  padding: 12px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.025);
+  border: 1px solid var(--app-border);
+}
+.mtp-principle-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-bottom: 7px;
+}
+.mtp-principle-index {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 22px;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-size: 11px;
+  font-weight: 800;
+  color: #2563eb;
+  background: rgba(37, 99, 235, 0.09);
+  border: 1px solid rgba(37, 99, 235, 0.16);
+}
+.mtp-principle-title {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.mtp-principle-title strong {
+  font-size: 13px;
+  color: var(--app-text-primary);
+}
+.mtp-principle-title span,
+.mtp-principle-note {
+  font-size: 11px;
+  line-height: 1.45;
   color: var(--app-text-muted);
-  font-family: ui-monospace, monospace;
+}
+.mtp-principle-note {
+  margin: 0 0 9px;
+}
+@media (max-width: 900px) {
+  .mtp-classify-strip,
+  .mtp-writing-grid {
+    grid-template-columns: 1fr;
+  }
+  .mtp-classify-item--wide {
+    grid-column: auto;
+  }
 }
 .mtp-empty-search {
   text-align: center;

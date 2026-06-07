@@ -158,11 +158,11 @@ class MetricsCollector:
 
             # 记录日志
             if severity == "error":
-                logger.error(f"🚨 告警: {message} | {name}={value:.2f} > {threshold}")
+                logger.error(f"告警: {message} | {name}={value:.2f} > {threshold}")
             elif severity == "warning":
-                logger.warning(f"⚠️  告警: {message} | {name}={value:.2f} > {threshold}")
+                logger.warning(f"告警: {message} | {name}={value:.2f} > {threshold}")
             else:
-                logger.info(f"ℹ️  告警: {message} | {name}={value:.2f} > {threshold}")
+                logger.info(f"告警: {message} | {name}={value:.2f} > {threshold}")
 
             # 调用告警处理器
             for handler in self._alert_handlers:

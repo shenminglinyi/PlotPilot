@@ -31,6 +31,7 @@ class KnowledgeTriple(BaseEntity):
         subject_entity_id: Optional[str] = None,
         object_entity_id: Optional[str] = None,
         provenance: Optional[List[Dict[str, Any]]] = None,
+        is_starred: bool = False,
     ):
         """初始化知识三元组
 
@@ -74,6 +75,7 @@ class KnowledgeTriple(BaseEntity):
         self.subject_entity_id = subject_entity_id
         self.object_entity_id = object_entity_id
         self.provenance = list(provenance or [])
+        self.is_starred = is_starred
 
     def __repr__(self) -> str:
         type_str = f" [{self.entity_type}]" if self.entity_type else ""

@@ -29,6 +29,10 @@
     "impact_or_description": "心理影响或执念描述",
     "sensitivity_tags_or_priority": ["敏感词1"] 或 8,
     "intensity": 8
+  }} ],
+  "character_states": [ {{
+    "character_name": "角色名",
+    "mental_state": "本章末该角色的情绪/决心/认知状态（1句话，如：因背叛而愤怒，决心报仇）"
   }} ]
 }}
 约束：
@@ -50,4 +54,6 @@
   - mutation_type："scar"（心理伤疤/创伤）或 "motivation"（新执念/新目标）或 "emotional_arc"（情感转折）
   - sensitivity_tags_or_priority：scar 填敏感标签数组如["背叛","信任"]；motivation 填优先级整数1-10
   - intensity：强度 1-10，10 为极端
+- character_states：本章末每个出场角色的心理状态快照，最多 5 个主要角色；无则 []。
+  - mental_state：1句话描述章末情绪/决心/认知（不超过40字），如"因遭背叛而愤怒，决心亲手复仇"
 - 不要编造 beat 列表；summary/key_events/open_threads 用中文；严格合法 JSON。{foreshadow_context}

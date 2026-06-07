@@ -44,11 +44,11 @@ class ValidationResult:
     @property
     def summary(self) -> str:
         if self.is_valid and not self.warnings:
-            return "✅ DAG 验证通过"
+            return "DAG 验证通过"
         elif self.is_valid:
-            return f"⚠️ DAG 可执行，但有 {len(self.warnings)} 个警告"
+            return f"DAG 可执行，但有 {len(self.warnings)} 个警告"
         else:
-            return f"❌ DAG 不可执行：{len(self.errors)} 个错误"
+            return f"DAG 不可执行：{len(self.errors)} 个错误"
 
 
 class DAGValidator:

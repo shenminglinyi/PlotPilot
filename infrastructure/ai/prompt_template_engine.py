@@ -16,6 +16,7 @@ Architecture:
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 from dataclasses import dataclass, field
@@ -41,6 +42,46 @@ def _legacy_to_jinja2(template: str) -> str:
     if not template:
         return template
     return _LEGACY_VAR_PATTERN.sub(r'{{ \1 }}', template)
+
+
+_JINJA_EXPR_PATTERN = re.compile(r'\{\{\s*([a-zA-Z_][^{}]*?)\s*\}\}')
+
+
+def _prepare_template_for_jinja2(template: str) -> str:
+    """Normalize CPMS template syntax before Jinja2 renders it.
+
+    CPMS templates support two layers:
+    - input variables: ``{name}`` or ``{{ name }}``
+    - output structure literals: escaped braces ``{{`` and ``}}`` for JSON examples
+
+    The second form comes from Python ``format`` escaping. Jinja2 also uses
+    ``{{ ... }}`` for expressions, so JSON examples such as ``{{ "a": {x} }}``
+    must be converted to literal braces while preserving real variables inside.
+    """
+    if not template:
+        return template
+
+    tokens: dict[str, str] = {}
+
+    def protect(expr: str) -> str:
+        token = f"__CPMS_VAR_{len(tokens)}__"
+        tokens[token] = expr.strip()
+        return token
+
+    def protect_jinja(match: re.Match[str]) -> str:
+        return protect(match.group(1))
+
+    prepared = _JINJA_EXPR_PATTERN.sub(protect_jinja, template)
+
+    def protect_legacy(match: re.Match[str]) -> str:
+        return protect(match.group(1))
+
+    prepared = _LEGACY_VAR_PATTERN.sub(protect_legacy, prepared)
+    prepared = prepared.replace("{{", "{").replace("}}", "}")
+
+    for token, expr in tokens.items():
+        prepared = prepared.replace(token, "{{ " + expr + " }}")
+    return prepared
 
 
 # ─── JSON 示例块转义 ───
@@ -245,6 +286,11 @@ class PromptTemplateEngine:
                     trim_blocks=False,
                     lstrip_blocks=False,
                 )
+                self._jinja2_env.policies["json.dumps_function"] = json.dumps
+                self._jinja2_env.policies["json.dumps_kwargs"] = {
+                    "ensure_ascii": False,
+                    "sort_keys": True,
+                }
                 # 注册自定义过滤器
                 self._jinja2_env.filters["default_if_empty"] = (
                     lambda v, d="": d if v is None or v == "" else v
@@ -411,8 +457,10 @@ class PromptTemplateEngine:
 
         variables = set()
 
-        # 提取 Jinja2 {{ variable }} 格式
-        jinja2_pattern = re.compile(r'\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}')
+        # 提取 Jinja2 {{ variable }} / {{ variable | filter }} 格式
+        jinja2_pattern = re.compile(
+            r'\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*(?:(?:\.[a-zA-Z_][a-zA-Z0-9_]*)|(?:\[-?\d+\]))*)\s*(?:\|[^{}]*)?\}\}'
+        )
         variables.update(jinja2_pattern.findall(template))
 
         # 提取旧版 {variable} 格式（排除已匹配的 Jinja2）
@@ -440,14 +488,7 @@ class PromptTemplateEngine:
         rendered = []
 
         if self._use_jinja2 and self._jinja2_env is not None:
-            # 转换旧版格式
-            jinja2_template = _legacy_to_jinja2(template)
-
-            # 🔥 预处理：用 {% raw %}...{% endraw %} 包裹 JSON 示例块
-            # 模板中大量使用 {{ "key": "value" }} 作为 JSON 输出示例，
-            # 这些不是 Jinja2 变量而是字面文本。用 {% raw %} 块包裹后
-            # Jinja2 会原样输出，不做任何解析。
-            safe_template = _escape_json_blocks(jinja2_template)
+            safe_template = _prepare_template_for_jinja2(template)
 
             try:
                 tmpl = self._jinja2_env.from_string(safe_template)
@@ -479,14 +520,59 @@ class PromptTemplateEngine:
         if not template:
             return ""
 
-        class SafeDict(dict):
-            def __missing__(self, key: str) -> str:
-                return "{" + key + "}"
+        def resolve(name: str) -> Any:
+            if name in variables:
+                return variables[name]
+            current: Any = variables
+            for part in re.split(r"\.(?![^\[]*\])", name):
+                selectors: list[int] = []
+                while True:
+                    match = re.search(r"\[(-?\d+)\]$", part)
+                    if not match:
+                        break
+                    selectors.insert(0, int(match.group(1)))
+                    part = part[:match.start()]
+                if isinstance(current, dict) and part in current:
+                    current = current[part]
+                elif part:
+                    try:
+                        current = getattr(current, part)
+                    except AttributeError:
+                        raise KeyError(name) from None
+                for index in selectors:
+                    try:
+                        current = current[index]
+                    except (IndexError, KeyError, TypeError):
+                        raise KeyError(name) from None
+            return current
 
-        try:
-            return template.format_map(SafeDict(variables))
-        except (KeyError, ValueError, IndexError):
-            return template
+        def replace_jinja(match: re.Match[str]) -> str:
+            name = match.group(1).strip()
+            try:
+                value = resolve(name)
+            except KeyError:
+                return "{{ " + name + " }}"
+            return "" if value is None else str(value)
+
+        rendered = re.sub(
+            r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*(?:(?:\.[a-zA-Z_][a-zA-Z0-9_]*)|(?:\[-?\d+\]))*)\s*\}\}",
+            replace_jinja,
+            template,
+        )
+
+        def replace_legacy(match: re.Match[str]) -> str:
+            name = match.group(1).strip()
+            try:
+                value = resolve(name)
+            except KeyError:
+                return "{" + name + "}"
+            return "" if value is None else str(value)
+
+        return re.sub(
+            r"(?<!\{)\{(?!\{)(?!\s*[%#])\s*([a-zA-Z_][a-zA-Z0-9_]*(?:(?:\.[a-zA-Z_][a-zA-Z0-9_]*)|(?:\[-?\d+\]))*)\s*\}(?!\})",
+            replace_legacy,
+            rendered,
+        )
 
 
 # ─── 全局单例 ───

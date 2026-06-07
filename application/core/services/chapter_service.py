@@ -155,6 +155,21 @@ class ChapterService:
                 return ChapterDTO.from_domain(chapter)
         raise EntityNotFoundError("Chapter", f"{novel_id}/chapter-{chapter_number}")
 
+    def update_chapter_generation_hint(
+        self,
+        novel_id: str,
+        chapter_number: int,
+        hint: str,
+    ) -> ChapterDTO:
+        """更新章节的生成约束文本（用户手写指令，直注 AI 上下文）"""
+        chapters = self.chapter_repository.list_by_novel(NovelId(novel_id))
+        for chapter in chapters:
+            if chapter.number == chapter_number:
+                chapter.update_generation_hint(hint)
+                self.chapter_repository.save(chapter)
+                return ChapterDTO.from_domain(chapter)
+        raise EntityNotFoundError("Chapter", f"{novel_id}/chapter-{chapter_number}")
+
     def get_chapter_review(
         self,
         novel_id: str,

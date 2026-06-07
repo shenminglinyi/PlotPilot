@@ -10,9 +10,9 @@
     @update:show="$emit('update:show', $event)"
   >
     <div v-if="meta" class="node-detail">
-      <!-- ★ Dify 风格：顶部状态条 -->
+      <!-- Dify 风格：顶部状态条 -->
       <div class="detail-status-bar" :style="{ background: statusBarBg }">
-        <span class="status-icon">{{ meta.icon || '📦' }}</span>
+        <span v-if="meta.icon" class="status-icon">{{ meta.icon }}</span>
         <span class="status-label">{{ statusLabel }}</span>
         <n-tag v-if="!nodeEnabled" size="small" type="default" round>已禁用</n-tag>
         <n-tag v-else-if="isRunning" size="small" type="info" round>
@@ -90,23 +90,8 @@
           <span>{{ writingStatus.writing_substep_label || writingStatus.writing_substep || '—' }}</span>
           <span class="detail-label">章节字数</span>
           <span>{{ writingStatus.accumulated_words ?? 0 }} / {{ writingStatus.chapter_target_words ?? 0 }}</span>
-          <span class="detail-label">节拍</span>
-          <span>
-            第 {{ (Number(writingStatus.current_beat_index) || 0) + 1 }} / {{ writingStatus.total_beats || 0 }} 节
-            <template v-if="writingStatus.beat_target_words"> · 本拍目标 {{ writingStatus.beat_target_words }} 字</template>
-          </span>
-          <span class="detail-label">指挥相位</span>
-          <span>{{ beatPhaseLabel }}</span>
-          <span class="detail-label">硬上限 / 建议</span>
-          <span>{{ writingStatus.beat_hard_cap ?? 0 }} / {{ writingStatus.beat_max_words_hint ?? 0 }} 字</span>
-          <span class="detail-label">剩余预算</span>
-          <span>{{ writingStatus.beat_remaining_budget ?? 0 }} 字</span>
           <span class="detail-label">上下文 token</span>
           <span>{{ writingStatus.context_tokens ?? 0 }}</span>
-          <span class="detail-label">节拍焦点</span>
-          <span>{{ writingStatus.beat_focus || '—' }}</span>
-          <span class="detail-label">最近智能截断</span>
-          <span>{{ lastTruncateLine || '无' }}</span>
         </div>
         <n-text v-else depth="3" style="font-size: 12px">加载中…</n-text>
       </div>
@@ -134,7 +119,7 @@
 
     <template #footer>
       <div class="detail-footer">
-        <!-- ★ 启用/禁用 Switch — 统一放在弹窗底部 -->
+        <!-- 启用/禁用 Switch — 统一放在弹窗底部 -->
         <div class="footer-left" v-if="nodeId && meta?.can_disable">
           <n-text depth="3" style="font-size: 12px; margin-right: 8px">启用节点</n-text>
           <n-switch
@@ -151,12 +136,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch, ref, onUnmounted } from 'vue'
+import { computed, watch, ref } from 'vue'
 import { useMessage } from 'naive-ui'
 import type { NodeMeta, NodePromptLive, NodeStatus } from '@/types/dag'
 import { CATEGORY_LABELS } from '@/types/dag'
 import { useDAGStore } from '@/stores/dagStore'
-import { resolveHttpUrl } from '@/api/config'
+import { autopilotApi, getAutopilotHttpStatus, isAutopilotNotFoundError } from '@/api/autopilot'
+import { usePolling } from '@/composables/usePolling'
 
 const props = defineProps<{
   show: boolean
@@ -174,10 +160,9 @@ const message = useMessage()
 const promptLive = ref<NodePromptLive | null>(null)
 const promptLoading = ref(false)
 
-/** GET /autopilot/{id}/status 拉取的实时块（写作/指挥/截断） */
+/** GET /autopilot/{id}/status 拉取的实时块（写作/指挥） */
 const writingStatus = ref<Record<string, unknown> | null>(null)
 const writingPollError = ref('')
-let writingPollTimer: ReturnType<typeof setInterval> | null = null
 
 const WRITING_TELEMETRY_TYPES = new Set(['exec_writer', 'exec_beat'])
 
@@ -202,76 +187,40 @@ const showWritingTelemetry = computed(() => {
   return Boolean(t && WRITING_TELEMETRY_TYPES.has(t))
 })
 
-const beatPhaseLabel = computed(() => {
-  const raw = String(writingStatus.value?.beat_phase || '')
-  const map: Record<string, string> = {
-    unfurl: '铺陈 (unfurl)',
-    converge: '收束 (converge)',
-    land: '着陆 (land)',
-  }
-  return map[raw] || raw || '—'
-})
-
-const lastTruncateLine = computed(() => {
-  const t = writingStatus.value?.last_smart_truncate
-  if (!t || typeof t !== 'object') return ''
-  const o = t as Record<string, unknown>
-  const from = o.from_chars
-  const to = o.to_chars
-  const cap = o.hard_cap
-  const bi = o.beat_index_1based
-  const tb = o.total_beats
-  const ph = o.phase
-  if (from == null && to == null) return ''
-  const modeRaw = o.truncate_mode
-  const modeLabel =
-    modeRaw === 'hard' ? '硬截断' : modeRaw === 'smart' ? '智能截断' : ''
-  const modeSeg = modeLabel ? ` · ${modeLabel}` : ''
-  return `节拍 ${bi}/${tb} · ${from}→${to} 字 · 硬上限 ${cap} · 相位 ${ph}${modeSeg}`
-})
-
 async function fetchWritingTelemetry() {
   if (!props.novelId || !showWritingTelemetry.value) return
   writingPollError.value = ''
   try {
-    const res = await fetch(resolveHttpUrl(`/api/v1/autopilot/${props.novelId}/status`))
-    if (res.status === 404) {
+    writingStatus.value = await autopilotApi.getStatus(props.novelId)
+  } catch (e) {
+    if (isAutopilotNotFoundError(e)) {
       writingStatus.value = null
       writingPollError.value = '该书暂无托管状态'
       return
     }
-    if (!res.ok) {
-      writingPollError.value = `状态 ${res.status}`
+    const status = getAutopilotHttpStatus(e)
+    if (status != null) {
+      writingPollError.value = `状态 ${status}`
       return
     }
-    writingStatus.value = (await res.json()) as Record<string, unknown>
-  } catch (e) {
     writingPollError.value = e instanceof Error ? e.message : '网络错误'
   }
 }
 
-function clearWritingPoll() {
-  if (writingPollTimer != null) {
-    clearInterval(writingPollTimer)
-    writingPollTimer = null
-  }
-}
+const writingTelemetryPolling = usePolling(fetchWritingTelemetry, 2500)
 
 watch(
   () => [props.show, props.novelId, meta.value?.node_type ?? ''] as const,
   ([open, nid, nodeType]) => {
-    clearWritingPoll()
+    writingTelemetryPolling.stop()
     writingStatus.value = null
     writingPollError.value = ''
     const telemetry = Boolean(nodeType && WRITING_TELEMETRY_TYPES.has(nodeType))
     if (!open || !nid || !telemetry) return
-    void fetchWritingTelemetry()
-    writingPollTimer = setInterval(() => void fetchWritingTelemetry(), 2500)
+    writingTelemetryPolling.start({ immediate: true })
   },
   { immediate: true }
 )
-
-onUnmounted(() => clearWritingPoll())
 
 const runState = computed(() => {
   if (!props.nodeId) return null
@@ -289,7 +238,7 @@ const isRunning = computed(() => status.value === 'running')
 
 const panelTitle = computed(() => {
   if (!meta.value) return '节点详情'
-  return `${meta.value.icon || '📦'} ${meta.value.display_name || props.nodeId}`
+  return meta.value.display_name || props.nodeId
 })
 
 // ─── 状态条 ───
@@ -312,12 +261,12 @@ const STATUS_LABEL_MAP: Record<string, string> = {
   idle: '⏹ 空闲',
   pending: '⏳ 等待中',
   running: '▶️ 运行中',
-  success: '✅ 成功',
-  warning: '⚠️ 警告',
-  error: '❌ 错误',
+  success: '成功',
+  warning: '警告',
+  error: '错误',
   bypassed: '⏭ 已旁路',
-  disabled: '⛔ 已禁用',
-  completed: '✅ 已完成',
+  disabled: '已禁用',
+  completed: '已完成',
 }
 
 const statusLabel = computed(() => STATUS_LABEL_MAP[status.value] || status.value)

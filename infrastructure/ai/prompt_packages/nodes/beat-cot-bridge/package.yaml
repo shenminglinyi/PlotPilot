@@ -1,0 +1,26 @@
+name: 节拍CoT桥接分析
+category: generation
+source: application/engine/services/beat_cot_bridge.py
+description: 在每个节拍生成后，分析叙事状态并为下一节拍生成精确的桥接指令（场景状态、过渡开头、必须延续的叙事要素）
+builtin: true
+tags:
+- 节拍
+- CoT
+- 连贯性
+- 叙事状态机
+output_format: json
+variables:
+- name: prev_beat_tail
+  desc: 上一节拍正文的最后400字
+  type: string
+  required: true
+- name: next_beat_intent
+  desc: 下一节拍的叙事意图（来自 outline-beat-partition 的 intent 字段）
+  type: string
+  required: true
+- name: chapter_outline
+  desc: 本章章纲（可选，用于保持大局观）
+  type: string
+  required: false
+id: beat-cot-bridge
+sort_order: 20

@@ -11,6 +11,9 @@ from infrastructure.persistence.database.sqlite_pragmas import (
     BUSY_TIMEOUT_MS,
     apply_standard_pragmas,
 )
+from infrastructure.persistence.database.migration_runner import (
+    apply_migration_files as run_migration_files,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +47,8 @@ def _migrate_triples_columns(conn: sqlite3.Connection) -> None:
         alters.append("ALTER TABLE triples ADD COLUMN subject_entity_id TEXT")
     if "object_entity_id" not in cols:
         alters.append("ALTER TABLE triples ADD COLUMN object_entity_id TEXT")
+    if "is_starred" not in cols:
+        alters.append("ALTER TABLE triples ADD COLUMN is_starred INTEGER DEFAULT 0")
     for sql in alters:
         try:
             conn.execute(sql)
@@ -252,6 +257,42 @@ def _apply_character_enhancements(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _apply_unified_character_profile_fields(conn: sqlite3.Connection) -> None:
+    """为 unified_characters 表补齐人物基础画像字段。"""
+    cur = conn.execute("PRAGMA table_info(unified_characters)")
+    cols = {row[1] for row in cur.fetchall()}
+    migrations = {
+        "gender": "ALTER TABLE unified_characters ADD COLUMN gender TEXT NOT NULL DEFAULT ''",
+        "age": "ALTER TABLE unified_characters ADD COLUMN age TEXT NOT NULL DEFAULT ''",
+        "appearance": "ALTER TABLE unified_characters ADD COLUMN appearance TEXT NOT NULL DEFAULT ''",
+        "personality": "ALTER TABLE unified_characters ADD COLUMN personality TEXT NOT NULL DEFAULT ''",
+        "background": "ALTER TABLE unified_characters ADD COLUMN background TEXT NOT NULL DEFAULT ''",
+        "core_motivation": "ALTER TABLE unified_characters ADD COLUMN core_motivation TEXT NOT NULL DEFAULT ''",
+        "inner_lack": "ALTER TABLE unified_characters ADD COLUMN inner_lack TEXT NOT NULL DEFAULT ''",
+    }
+    for col, sql in migrations.items():
+        if col not in cols:
+            try:
+                conn.execute(sql)
+                logger.info("unified_characters migration: added column %s", col)
+            except sqlite3.OperationalError as e:
+                logger.warning("unified_characters migration skip %s: %s", col, e)
+    conn.commit()
+
+
+def _apply_chapters_generation_hint_migration(conn: sqlite3.Connection) -> None:
+    """为 chapters 表补齐 generation_hint 列（用户手写本章生成约束）"""
+    cur = conn.execute("PRAGMA table_info(chapters)")
+    cols = {row[1] for row in cur.fetchall()}
+    if "generation_hint" not in cols:
+        try:
+            conn.execute("ALTER TABLE chapters ADD COLUMN generation_hint TEXT DEFAULT ''")
+            logger.info("chapters migration: added column generation_hint")
+        except sqlite3.OperationalError as e:
+            logger.warning("chapters migration skip generation_hint: %s", e)
+    conn.commit()
+
+
 def _apply_chapters_word_count_migration(conn: sqlite3.Connection) -> None:
     """为 chapters 表补齐 word_count 列（persistence_queue 依赖此列）"""
     cur = conn.execute("PRAGMA table_info(chapters)")
@@ -289,101 +330,8 @@ def _apply_chapter_summaries_enhancements(conn: sqlite3.Connection) -> None:
 
 
 def _apply_migration_files(conn: sqlite3.Connection) -> None:
-    """应用 migrations 目录下全部 .sql（幂等执行，顺序按文件名稳定排序）。
-
-    优化：使用 migrations_applied 表跟踪已应用的迁移，避免重复执行。
-    """
-    # 尝试创建迁移跟踪表（如果不存在），带重试和错误处理
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS migrations_applied (
-                    migration_file TEXT PRIMARY KEY,
-                    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            conn.commit()
-            break
-        except sqlite3.OperationalError as e:
-            if "database is locked" in str(e) and attempt < max_retries - 1:
-                logger.warning(f"Database locked, retrying... (attempt {attempt + 1}/{max_retries})")
-                import time
-                time.sleep(0.5 * (attempt + 1))  # 递增等待时间
-                continue
-            elif "already exists" in str(e):
-                break  # 表已存在，继续
-            else:
-                # 如果无法创建跟踪表，回退到旧逻辑
-                logger.warning(f"Cannot create migrations_applied table: {e}, using legacy mode")
-                _apply_migration_files_legacy(conn)
-                return
-
-    # 获取已应用的迁移列表
-    applied = set()
-    try:
-        cursor = conn.execute("SELECT migration_file FROM migrations_applied")
-        applied = {row[0] for row in cursor.fetchall()}
-    except Exception:
-        pass  # 表不存在，继续执行
-
-    migrations_dir = _database_asset_dir() / "migrations"
-    if not migrations_dir.is_dir():
-        logger.warning("未找到迁移目录（将仅依赖 schema.sql 与代码内补丁）: %s", migrations_dir)
-        return
-
-    new_migrations = 0
-    for migration_path in sorted(migrations_dir.glob("*.sql")):
-        migration_file = migration_path.name
-
-        # 跳过已应用的迁移
-        if migration_file in applied:
-            continue
-
-        try:
-            migration_sql = migration_path.read_text(encoding="utf-8")
-            conn.executescript(migration_sql)
-            conn.execute(
-                "INSERT OR IGNORE INTO migrations_applied (migration_file) VALUES (?)",
-                (migration_file,)
-            )
-            conn.commit()
-            logger.info("Applied migration: %s", migration_file)
-            new_migrations += 1
-        except sqlite3.OperationalError as e:
-            err_str = str(e)
-            if "already exists" in err_str or "duplicate column" in err_str:
-                # 即使失败也记录为已应用，避免下次重试
-                try:
-                    conn.execute(
-                        "INSERT OR IGNORE INTO migrations_applied (migration_file) VALUES (?)",
-                        (migration_file,)
-                    )
-                    conn.commit()
-                except:
-                    pass
-                logger.debug("Migration %s already applied: %s", migration_file, e)
-            elif "no such function" in err_str:
-                # SQLite 不支持的函数（如 content()），标记为已应用避免反复报错
-                try:
-                    conn.execute(
-                        "INSERT OR IGNORE INTO migrations_applied (migration_file) VALUES (?)",
-                        (migration_file,)
-                    )
-                    conn.commit()
-                except:
-                    pass
-                logger.warning(
-                    "Migration %s uses unsupported SQLite function, marking as applied: %s",
-                    migration_file, e
-                )
-            else:
-                logger.warning("Migration %s failed: %s", migration_file, e)
-        except Exception as e:
-            logger.warning("Failed to apply migration %s: %s", migration_file, e)
-
-    if new_migrations == 0 and applied:
-        logger.debug("All %d migrations already applied, skipped", len(applied))
+    """兼容入口：SQL migration 执行已迁到 migration_runner。"""
+    run_migration_files(conn, _database_asset_dir() / "migrations")
 
 
 def _apply_migration_files_legacy(conn: sqlite3.Connection) -> None:
@@ -409,6 +357,21 @@ def _apply_migration_files_legacy(conn: sqlite3.Connection) -> None:
             logger.warning("Failed to read migration %s: %s", migration_file, e)
         except Exception as e:
             logger.warning("Failed to apply migration %s: %s", migration_file, e)
+
+
+def _apply_bible_props_is_key_migration(conn: sqlite3.Connection) -> None:
+    """为 bible_props 表补齐 is_key 列（用户标记本章关键道具）"""
+    cur = conn.execute("PRAGMA table_info(bible_props)")
+    cols = {row[1] for row in cur.fetchall()}
+    if not cols:
+        return
+    if "is_key" not in cols:
+        try:
+            conn.execute("ALTER TABLE bible_props ADD COLUMN is_key INTEGER DEFAULT 0")
+            logger.info("bible_props migration: added column is_key")
+        except sqlite3.OperationalError as e:
+            logger.warning("bible_props migration skip is_key: %s", e)
+    conn.commit()
 
 
 def _ensure_triple_provenance_table(conn: sqlite3.Connection) -> None:
@@ -500,9 +463,12 @@ class DatabaseConnection:
         _apply_last_chapter_audit_columns(conn)
         _apply_novel_generation_prefs_json(conn)
         _apply_character_enhancements(conn)
+        _apply_unified_character_profile_fields(conn)
         _apply_bible_character_four_d_sqlite(conn)
         _apply_chapter_summaries_enhancements(conn)
         _apply_chapters_word_count_migration(conn)
+        _apply_chapters_generation_hint_migration(conn)
+        _apply_bible_props_is_key_migration(conn)
         _ensure_triple_provenance_table(conn)
         _apply_migration_files(conn)
         conn.close()
@@ -697,6 +663,7 @@ class DatabaseConnection:
 
 # 全局数据库实例
 _db_instance: Optional[DatabaseConnection] = None
+_db_instances_by_path: dict[str, DatabaseConnection] = {}
 
 # 全局连接池实例
 _connection_pool_instance: Optional["SQLiteConnectionPool"] = None
@@ -705,13 +672,21 @@ _connection_pool_instance: Optional["SQLiteConnectionPool"] = None
 def get_database(db_path: Optional[str] = None) -> DatabaseConnection:
     """获取全局数据库实例（默认使用仓库内 data/plotpilot.db 绝对路径）。"""
     global _db_instance
-    if _db_instance is None:
-        if db_path is None:
+    if db_path is None:
+        if _db_instance is None:
             from application.paths import get_db_path
 
             db_path = get_db_path()
-        _db_instance = DatabaseConnection(db_path)
-    return _db_instance
+            key = str(Path(db_path).resolve())
+            if key not in _db_instances_by_path:
+                _db_instances_by_path[key] = DatabaseConnection(db_path)
+            _db_instance = _db_instances_by_path[key]
+        return _db_instance
+
+    key = str(Path(db_path).resolve())
+    if key not in _db_instances_by_path:
+        _db_instances_by_path[key] = DatabaseConnection(db_path)
+    return _db_instances_by_path[key]
 
 
 def get_connection_pool(db_path: Optional[str] = None):

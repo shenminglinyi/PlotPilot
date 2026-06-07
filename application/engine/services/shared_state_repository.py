@@ -14,7 +14,6 @@ import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
-import multiprocessing as mp
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +64,14 @@ class NovelState:
     last_chapter_tension: float
     auto_approve_mode: bool
     needs_review: bool
+    active_invocation_session_id: str = ""
+    active_invocation_operation: str = ""
+    active_invocation_node_key: str = ""
+    active_invocation_status: str = ""
+    active_invocation_policy: str = ""
+    has_active_invocation: bool = False
+    requires_ai_review: bool = False
+    autopilot_pause_reason: str = ""
     _updated_at: float = field(default_factory=time.time)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -83,6 +90,14 @@ class NovelState:
             "last_chapter_tension": self.last_chapter_tension,
             "auto_approve_mode": self.auto_approve_mode,
             "needs_review": self.needs_review,
+            "active_invocation_session_id": self.active_invocation_session_id,
+            "active_invocation_operation": self.active_invocation_operation,
+            "active_invocation_node_key": self.active_invocation_node_key,
+            "active_invocation_status": self.active_invocation_status,
+            "active_invocation_policy": self.active_invocation_policy,
+            "has_active_invocation": self.has_active_invocation,
+            "requires_ai_review": self.requires_ai_review,
+            "autopilot_pause_reason": self.autopilot_pause_reason,
             "_updated_at": self._updated_at,
         }
 
@@ -103,6 +118,14 @@ class NovelState:
             last_chapter_tension=data.get("last_chapter_tension", 0),
             auto_approve_mode=data.get("auto_approve_mode", False),
             needs_review=data.get("needs_review", False),
+            active_invocation_session_id=data.get("active_invocation_session_id", ""),
+            active_invocation_operation=data.get("active_invocation_operation", ""),
+            active_invocation_node_key=data.get("active_invocation_node_key", ""),
+            active_invocation_status=data.get("active_invocation_status", ""),
+            active_invocation_policy=data.get("active_invocation_policy", ""),
+            has_active_invocation=bool(data.get("has_active_invocation", False)),
+            requires_ai_review=data.get("requires_ai_review", False),
+            autopilot_pause_reason=data.get("autopilot_pause_reason", ""),
             _updated_at=data.get("_updated_at", time.time()),
         )
 
@@ -119,7 +142,7 @@ class SharedStateRepository:
     KEY_DAEMON_HEARTBEAT = "_daemon_heartbeat"
     KEY_ALL_NOVELS = "_all_novels"
 
-    def __init__(self, shared_dict: Optional[mp.Manager().dict] = None):
+    def __init__(self, shared_dict: Optional[Any] = None):
         """初始化共享状态仓库
 
         Args:
@@ -131,14 +154,14 @@ class SharedStateRepository:
         """确保共享字典可用（延迟初始化）"""
         if self._state is None:
             try:
-                from interfaces.main import _get_shared_state
+                from interfaces.runtime_state import _get_shared_state
                 self._state = _get_shared_state()
                 logger.debug("共享字典已从主进程获取")
             except Exception as e:
                 logger.warning(f"无法获取共享字典: {e}")
         return self._state is not None
 
-    def set_shared_dict(self, shared_dict: mp.Manager().dict):
+    def set_shared_dict(self, shared_dict: Any):
         """设置共享字典（用于子进程注入）"""
         self._state = shared_dict
 
@@ -398,6 +421,20 @@ class SharedStateRepository:
         key = f"{self.PREFIX_NOVEL}{novel_id}"
         return self._state.get(key)
 
+    def merge_raw_state(self, novel_id: str, **fields: Any) -> bool:
+        """合并 NovelState 模型外的轻量运行时字段。"""
+        if not self._ensure_state():
+            return False
+
+        key = f"{self.PREFIX_NOVEL}{novel_id}"
+        data = self._state.get(key)
+        if not isinstance(data, dict):
+            return False
+        data.update(fields)
+        self._state[key] = data
+        self._update_novel_list(novel_id)
+        return True
+
     # ==================== Bible（世界观） ====================
 
     def get_bible(self, novel_id: str) -> Optional[Dict[str, Any]]:
@@ -493,7 +530,7 @@ class SharedStateRepository:
 _shared_state_repository: Optional[SharedStateRepository] = None
 
 
-def init_shared_state_repository(shared_dict: mp.Manager().dict) -> SharedStateRepository:
+def init_shared_state_repository(shared_dict: Any) -> SharedStateRepository:
     """初始化共享状态仓库（主进程调用）"""
     global _shared_state_repository
     _shared_state_repository = SharedStateRepository(shared_dict)
@@ -509,7 +546,7 @@ def get_shared_state_repository() -> SharedStateRepository:
     return _shared_state_repository
 
 
-def inject_shared_dict(shared_dict: mp.Manager().dict):
+def inject_shared_dict(shared_dict: Any):
     """注入共享字典（子进程调用）"""
     global _shared_state_repository
     if _shared_state_repository is None:

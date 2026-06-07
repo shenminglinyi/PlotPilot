@@ -14,6 +14,7 @@ from interfaces.api.dependencies import (
     get_auto_bible_generator,
     get_auto_knowledge_generator
 )
+from interfaces.api.urls import bible_generation_status_url
 from domain.shared.exceptions import EntityNotFoundError
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,10 @@ class CreateNovelRequest(BaseModel):
     premise: str = Field(default="", max_length=2000, description="故事梗概/创意（建议 2000 字内）")
     genre: str = Field(default="", description="赛道/类型（下拉预设）")
     world_preset: str = Field(default="", description="世界观基调（下拉预设）")
+    story_structure: str = Field(default="", description="剧情结构（题材预设，可由用户修改）")
+    pacing_control: str = Field(default="", description="节奏把控（题材预设，可由用户修改）")
+    writing_style: str = Field(default="", description="写作风格（题材预设，可由用户修改）")
+    special_requirements: str = Field(default="", description="特殊要求（题材预设，可由用户修改）")
     length_tier: Optional[Literal["short", "standard", "epic"]] = Field(
         None,
         description="V1 目标篇幅档：short≈30万字 / standard≈100万字 / epic≈300万字（推导章数与每章字数）",
@@ -66,7 +71,7 @@ class UpdateNovelRequest(BaseModel):
     )
     generation_prefs: Optional[Dict[str, Any]] = Field(
         None,
-        description="生成偏好（与库内合并）；键示例：phase_display_mode, smart_truncate_enabled, beat_hard_cap_enabled, inline_prose_aggregation_enabled, conductor_converge_threshold, conductor_land_threshold",
+        description="生成偏好（与库内合并）；键示例：phase_display_mode, inline_prose_aggregation_enabled, conductor_converge_threshold, conductor_land_threshold",
     )
 
 
@@ -138,6 +143,10 @@ async def create_novel(
         premise=request.premise,
         genre=request.genre,
         world_preset=request.world_preset,
+        story_structure=request.story_structure,
+        pacing_control=request.pacing_control,
+        writing_style=request.writing_style,
+        special_requirements=request.special_requirements,
         length_tier=request.length_tier,
         target_words_per_chapter=request.target_words_per_chapter,
     )
@@ -267,7 +276,8 @@ async def generate_bible_alias(
     background_tasks: BackgroundTasks,
     stage: str = "all",
     bible_generator: AutoBibleGenerator = Depends(get_auto_bible_generator),
-    knowledge_generator: AutoKnowledgeGenerator = Depends(get_auto_knowledge_generator)
+    knowledge_generator: AutoKnowledgeGenerator = Depends(get_auto_knowledge_generator),
+    novel_service: NovelService = Depends(get_novel_service),
 ):
     """手动触发 Bible 生成（别名路由，与 POST /bible/novels/{novel_id}/generate 等价）
 
@@ -282,16 +292,29 @@ async def generate_bible_alias(
     try:
         import traceback
 
+        novel = novel_service.get_novel(novel_id)
+        if not novel:
+            raise HTTPException(status_code=404, detail=f"Novel not found: {novel_id}")
+
         async def _generate_task():
             try:
+                premise = novel.premise if novel.premise else novel.title
                 bible_data = await bible_generator.generate_and_save(
                     novel_id=novel_id,
+                    premise=premise,
+                    target_chapters=novel.target_chapters,
                     stage=stage
                 )
                 if knowledge_generator and stage in ("all", "worldbuilding"):
+                    chars = bible_data.get("characters", [])
+                    locs = bible_data.get("locations", [])
+                    char_desc = "、".join(f"{c.get('name', '')}（{c.get('role', '')}）" for c in chars[:5])
+                    loc_desc = "、".join(c.get("name", "") for c in locs[:3])
+                    bible_summary = f"主要角色：{char_desc}。重要地点：{loc_desc}。文风：{bible_data.get('style', '')}。"
                     await knowledge_generator.generate_and_save(
                         novel_id=novel_id,
-                        bible_data=bible_data
+                        title=novel.title,
+                        bible_summary=bible_summary,
                     )
             except Exception as e:
                 logger.error(f"Failed to generate Bible/Knowledge for {novel_id}: {e}")
@@ -302,8 +325,10 @@ async def generate_bible_alias(
         return {
             "message": "Bible generation started",
             "novel_id": novel_id,
-            "status_url": f"/api/v1/bible/novels/{novel_id}/bible/status"
+            "status_url": bible_generation_status_url(novel_id),
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"启动Bible生成失败: {str(e)}")
 

@@ -86,7 +86,62 @@ export interface MainPlotOptionDTO {
   logline: string
   core_conflict: string
   starting_hook: string
+  main_axis?: string
+  opening_pressure?: string
+  forbidden_drift?: string
+  sublines?: Array<{
+    id?: string
+    name: string
+    role?: 'sub' | 'dark'
+    purpose?: string
+    description?: string
+    merge_chapter?: number
+    guard?: string
+  }>
 }
+
+export interface SuggestMainPlotOptionsResponse {
+  plot_options: MainPlotOptionDTO[]
+  invocation_session_id?: string
+  invocation_next_action?: string
+}
+
+export interface PlotOutlineStageDTO {
+  phase: 'opening' | 'development' | 'deepening' | 'climax' | 'ending'
+  label: string
+  range_percent: string
+  chapter_start?: number
+  chapter_end?: number
+  summary: string
+  key_goals?: string[]
+}
+
+export interface PlotOutlineDTO {
+  main_story_overview: string
+  stage_plan: PlotOutlineStageDTO[]
+  expected_ending: string
+  core_conflict: string
+}
+
+export interface GeneratePlotOutlineResponse {
+  plot_outline: PlotOutlineDTO | null
+  invocation_session_id?: string
+  invocation_next_action?: string
+}
+
+export type MainPlotOptionsStreamEvent =
+  | { type: 'phase'; phase: string; message: string }
+  | { type: 'chunk'; text: string }
+  | { type: 'option'; option: MainPlotOptionDTO; index: number }
+  | { type: 'approval_required'; session_id: string; status?: string; next_action?: string }
+  | { type: 'done'; plot_options: MainPlotOptionDTO[] }
+  | { type: 'error'; message: string }
+
+export type PlotOutlineStreamEvent =
+  | { type: 'phase'; phase: string; message: string }
+  | { type: 'approval_required'; session_id: string; status?: string; next_action?: string }
+  | { type: 'done'; plot_outline: PlotOutlineDTO | null }
+  | { type: 'error'; message: string }
 
 export interface PlotPointDTO {
   chapter_number: number
@@ -105,8 +160,17 @@ export interface GenerateChapterWithContextPayload {
   chapter_number: number
   outline: string
   scene_director_result?: Record<string, unknown>
+  invocation_policy?: 'DIRECT' | 'REVIEW_BEFORE_CALL' | 'REVIEW_AFTER_CALL' | 'FULL_INTERACTIVE' | 'INTERACTIVE_WHEN_AVAILABLE' | 'AUTOPILOT_PAUSE'
   /** 重新生成时的改进方向（可选）；填写后 AI 会在 prompt 中看到改进要求 */
   regeneration_guidance?: string
+  /** 覆盖 LLM 控制台档案 ID；不传则使用系统激活档案 */
+  profile_id?: string
+  /** 自定义剧本生成提示词模板（支持 {{variable}} 占位符） */
+  script_prompt_template?: string
+  /** 自定义正文生成提示词模板（支持 {{variable}} 占位符） */
+  prose_prompt_template?: string
+  /** 提示词变量键值对 */
+  prompt_variables?: Record<string, string>
 }
 
 export interface ChapterDraftDTO {
@@ -218,12 +282,35 @@ export interface StreamGeneratedBeat {
   target_words: number
   focus: string
   location_id?: string
+  function?: string
+  pov?: string
+  cast_refs?: string[]
+  location_refs?: string[]
+  prop_refs?: string[]
+  knowledge_refs?: string[]
+  visible_action?: string
+  conflict?: string
+  delta?: string
+  handoff_to_next?: string
+  must_include?: string[]
+  must_not_include?: string[]
+  active_action?: string
+  emotion_gap?: string
+  forbidden_drift?: string
 }
 
 /** 解析 SSE beats 行（beats_generated / done.beats 共用） */
 export function parseStreamGeneratedBeats(raw: unknown): StreamGeneratedBeat[] {
   const beats: StreamGeneratedBeat[] = []
   if (!Array.isArray(raw)) return beats
+  const asStringList = (value: unknown): string[] | undefined => {
+    if (Array.isArray(value)) {
+      const out = value.map(v => String(v).trim()).filter(Boolean)
+      return out.length ? out : undefined
+    }
+    if (typeof value === 'string' && value.trim()) return [value.trim()]
+    return undefined
+  }
   for (const row of raw) {
     if (!row || typeof row !== 'object') continue
     const r = row as Record<string, unknown>
@@ -243,15 +330,31 @@ export function parseStreamGeneratedBeats(raw: unknown): StreamGeneratedBeat[] {
       target_words,
       focus: String(r.focus ?? r.type ?? 'pacing').trim() || 'pacing',
       location_id: typeof r.location_id === 'string' ? r.location_id : undefined,
+      function: typeof r.function === 'string' ? r.function : undefined,
+      pov: typeof r.pov === 'string' ? r.pov : undefined,
+      cast_refs: asStringList(r.cast_refs),
+      location_refs: asStringList(r.location_refs),
+      prop_refs: asStringList(r.prop_refs),
+      knowledge_refs: asStringList(r.knowledge_refs),
+      visible_action: typeof r.visible_action === 'string' ? r.visible_action : undefined,
+      conflict: typeof r.conflict === 'string' ? r.conflict : undefined,
+      delta: typeof r.delta === 'string' ? r.delta : undefined,
+      handoff_to_next: typeof r.handoff_to_next === 'string' ? r.handoff_to_next : undefined,
+      must_include: asStringList(r.must_include),
+      must_not_include: asStringList(r.must_not_include),
+      active_action: typeof r.active_action === 'string' ? r.active_action : undefined,
+      emotion_gap: typeof r.emotion_gap === 'string' ? r.emotion_gap : undefined,
+      forbidden_drift: typeof r.forbidden_drift === 'string' ? r.forbidden_drift : undefined,
     })
   }
   return beats
 }
 
 export type GenerateChapterStreamEvent =
-  | { type: 'phase'; phase: 'planning' | 'context' | 'outline_planning' | 'prose' | 'llm' | 'post' }
+  | { type: 'phase'; phase: 'planning' | 'context' | 'script' | 'prose' | 'outline_planning' | 'llm' | 'post' }
   | { type: 'llm_chunk'; stage: string; text: string }
   | { type: 'beats_generated'; beats: StreamGeneratedBeat[] }
+  | { type: 'approval_required'; session_id: string; status?: string; next_action?: string }
   | { type: 'chunk'; text: string; stats: ChunkStats }
   | { type: 'done'; content: string; consistency_report: ConsistencyReportDTO; token_count: number; output_tokens: number; total_tokens: number; chars: number; style_warnings?: StyleWarning[]; ghost_annotations?: unknown[] }
   | { type: 'error'; message: string }
@@ -279,6 +382,7 @@ export async function consumeGenerateChapterStream(
     onBeatsGenerated?: (beats: StreamGeneratedBeat[]) => void
     /** 非正文 LLM 的流式增量（如 outline_partition 节拍划分 JSON） */
     onLLMChunk?: (stage: string, text: string) => void
+    onApprovalRequired?: (sessionId: string, status?: string, nextAction?: string) => void
     onChunk?: (text: string, stats?: ChunkStats) => void
     onDone?: (result: GenerateChapterWorkflowResponse) => void
     onError?: (message: string) => void
@@ -315,7 +419,7 @@ export async function consumeGenerateChapterStream(
             const ph = String(o.phase ?? '')
             const ev: GenerateChapterStreamEvent = {
               type: 'phase',
-              phase: ph as 'planning' | 'context' | 'outline_planning' | 'prose' | 'llm' | 'post',
+              phase: ph as 'planning' | 'context' | 'script' | 'prose' | 'outline_planning' | 'llm' | 'post',
             }
             handlers.onEvent?.(ev)
             handlers.onPhase?.(ph)
@@ -330,6 +434,16 @@ export async function consumeGenerateChapterStream(
             const ev: GenerateChapterStreamEvent = { type: 'llm_chunk', stage, text }
             handlers.onEvent?.(ev)
             handlers.onLLMChunk?.(stage, text)
+          } else if (typ === 'approval_required') {
+            const sessionId = String(o.session_id ?? '')
+            const status = typeof o.status === 'string' ? o.status : undefined
+            const nextAction = typeof o.next_action === 'string' ? o.next_action : undefined
+            const ev: GenerateChapterStreamEvent = { type: 'approval_required', session_id: sessionId, status, next_action: nextAction }
+            handlers.onEvent?.(ev)
+            if (sessionId) {
+              handlers.onApprovalRequired?.(sessionId, status, nextAction)
+            }
+            return true
           } else if (typ === 'chunk') {
             const text = String(o.text ?? '')
             const stats = o.stats as ChunkStats | undefined
@@ -464,6 +578,198 @@ export async function consumeHostedWriteStream(
   }
 }
 
+export async function consumeMainPlotOptionsStream(
+  novelId: string,
+  handlers: {
+    onEvent?: (ev: MainPlotOptionsStreamEvent) => void
+    onPhase?: (message: string) => void
+    onChunk?: (text: string) => void
+    onOption?: (option: MainPlotOptionDTO, index: number) => void
+    onApprovalRequired?: (sessionId: string, status?: string, nextAction?: string) => void
+    onDone?: (options: MainPlotOptionDTO[]) => void
+    onError?: (message: string) => void
+    signal?: AbortSignal
+  }
+): Promise<void> {
+  const res = await fetch(resolveHttpUrl(`/api/v1/novels/${novelId}/setup/suggest-main-plot-options-stream`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+    signal: handlers.signal,
+  })
+  if (!res.ok || !res.body) {
+    const t = await res.text().catch(() => '')
+    handlers.onError?.(t || `HTTP ${res.status}`)
+    return
+  }
+  const reader = res.body.getReader()
+  const dec = new TextDecoder()
+  let buf = ''
+  const drainFrames = (): boolean => {
+    let sep: number
+    while ((sep = buf.indexOf('\n\n')) >= 0) {
+      const block = buf.slice(0, sep)
+      buf = buf.slice(sep + 2)
+      for (const line of block.split('\n')) {
+        const raw = parseSseDataLine(line)
+        if (!raw || typeof raw !== 'object' || raw === null) continue
+        const o = raw as Record<string, unknown>
+        const typ = String(o.type ?? '')
+        if (typ === 'phase') {
+          const ev: MainPlotOptionsStreamEvent = {
+            type: 'phase',
+            phase: String(o.phase ?? ''),
+            message: String(o.message ?? ''),
+          }
+          handlers.onEvent?.(ev)
+          handlers.onPhase?.(ev.message)
+        } else if (typ === 'chunk') {
+          const ev: MainPlotOptionsStreamEvent = { type: 'chunk', text: String(o.text ?? '') }
+          handlers.onEvent?.(ev)
+          handlers.onChunk?.(ev.text)
+        } else if (typ === 'option') {
+          const option = (o.option ?? {}) as MainPlotOptionDTO
+          const index = Number(o.index ?? 0)
+          const ev: MainPlotOptionsStreamEvent = { type: 'option', option, index }
+          handlers.onEvent?.(ev)
+          handlers.onOption?.(option, index)
+        } else if (typ === 'approval_required') {
+          const sessionId = String(o.session_id ?? '')
+          const status = String(o.status ?? '')
+          const nextAction = String(o.next_action ?? '')
+          const ev: MainPlotOptionsStreamEvent = {
+            type: 'approval_required',
+            session_id: sessionId,
+            status,
+            next_action: nextAction,
+          }
+          handlers.onEvent?.(ev)
+          handlers.onApprovalRequired?.(sessionId, status, nextAction)
+        } else if (typ === 'done') {
+          const options = Array.isArray(o.plot_options) ? (o.plot_options as MainPlotOptionDTO[]) : []
+          const ev: MainPlotOptionsStreamEvent = { type: 'done', plot_options: options }
+          handlers.onEvent?.(ev)
+          handlers.onDone?.(options)
+          return true
+        } else if (typ === 'error') {
+          const msg = String(o.message ?? '推演失败')
+          const ev: MainPlotOptionsStreamEvent = { type: 'error', message: msg }
+          handlers.onEvent?.(ev)
+          handlers.onError?.(msg)
+          return true
+        }
+      }
+    }
+    return false
+  }
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (value) buf += dec.decode(value, { stream: true })
+      if (drainFrames()) return
+      if (done) {
+        buf += dec.decode()
+        drainFrames()
+        break
+      }
+    }
+  } catch (e: unknown) {
+    if (e instanceof Error && e.name === 'AbortError') return
+    handlers.onError?.(e instanceof Error ? e.message : '流式连接失败')
+  }
+}
+
+export async function consumePlotOutlineStream(
+  novelId: string,
+  handlers: {
+    onEvent?: (event: PlotOutlineStreamEvent) => void
+    onPhase?: (message: string) => void
+    onApprovalRequired?: (sessionId: string, status?: string, nextAction?: string) => void
+    onDone?: (outline: PlotOutlineDTO | null) => void
+    onError?: (message: string) => void
+    signal?: AbortSignal
+  }
+): Promise<void> {
+  const res = await fetch(resolveHttpUrl(`/api/v1/novels/${novelId}/setup/generate-plot-outline-stream`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+    signal: handlers.signal,
+  })
+  if (!res.ok || !res.body) {
+    const t = await res.text().catch(() => '')
+    handlers.onError?.(t || `HTTP ${res.status}`)
+    return
+  }
+  const reader = res.body.getReader()
+  const dec = new TextDecoder()
+  let buf = ''
+  const drainFrames = (): boolean => {
+    let sep: number
+    while ((sep = buf.indexOf('\n\n')) >= 0) {
+      const block = buf.slice(0, sep)
+      buf = buf.slice(sep + 2)
+      for (const line of block.split('\n')) {
+        const raw = parseSseDataLine(line)
+        if (!raw || typeof raw !== 'object' || raw === null) continue
+        const o = raw as Record<string, unknown>
+        const typ = String(o.type ?? '')
+        if (typ === 'phase') {
+          const ev: PlotOutlineStreamEvent = {
+            type: 'phase',
+            phase: String(o.phase ?? ''),
+            message: String(o.message ?? ''),
+          }
+          handlers.onEvent?.(ev)
+          handlers.onPhase?.(ev.message)
+        } else if (typ === 'approval_required') {
+          const sessionId = String(o.session_id ?? '')
+          const status = String(o.status ?? '')
+          const nextAction = String(o.next_action ?? '')
+          const ev: PlotOutlineStreamEvent = {
+            type: 'approval_required',
+            session_id: sessionId,
+            status,
+            next_action: nextAction,
+          }
+          handlers.onEvent?.(ev)
+          handlers.onApprovalRequired?.(sessionId, status, nextAction)
+        } else if (typ === 'done') {
+          const outline = o.plot_outline && typeof o.plot_outline === 'object'
+            ? (o.plot_outline as PlotOutlineDTO)
+            : null
+          const ev: PlotOutlineStreamEvent = { type: 'done', plot_outline: outline }
+          handlers.onEvent?.(ev)
+          handlers.onDone?.(outline)
+          return true
+        } else if (typ === 'error') {
+          const msg = String(o.message ?? '生成失败')
+          const ev: PlotOutlineStreamEvent = { type: 'error', message: msg }
+          handlers.onEvent?.(ev)
+          handlers.onError?.(msg)
+          return true
+        }
+      }
+    }
+    return false
+  }
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (value) buf += dec.decode(value, { stream: true })
+      if (drainFrames()) return
+      if (done) {
+        buf += dec.decode()
+        drainFrames()
+        break
+      }
+    }
+  } catch (e: unknown) {
+    if (e instanceof Error && e.name === 'AbortError') return
+    handlers.onError?.(e instanceof Error ? e.message : '流式连接失败')
+  }
+}
+
 export const workflowApi = {
   /** GET /api/v1/novels/{novel_id}/storylines */
   getStorylines: (novelId: string) =>
@@ -475,11 +781,29 @@ export const workflowApi = {
 
   /** POST /api/v1/novels/{novel_id}/setup/suggest-main-plot-options（单次 LLM；引导页默认 400s） */
   suggestMainPlotOptions: (novelId: string) =>
-    apiClient.post<{ plot_options: MainPlotOptionDTO[] }>(
+    apiClient.post<SuggestMainPlotOptionsResponse>(
       `/novels/${novelId}/setup/suggest-main-plot-options`,
       {},
       { timeout: WIZARD_STEP_TIMEOUT_MS }
-    ) as unknown as Promise<{ plot_options: MainPlotOptionDTO[] }>,
+    ) as unknown as Promise<SuggestMainPlotOptionsResponse>,
+
+  getPlotOutline: (novelId: string) =>
+    apiClient.get<GeneratePlotOutlineResponse>(
+      `/novels/${novelId}/setup/plot-outline`,
+    ) as unknown as Promise<GeneratePlotOutlineResponse>,
+
+  savePlotOutline: (novelId: string, plotOutline: PlotOutlineDTO) =>
+    apiClient.put<GeneratePlotOutlineResponse>(
+      `/novels/${novelId}/setup/plot-outline`,
+      { plot_outline: plotOutline },
+    ) as unknown as Promise<GeneratePlotOutlineResponse>,
+
+  generatePlotOutline: (novelId: string) =>
+    apiClient.post<GeneratePlotOutlineResponse>(
+      `/novels/${novelId}/setup/generate-plot-outline`,
+      {},
+      { timeout: WIZARD_STEP_TIMEOUT_MS },
+    ) as unknown as Promise<GeneratePlotOutlineResponse>,
 
   /** POST /api/v1/novels/{novel_id}/storylines */
   createStoryline: (

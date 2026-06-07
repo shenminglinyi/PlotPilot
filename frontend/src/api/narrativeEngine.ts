@@ -23,6 +23,18 @@ export interface StoryEvolutionReadModel {
   subtext_surface: {
     foreshadow_ledger_count: number
   }
+  evolution_surface?: {
+    active_snapshot: {
+      snapshot_id: string
+      chapter_number: number
+      status: string
+      schema_version: string
+      summary: string
+    } | null
+    counts: Record<string, number>
+    recent_gate_risks: unknown[]
+    required_continuations: string[]
+  }
 }
 
 export interface PersonaVoiceReadModel {

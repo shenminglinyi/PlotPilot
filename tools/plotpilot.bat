@@ -25,26 +25,38 @@ if not "%~1"=="" (
 )
 
 :: ════════════════════════════════════
-:: Step 0: 确保内嵌 Python 已解压（零配置核心！）
+:: Step 0: 确保内嵌 Python 3.14.5 已解压（零配置核心！）
 :: ════════════════════════════════════
+set "EMBEDDED_NEEDS_EXTRACT=0"
 if not exist "tools\python_embed\python.exe" (
-    if exist "tools\python-3.11.9-embed-amd64.zip" (
+    set "EMBEDDED_NEEDS_EXTRACT=1"
+) else (
+    "tools\python_embed\python.exe" --version 2>&1 | findstr /C:"Python 3.14." >nul
+    if errorlevel 1 (
+        echo   [WARN] 已存在的内嵌 Python 不是 3.14，将尝试重新准备
+        set "EMBEDDED_NEEDS_EXTRACT=1"
+    )
+)
+
+if "%EMBEDDED_NEEDS_EXTRACT%"=="1" (
+    if exist "tools\python-3.14.5-embed-amd64.zip" (
         echo.
         echo   ┌────────────────────────────────────┐
-        echo   │  首次启动：正在准备 Python 环境...   │
+        echo   │  首次启动：正在准备 Python 3.14.5 环境... │
         echo   └────────────────────────────────────┘
         echo.
 
+        if exist "tools\python_embed" rmdir /s /q "tools\python_embed"
         :: 用 PowerShell 解压（单行命令，避免 ^ 续行符解析问题）
-        powershell -NoProfile -Command "Expand-Archive -Path 'tools\python-3.11.9-embed-amd64.zip' -DestinationPath 'tools\python_embed' -Force"
+        powershell -NoProfile -Command "Expand-Archive -Path 'tools\python-3.14.5-embed-amd64.zip' -DestinationPath 'tools\python_embed' -Force"
         if errorlevel 1 (
-            echo   [ERROR] 解压失败！请手动解压 tools\python-3.11.9-embed-amd64.zip 到 tools\python_embed\
+            echo   [ERROR] 解压失败！请手动解压 tools\python-3.14.5-embed-amd64.zip 到 tools\python_embed\
             pause
             exit /b 1
         )
-        echo   Python 环境就绪 ✓
+        echo   Python 3.14.5 环境就绪 ✓
     ) else (
-        echo   [WARN] 未找到内嵌 Python 包，将使用系统 Python
+        echo   [WARN] 未找到 Python 3.14.5 内嵌包，将使用系统 Python 3.14
     )
 )
 
@@ -52,60 +64,70 @@ if not exist "tools\python_embed\python.exe" (
 :: Step 0.5: 为内嵌 Python 自动安装 pip（embeddable 版默认无 pip）
 :: ════════════════════════════════════
 if exist "tools\python_embed\python.exe" (
-    "tools\python_embed\python.exe" -m pip --version >nul 2>&1
+    "tools\python_embed\python.exe" --version 2>&1 | findstr /C:"Python 3.14." >nul
     if errorlevel 1 (
-        echo.
-        echo   ┌────────────────────────────────────┐
-        echo   │  首次启动：正在为内嵌 Python 安装 pip... │
-        echo   └────────────────────────────────────┘
-        echo.
+        echo   [WARN] 内嵌 Python 不是 3.14，跳过 pip 安装
+    ) else (
+        "tools\python_embed\python.exe" -m pip --version >nul 2>&1
+        if errorlevel 1 (
+            echo.
+            echo   ┌────────────────────────────────────┐
+            echo   │  首次启动：正在为内嵌 Python 安装 pip... │
+            echo   └────────────────────────────────────┘
+            echo.
 
-        :: 下载 get-pip.py（如果不存在）
-        if not exist "tools\python_embed\get-pip.py" (
-            echo   正在下载 get-pip.py...
-            "tools\python_embed\python.exe" -c "import urllib.request; urllib.request.urlretrieve('https://bootstrap.pypa.io/get-pip.py', r'tools\python_embed\get-pip.py'); print('OK')" >nul 2>&1
-        )
-
-        :: 安装 pip
-        if exist "tools\python_embed\get-pip.py" (
-            "tools\python_embed\python.exe" "tools\python_embed\get-pip.py" --no-warn-script-location -q
-            if errorlevel 1 (
-                echo   [WARN] pip 自动安装失败，将尝试继续...
-            ) else (
-                echo   pip 安装完成 ✓
-                :: 清理临时文件
-                del /f "tools\python_embed\get-pip.py" 2>nul
+            :: 下载 get-pip.py（如果不存在）
+            if not exist "tools\python_embed\get-pip.py" (
+                echo   正在下载 get-pip.py...
+                "tools\python_embed\python.exe" -c "import urllib.request; urllib.request.urlretrieve('https://bootstrap.pypa.io/get-pip.py', r'tools\python_embed\get-pip.py'); print('OK')" >nul 2>&1
             )
-        ) else (
-            echo   [WARN] get-pip.py 下载失败，请检查网络连接
+
+            :: 安装 pip
+            if exist "tools\python_embed\get-pip.py" (
+                "tools\python_embed\python.exe" "tools\python_embed\get-pip.py" --no-warn-script-location -q
+                if errorlevel 1 (
+                    echo   [WARN] pip 自动安装失败，将尝试继续...
+                ) else (
+                    echo   pip 安装完成 ✓
+                    :: 清理临时文件
+                    del /f "tools\python_embed\get-pip.py" 2>nul
+                )
+            ) else (
+                echo   [WARN] get-pip.py 下载失败，请检查网络连接
+            )
         )
     )
 )
 
 :: ════════════════════════════════════
-:: Step 1: 查找 Python（优先级：venv > 内嵌 > 系统）
+:: Step 1: 查找 Python（只接受 Python 3.14 系列）
 :: ════════════════════════════════════
 set "PYTHON_EXE="
 
-:: A) 虚拟环境
-if exist ".venv\Scripts\python.exe" (
-    set "PYTHON_EXE=.venv\Scripts\python.exe"
-    goto :python_found
-)
+call :try_python "%PLOTPILOT_PYTHON_EXE%"
+if defined PYTHON_EXE goto :python_found
 
-:: B) 内嵌 Python（已解压）
-if exist "tools\python_embed\python.exe" (
-    set "PYTHON_EXE=tools\python_embed\python.exe"
+call :try_python "%LocalAppData%\Programs\Python\Python314\python.exe"
+if defined PYTHON_EXE goto :python_found
+
+call :try_python ".venv\Scripts\python.exe"
+if defined PYTHON_EXE goto :python_found
+
+call :try_python "tools\python_embed\python.exe"
+if defined PYTHON_EXE (
     :: 设置 Tcl/Tk 环境变量（嵌入版需要）
     set "TCL_LIBRARY=%CD%\tools\python_embed\tcl\tcl8.6"
     set "TK_LIBRARY=%CD%\tools\python_embed\tcl\tk8.6"
     goto :python_found
 )
 
-:: C) 系统 PATH
 for /f "delims=" %%i in ('where python 2^>nul') do (
-    set "PYTHON_EXE=%%i"
-    goto :python_found
+    call :try_python "%%i"
+    if defined PYTHON_EXE goto :python_found
+)
+for /f "delims=" %%i in ('where python3 2^>nul') do (
+    call :try_python "%%i"
+    if defined PYTHON_EXE goto :python_found
 )
 
 :: D) 都没有 → 引导安装
@@ -118,10 +140,10 @@ echo   |                                                      |
 echo   +------------------------------------------------------+
 echo   |  请选择以下任一方式：                                  |
 echo   |                                                      |
-echo   |  方式 A (推荐): 将 python-3.11.9-embed-amd64.zip      |
+echo   |  方式 A (推荐): 将 python-3.14.5-embed-amd64.zip      |
 echo   |            放到 tools/ 目录下，然后重新双击           |
 echo   |                                                      |
-echo   |  方式 B: 安装 Python 3.10+ (勾选 Add to PATH)         |
+echo   |  方式 B: 安装 Python 3.14.5 (勾选 Add to PATH)         |
 echo   |          https://www.python.org/downloads/            |
 echo   |                                                      |
 echo   +======================================================+
@@ -187,4 +209,18 @@ echo.
 start "" "%PYTHONW_EXE%" -u scripts\install\hub.py %MODE% 2>logs\hub_error.log
 
 :: bat 在这里就结束了，用户只会看到独立的 Tkinter 窗口
+exit /b 0
+
+:try_python
+set "CANDIDATE_PY=%~1"
+if "%CANDIDATE_PY%"=="" exit /b 1
+if not exist "%CANDIDATE_PY%" exit /b 1
+"%CANDIDATE_PY%" --version > "%TEMP%\plotpilot_python_version.txt" 2>&1
+findstr /C:"Python 3.14." "%TEMP%\plotpilot_python_version.txt" >nul
+if errorlevel 1 (
+    set /p CANDIDATE_VERSION=<"%TEMP%\plotpilot_python_version.txt"
+    echo   [WARN] 忽略非 Python 3.14: %CANDIDATE_PY% (%CANDIDATE_VERSION%)
+    exit /b 1
+)
+set "PYTHON_EXE=%CANDIDATE_PY%"
 exit /b 0

@@ -78,11 +78,85 @@ class SqliteForeshadowingRepository(ForeshadowingRepository):
                 updated_at = excluded.updated_at
         """
         self._db.execute(sql, (registry.novel_id.value, payload, now))
+        self._sync_to_foreshadows_table(registry, now)
         self._db.get_connection().commit()
+
+    def _sync_to_foreshadows_table(self, registry: ForeshadowingRegistry, now: str) -> None:
+        """将 registry 中的伏笔镜像写入 foreshadows 关系表（INSERT OR REPLACE）。"""
+        novel_id = registry.novel_id.value
+        try:
+            for f in registry.foreshadowings:
+                self._db.execute(
+                    """
+                    INSERT INTO foreshadows (
+                        id, novel_id, description,
+                        planted_chapter, due_chapter, resolved_chapter,
+                        status, importance, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        description      = excluded.description,
+                        planted_chapter  = excluded.planted_chapter,
+                        due_chapter      = excluded.due_chapter,
+                        resolved_chapter = excluded.resolved_chapter,
+                        status           = excluded.status,
+                        importance       = excluded.importance,
+                        updated_at       = excluded.updated_at
+                    """,
+                    (
+                        f.id,
+                        novel_id,
+                        f.description,
+                        f.planted_in_chapter,
+                        f.suggested_resolve_chapter,
+                        f.resolved_in_chapter,
+                        f.status.value,
+                        int(f.importance),
+                        now,
+                    ),
+                )
+        except Exception as e:
+            logger.warning("_sync_to_foreshadows_table failed for novel %s: %s", novel_id, e)
+
+    # ── SQL query helpers (read from relational table) ─────────────────────
+
+    def get_planted_sql(self, novel_id: str) -> list:
+        """从 foreshadows 表查询所有 PLANTED 状态的伏笔（行字典列表）。"""
+        try:
+            rows = self._db.fetch_all(
+                "SELECT * FROM foreshadows WHERE novel_id = ? AND status = 'planted' ORDER BY planted_chapter",
+                (novel_id,),
+            )
+            return [dict(r) for r in rows]
+        except Exception as e:
+            logger.warning("get_planted_sql failed: %s", e)
+            return []
+
+    def get_overdue_sql(self, novel_id: str, current_chapter: int) -> list:
+        """从 foreshadows 表查询已过预期解决章节但仍未解决的伏笔。"""
+        try:
+            rows = self._db.fetch_all(
+                """
+                SELECT * FROM foreshadows
+                WHERE novel_id = ?
+                  AND status = 'planted'
+                  AND due_chapter IS NOT NULL
+                  AND due_chapter <= ?
+                ORDER BY importance DESC, due_chapter
+                """,
+                (novel_id, current_chapter),
+            )
+            return [dict(r) for r in rows]
+        except Exception as e:
+            logger.warning("get_overdue_sql failed: %s", e)
+            return []
 
     def delete(self, novel_id: NovelId) -> None:
         self._db.execute(
             "DELETE FROM novel_foreshadow_registry WHERE novel_id = ?",
+            (novel_id.value,),
+        )
+        self._db.execute(
+            "DELETE FROM foreshadows WHERE novel_id = ?",
             (novel_id.value,),
         )
         self._db.get_connection().commit()

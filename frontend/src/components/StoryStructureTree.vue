@@ -79,7 +79,7 @@
           <n-space vertical :size="8" align="center">
             <n-spin v-if="loading" size="small" />
             <n-alert v-if="!autopilotEmptyMode" type="info" :show-icon="false" style="font-size: 12px; max-width: 240px; text-align: center;">
-              <strong>提示</strong>：切换到「托管撰稿」模式，点击「启动全托管」即可自动生成大纲与正文
+              <strong>提示</strong>：可在正文区直接生成正文
             </n-alert>
           </n-space>
         </template>
@@ -129,13 +129,20 @@ import { ref, computed, h, onMounted, onUnmounted, watch } from 'vue'
 import { NTree, NEmpty, NSpin, NTag, NSpace, NDropdown, NModal, NInput, useMessage, useDialog } from 'naive-ui'
 import { structureApi, type StoryNode } from '@/api/structure'
 import { chapterApi } from '@/api/chapter'
-import { resolveHttpUrl } from '@/api/config'
+import { autopilotApi, isAutopilotHttpError } from '@/api/autopilot'
 import type { GenerationPrefsDTO } from '@/api/novel'
 import { narrativeTreeChapterLine } from '@/utils/narrativeUnitLabel'
+import { formatApiError } from '@/utils/apiError'
 import { watchMacroPlanProgress, planningApi, type MacroProgressWatchTerminalEvent, type MacroStreamNodeEvent, type StoryNode as PlanningStoryNode } from '@/api/planning'
 
 const props = defineProps<{
   slug: string
+  chapters?: Array<{
+    id: number
+    number: number
+    title: string
+    word_count: number
+  }>
   currentChapterId?: number | null
   /** 与 NovelDTO.generation_prefs 一致；影响章节节点展示文案 */
   generationPrefs?: GenerationPrefsDTO | null
@@ -160,6 +167,36 @@ let loadTreeRequestId = 0
 const treeData = ref<any[]>([])
 const selectedKeys = ref<string[]>([])
 const expandedKeys = ref<string[]>([])
+
+function buildChapterFallbackTree() {
+  const chapters = [...(props.chapters ?? [])]
+    .filter(ch => Number.isFinite(ch.number) && ch.number >= 1)
+    .sort((a, b) => a.number - b.number)
+
+  if (!chapters.length) return []
+
+  return chapters.map((ch) =>
+    convertToTreeNode({
+      id: `fallback-chapter-${ch.number}`,
+      novel_id: props.slug,
+      parent_id: null,
+      node_type: 'chapter',
+      number: ch.number,
+      title: ch.title || '',
+      order_index: ch.number,
+      chapter_count: 0,
+      metadata: { syntheticTreeFallback: true },
+      created_at: '',
+      updated_at: '',
+      level: 1,
+      icon: '📄',
+      display_name: '',
+      word_count: ch.word_count || 0,
+      status: (ch.word_count || 0) > 0 ? 'completed' : 'draft',
+      children: [],
+    })
+  )
+}
 
 /** 全托管时空侧栏提示：引导用户使用全托管 */
 const autopilotEmptyMode = ref<null | 'planning' | 'review'>(null)
@@ -408,7 +445,7 @@ const structureEmptyDescription = computed(() => {
   if (autopilotEmptyMode.value === 'review') {
     return '待审阅：结构将在确认流程写入后显示；若已开始撰写，正文区刷新后会同步侧栏。'
   }
-  return '暂无叙事结构，请使用「全托管」自动生成'
+  return '暂无叙事结构'
 })
 
 // 右键菜单状态
@@ -474,20 +511,6 @@ function findChapterNodeId(nodes: StoryNode[], chapterNum: number): string | nul
   return null
 }
 
-watch(
-  [() => props.currentChapterId, treeData],
-  () => {
-    const chapterId = props.currentChapterId
-    if (chapterId == null || chapterId < 1) {
-      selectedKeys.value = []
-      return
-    }
-    const key = findChapterNodeId(treeData.value, chapterId)
-    selectedKeys.value = key ? [key] : []
-  },
-  { immediate: true, deep: true }
-)
-
 const convertToTreeNode = (node: StoryNode | PlanningStoryNode): any => {
   const iconMap: Record<string, string> = {
     part: '📚',
@@ -512,6 +535,8 @@ const convertToTreeNode = (node: StoryNode | PlanningStoryNode): any => {
 
 const displayTreeData = computed(() => {
   if (treeData.value.length > 0) return treeData.value
+  const fallback = buildChapterFallbackTree()
+  if (fallback.length > 0) return fallback
   if (macroPreviewRoots.value.length > 0) {
     return macroPreviewRoots.value.map((n) => convertToTreeNode(n))
   }
@@ -520,6 +545,20 @@ const displayTreeData = computed(() => {
 
 const isMacroPreviewTree = computed(
   () => treeData.value.length === 0 && macroPreviewRoots.value.length > 0,
+)
+
+watch(
+  [() => props.currentChapterId, displayTreeData],
+  () => {
+    const chapterId = props.currentChapterId
+    if (chapterId == null || chapterId < 1) {
+      selectedKeys.value = []
+      return
+    }
+    const key = findChapterNodeId(displayTreeData.value as StoryNode[], chapterId)
+    selectedKeys.value = key ? [key] : []
+  },
+  { immediate: true, deep: true }
 )
 
 /** 预览树已部分展示、流未结束：树下方占位，表示仍可能有下一条节点 */
@@ -568,12 +607,7 @@ async function syncAutopilotEmptyHint(hasTreeData: boolean) {
     return
   }
   try {
-    const r = await fetch(resolveHttpUrl(`/api/v1/autopilot/${props.slug}/status`))
-    if (!r.ok) {
-      autopilotEmptyMode.value = null
-      return
-    }
-    const s = (await r.json()) as Record<string, unknown>
+    const s = await autopilotApi.getStatus(props.slug)
     if (s.autopilot_status !== 'running') {
       autopilotEmptyMode.value = null
       return
@@ -585,7 +619,11 @@ async function syncAutopilotEmptyHint(hasTreeData: boolean) {
     } else {
       autopilotEmptyMode.value = null
     }
-  } catch {
+  } catch (err) {
+    if (isAutopilotHttpError(err)) {
+      autopilotEmptyMode.value = null
+      return
+    }
     /* 网络抖动时不清空已有提示，避免按钮/文案来回闪 */
   }
 }
@@ -600,7 +638,7 @@ const loadTree = async () => {
       return
     }
     const nodes = Array.isArray(res.tree) ? res.tree : (res.tree?.nodes ?? [])
-    treeData.value = nodes.length > 0 ? nodes.map(convertToTreeNode) : []
+    treeData.value = nodes.length > 0 ? nodes.map(convertToTreeNode) : buildChapterFallbackTree()
 
     const hasData = treeData.value.length > 0
     emit('treeLoaded', hasData)
@@ -609,7 +647,7 @@ const loadTree = async () => {
     if (reqId !== loadTreeRequestId) {
       return
     }
-    message.error(e?.response?.data?.detail || '加载结构失败')
+    message.error(formatApiError(e, '加载结构失败'))
     emit('treeLoaded', false)
     autopilotEmptyMode.value = null
   } finally {
@@ -686,7 +724,7 @@ const handleSelect = (keys: string[]) => {
     }
     return null
   }
-  const node = findNode(treeData.value, keys[0])
+  const node = findNode(displayTreeData.value as StoryNode[], keys[0])
   const num = node ? resolveBookChapterNumber(node) : null
   if (num != null) {
     emit('selectChapter', num, node?.title ?? '')
@@ -729,7 +767,7 @@ const handleMenuSelect = (key: string) => {
           message.success('已删除')
           await loadTree()
         } catch (e: any) {
-          message.error(e?.response?.data?.detail || '删除失败')
+          message.error(formatApiError(e, '删除失败'))
         }
       },
     })
@@ -745,7 +783,7 @@ const doRename = async () => {
     message.success('已重命名')
     await loadTree()
   } catch (e: any) {
-    message.error(e?.response?.data?.detail || '重命名失败')
+    message.error(formatApiError(e, '重命名失败'))
   }
 }
 
@@ -780,7 +818,7 @@ const doAddChild = async () => {
     message.success('已添加')
     await loadTree()
   } catch (e: any) {
-    message.error(e?.response?.data?.detail || '添加失败')
+    message.error(formatApiError(e, '添加失败'))
   }
 }
 
@@ -840,7 +878,7 @@ const nodeProps = ({ option }: { option: any }) => {
   const base = {
     class: `node-level-${lv}`,
   }
-  if (isMacroPreviewTree.value) {
+  if (isMacroPreviewTree.value || node.metadata?.syntheticTreeFallback) {
     return base
   }
   return {

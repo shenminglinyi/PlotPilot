@@ -9,20 +9,51 @@ from typing import Optional
 
 from application.world.services.worldbuilding_service import WorldbuildingService
 from application.world.services.bible_service import BibleService
+from application.ai_invocation.variable_hub import VariableWrite, compose_worldbuilding_dimensions
 from infrastructure.persistence.database.worldbuilding_repository import WorldbuildingRepository
+from infrastructure.persistence.database.connection import get_database
+from infrastructure.persistence.database.sqlite_ai_invocation_repository import SqliteVariableHubRepository
 from application.paths import get_db_path
 
 from interfaces.api.dependencies import get_bible_service
-from application.world.worldbuilding_merge import (
-    bible_dto_world_settings_to_slices,
-    merge_worldbuilding_table_and_bible_slices,
-    project_slices_to_legacy_api_shape,
-    worldbuilding_entity_to_slices,
-    worldbuilding_slices_nonempty,
-)
+from application.world.services.narrative_contract_loader import load_merged_worldbuilding_slices
 
 
 router = APIRouter(prefix="/novels", tags=["worldbuilding"])
+
+
+def _sync_worldbuilding_variable_hub(novel_id: str, slices: dict[str, dict[str, str]]) -> None:
+    context_key = f"novel_id:{novel_id}"
+    repo = SqliteVariableHubRepository(get_database())
+    aggregate = compose_worldbuilding_dimensions(slices)
+    writes: list[tuple[str, object, str, str]] = []
+    if aggregate:
+        writes.append(("worldbuilding.content", aggregate, "object", "世界观"))
+    for key, display_name in (
+        ("core_rules", "核心法则"),
+        ("geography", "地理生态"),
+        ("society", "社会结构"),
+        ("culture", "历史文化"),
+        ("daily_life", "沉浸感细节"),
+    ):
+        value = slices.get(key)
+        if value:
+            writes.append((f"worldbuilding.{key}", value, "object", display_name))
+    for key, value, value_type, display_name in writes:
+        repo.set_value(
+            VariableWrite(
+                key=key,
+                value=value,
+                context_key=context_key,
+                source_trace_id="worldbuilding_manual_sync",
+                source_node_key="worldbuilding_api",
+                lineage={"source": "worldbuilding_api_manual_sync"},
+                value_type=value_type,
+                display_name=display_name,
+                scope="global",
+                stage="worldbuilding",
+            )
+        )
 
 
 def get_worldbuilding_service() -> WorldbuildingService:
@@ -77,43 +108,34 @@ def get_worldbuilding(
     service: WorldbuildingService = Depends(get_worldbuilding_service),
     bible_service: BibleService = Depends(get_bible_service),
 ):
-    """获取小说的世界观（合并 worldbuilding 表与 Bible.world_settings）
+    """获取小说的世界观。
 
-    SSE 向导会把超出 ORM 槽位的扩展字段写入 Bible；若仅用表读出，会与流式观感不一致，
-    故 GET 在此处做合并后再投影成前端使用的 15 个经典字段。
+    V2 数据以 worldbuilding.dimensions 为唯一主源；旧库缺少 V2 文档时，
+    仅在仓储/loader 边界兼容读取旧列与 Bible.world_settings。
     """
     bible = bible_service.get_bible_by_novel(slug)
-    bible_slices = bible_dto_world_settings_to_slices(bible)
-
     wb_entity = service.get_worldbuilding(slug)
+    slices = load_merged_worldbuilding_slices(bible=bible, worldbuilding=wb_entity)
 
     if wb_entity is None:
-        if not worldbuilding_slices_nonempty(bible_slices):
-            raise HTTPException(status_code=404, detail="Worldbuilding not found")
-
-        display = project_slices_to_legacy_api_shape(bible_slices)
         now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
         return {
             "id": f"bible-{slug}",
             "novel_id": slug,
-            **display,
+            "schema_version": 2 if slices else 1,
+            "dimensions": slices,
+            **slices,
             "created_at": now,
             "updated_at": now,
         }
 
-    merged_slices = merge_worldbuilding_table_and_bible_slices(
-        worldbuilding_entity_to_slices(wb_entity),
-        bible_slices,
-    )
-    display = project_slices_to_legacy_api_shape(merged_slices)
-
     dto = wb_entity.to_dict()
-    dto["core_rules"] = display["core_rules"]
-    dto["geography"] = display["geography"]
-    dto["society"] = display["society"]
-    dto["culture"] = display["culture"]
-    dto["daily_life"] = display["daily_life"]
+    dto["dimensions"] = slices
+    dto["core_rules"] = slices["core_rules"]
+    dto["geography"] = slices["geography"]
+    dto["society"] = slices["society"]
+    dto["culture"] = slices["culture"]
+    dto["daily_life"] = slices["daily_life"]
 
     return dto
 
@@ -148,4 +170,7 @@ def update_worldbuilding(
         refresh_narrative_contract_in_shared_state(slug)
     except Exception:
         pass
+    slices = worldbuilding.normalized_dimensions() if hasattr(worldbuilding, "normalized_dimensions") else {}
+    if isinstance(slices, dict):
+        _sync_worldbuilding_variable_hub(slug, slices)
     return worldbuilding.to_dict()

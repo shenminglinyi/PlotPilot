@@ -9,7 +9,7 @@
 - 本章已知信息：{known_information}
 - 本章未知信息：{unknown_information}
 
-🔒 锁定规则：
+锁定规则：
 1. 声线指纹不可偏离——{voice_rule}
 2. 紧张习惯必须一致——遇到压力时{character_name}会{nervous_habit}
 3. 信息边界不可突破——{character_name}不知道的事不能写他知道

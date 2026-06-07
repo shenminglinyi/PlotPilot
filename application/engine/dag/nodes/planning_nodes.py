@@ -22,6 +22,11 @@ from application.engine.dag.models import (
     PromptMode,
 )
 from application.engine.dag.registry import BaseNode, NodeRegistry
+from infrastructure.ai.prompt_keys import (
+    BEAT_SHEET_DECOMPOSITION,
+    PLANNING_ACT,
+    PLANNING_QUICK_MACRO,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,9 +40,9 @@ class BeatSheetNode(BaseNode):
 
     meta = NodeMeta(
         node_type="planning_beat_sheet",
-        display_name="🎵 节拍表拆解",
+        display_name="节拍表拆解",
         category=NodeCategory.PLANNING,
-        icon="🎵",
+        icon="",
         color="#6d28d9",
         input_ports=[
             NodePort(name="outline", data_type=PortDataType.TEXT, required=True),
@@ -51,12 +56,11 @@ class BeatSheetNode(BaseNode):
         output_ports=[
             NodePort(name="beat_sheet_json", data_type=PortDataType.JSON),
         ],
-        prompt_template="你是深谙'场景与续场'节奏的剧本拆解师...",
         prompt_variables=["outline", "characters_block", "storylines_block", "previous_chapter_block", "foreshadowings_block", "locations_block", "timeline_block"],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=60,
-        cpms_node_key="beat-sheet-decomposition",
+        cpms_node_key=BEAT_SHEET_DECOMPOSITION,
         prompt_mode=PromptMode.CPMS_FIRST,
         description="将章纲拆解为实战可写的场景/续场(Scene & Sequel)结构",
         default_edges=["exec_beat"],
@@ -122,13 +126,13 @@ class BeatSheetNode(BaseNode):
 
 @NodeRegistry.register("planning_quick_macro")
 class QuickMacroNode(BaseNode):
-    """极速宏观规划·破城槌 — 狂热主编风格"""
+    """极速宏观规划 — 源设定优先的爽文结构"""
 
     meta = NodeMeta(
         node_type="planning_quick_macro",
-        display_name="⚡ 极速宏观规划",
+        display_name="极速宏观规划",
         category=NodeCategory.PLANNING,
-        icon="⚡",
+        icon="",
         color="#7c3aed",
         input_ports=[
             NodePort(name="premise", data_type=PortDataType.TEXT, required=True),
@@ -139,14 +143,13 @@ class QuickMacroNode(BaseNode):
         output_ports=[
             NodePort(name="macro_plan_json", data_type=PortDataType.JSON),
         ],
-        prompt_template="你是一位手握无数畅销书的狂热白金级主编...",
         prompt_variables=["premise", "target_chapters", "worldview", "characters"],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=120,
-        cpms_node_key="planning-quick-macro",
+        cpms_node_key=PLANNING_QUICK_MACRO,
         prompt_mode=PromptMode.CPMS_FIRST,
-        description="极速模式：基于英雄之旅与救猫咪理论强推商业网文骨架",
+        description="极速模式：源设定优先，按题材赛道放大爽点与长线钩子",
         default_edges=["planning_act"],
     )
 
@@ -211,9 +214,9 @@ class ActPlanningNode(BaseNode):
 
     meta = NodeMeta(
         node_type="planning_act",
-        display_name="🎭 幕级规划",
+        display_name="幕级规划",
         category=NodeCategory.PLANNING,
-        icon="🎭",
+        icon="",
         color="#8b5cf6",
         input_ports=[
             NodePort(name="context", data_type=PortDataType.TEXT, required=True),
@@ -222,12 +225,11 @@ class ActPlanningNode(BaseNode):
         output_ports=[
             NodePort(name="act_chapters_json", data_type=PortDataType.JSON),
         ],
-        prompt_template="你是精密的故事工程师...",
         prompt_variables=["context", "chapter_count"],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=120,
-        cpms_node_key="planning-act",
+        cpms_node_key=PLANNING_ACT,
         prompt_mode=PromptMode.CPMS_FIRST,
         description="将抽象的幕大纲落地为充满递进张力的章纲序列",
         default_edges=["exec_beat"],

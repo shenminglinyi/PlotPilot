@@ -27,9 +27,9 @@ logger = logging.getLogger(__name__)
 class StatePublisher:
     """状态发布器 - 守护进程的唯一写入入口
 
-    🔥 核心原则：先写共享内存（立即可见），再推送持久化命令（异步）
+    核心原则：先写共享内存（立即可见），再推送持久化命令（异步）
 
-    ✅ 使用适配器模式，透明切换新旧队列实现
+    使用适配器模式，透明切换新旧队列实现
     """
 
     def __init__(
@@ -80,6 +80,14 @@ class StatePublisher:
                 last_chapter_tension=fields.get("last_chapter_tension", 0),
                 auto_approve_mode=fields.get("auto_approve_mode", False),
                 needs_review=fields.get("needs_review", False),
+                active_invocation_session_id=fields.get("active_invocation_session_id", ""),
+                active_invocation_operation=fields.get("active_invocation_operation", ""),
+                active_invocation_node_key=fields.get("active_invocation_node_key", ""),
+                active_invocation_status=fields.get("active_invocation_status", ""),
+                active_invocation_policy=fields.get("active_invocation_policy", ""),
+                has_active_invocation=bool(fields.get("has_active_invocation", False)),
+                requires_ai_review=fields.get("requires_ai_review", False),
+                autopilot_pause_reason=fields.get("autopilot_pause_reason", ""),
             )
         else:
             # 更新字段
@@ -406,7 +414,7 @@ def get_state_publisher() -> StatePublisher:
 
 def init_state_publisher(
     shared_state: SharedStateRepository,
-    persistence_queue: PersistenceQueue,
+    persistence_queue: Any,
 ) -> StatePublisher:
     """初始化状态发布器"""
     global _state_publisher

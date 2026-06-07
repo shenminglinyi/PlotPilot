@@ -137,6 +137,23 @@ class TripleRepository:
         self._db.get_connection().commit()
         return cur.rowcount > 0
 
+    def get_starred_triple_ids_sync(self, novel_id: str) -> List[str]:
+        """同步：返回用户标记星标的三元组 ID 列表。"""
+        rows = self._db.fetch_all(
+            "SELECT id FROM triples WHERE novel_id = ? AND COALESCE(is_starred, 0) = 1",
+            (novel_id,),
+        )
+        return [r["id"] for r in rows]
+
+    def star_triple_sync(self, triple_id: str, starred: bool) -> bool:
+        """同步：切换三元组星标状态，返回是否找到该条目。"""
+        cur = self._db.execute(
+            "UPDATE triples SET is_starred = ? WHERE id = ?",
+            (1 if starred else 0, triple_id),
+        )
+        self._db.get_connection().commit()
+        return cur.rowcount > 0
+
     def get_by_novel_sync(self, novel_id: str) -> List[Triple]:
         """同步：获取小说所有三元组。"""
         more, tags, attrs = self._kr.get_triple_side_data_for_novel(novel_id)

@@ -6,6 +6,7 @@ from domain.novel.value_objects.novel_id import NovelId
 from domain.worldbuilding.worldbuilding import Worldbuilding
 
 from application.world.services.narrative_contract_text import (
+    build_worldbuilding_prompt_fields,
     build_ctx_blueprint_outputs,
     build_narrative_contract_block,
     format_worldbuilding_for_prompt,
@@ -27,6 +28,41 @@ def test_build_narrative_contract_block_orders_style_then_wb():
     idx_style = block.index("文风")
     idx_wb = block.index("群山")
     assert idx_style < idx_wb
+
+
+def test_format_worldbuilding_slices_filters_extension_fields():
+    slices = {
+        "core_rules": {
+            "power_system": "体系",
+            "cost_and_limitation": "越级反噬",
+        },
+    }
+    from application.world.services.narrative_contract_text import (
+        format_worldbuilding_slices_for_prompt,
+    )
+
+    text = format_worldbuilding_slices_for_prompt(slices)
+    assert "越级反噬" not in text
+    assert "cost_and_limitation" not in text
+    assert "体系" in text
+
+
+def test_build_worldbuilding_prompt_fields_returns_full_and_dimensions():
+    slices = {
+        "core_rules": {"power_system": "体系"},
+        "geography": {"terrain": "山脉"},
+    }
+    out = build_worldbuilding_prompt_fields(worldbuilding_slices=slices)
+
+    assert "worldbuilding" not in out
+    assert "体系" in out["worldbuilding_full"]
+    assert "山脉" in out["geography"]
+    assert out["society"] == ""
+
+
+def test_build_worldbuilding_prompt_fields_only_exposes_full_and_dimensions():
+    out = build_worldbuilding_prompt_fields(worldbuilding_slices={})
+    assert set(out) == {"worldbuilding_full", "core_rules", "geography", "society", "culture", "daily_life"}
 
 
 def test_build_ctx_blueprint_splits_taboos_and_atmosphere():

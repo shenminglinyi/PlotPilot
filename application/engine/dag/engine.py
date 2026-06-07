@@ -246,7 +246,7 @@ class DAGEngine:
                 result = await self._execute_node(node_def, state)
                 state.update(result)
             else:
-                # ★ 并行节点 — 同层无依赖节点并发执行
+                # 并行节点 — 同层无依赖节点并发执行
                 # 使用共享 state 的只读快照，避免并发写入冲突
                 state_snapshot = dict(state)
                 tasks = [self._execute_node(n, state_snapshot) for n in layer]

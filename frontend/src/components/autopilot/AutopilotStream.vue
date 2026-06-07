@@ -2,7 +2,7 @@
   <div v-if="isVisible" class="ap-stream">
     <div class="stream-header">
       <span class="pulse-dot"></span>
-      正在生成第 {{ chapterNumber }} 章 · 节拍 {{ (beatIndex || 0) + 1 }}
+      正在生成第 {{ chapterNumber }} 章 · {{ stageLabel }}
       <span class="word-count">{{ wordCount }} 字</span>
     </div>
     <div ref="streamEl" class="stream-body">
@@ -14,7 +14,7 @@
 
 <script setup>
 import { ref, computed, watch, onUnmounted, nextTick } from 'vue'
-import { resolveHttpUrl } from '../../api/config'
+import { chapterApi } from '../../api/chapter'
 
 const props = defineProps({
   novelId: String,
@@ -28,19 +28,16 @@ const displayContent = ref('')
 const chapterNumber = ref(0)
 const beatIndex = computed(() => props.currentBeatIndex || 0)
 const wordCount = computed(() => displayContent.value.length)
+
+const stageLabel = computed(() => '正文撰写中')
 const streamEl = ref(null)
 
 let pollTimer = null
 
 async function fetchLatestDraft() {
   // 取最新 draft 章节的内容
-  const res = await fetch(
-    resolveHttpUrl(`/api/v1/novels/${props.novelId}/chapters?status=draft&limit=1`),
-  )
-  if (!res.ok) return
-  const data = await res.json()
-  if (data.chapters?.length) {
-    const ch = data.chapters[0]
+  const ch = await chapterApi.getLatestDraftChapter(props.novelId)
+  if (ch) {
     displayContent.value = ch.content || ''
     chapterNumber.value = ch.number
     // 自动滚到底

@@ -28,7 +28,7 @@ class PersistenceQueueAdapter:
             db_pool = get_connection_pool()
             self._impl = PersistentQueueV2(db_pool)
             self._use_v2 = True
-            logger.info("✅ 使用持久化队列 V2 (SQLite)")
+            logger.info("使用持久化队列 V2 (SQLite)")
 
         except Exception as e:
             logger.warning(f"初始化持久化队列 V2 失败，降级到 V1: {e}")
@@ -40,7 +40,7 @@ class PersistenceQueueAdapter:
                 )
                 self._impl = get_persistence_queue()
                 self._use_v2 = False
-                logger.info("✅ 使用持久化队列 V1 (内存)")
+                logger.info("使用持久化队列 V1 (内存)")
 
             except Exception as e2:
                 logger.error(f"初始化持久化队列失败: {e2}")

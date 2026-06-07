@@ -14,6 +14,7 @@ from engine.runtime.quality_guardrails.plot_density_guardrail import PlotDensity
 from engine.runtime.quality_guardrails.naming_guardrail import NamingGuardrail
 from engine.runtime.quality_guardrails.viewpoint_guardrail import ViewpointGuardrail
 from engine.runtime.quality_guardrails.rhythm_guardrail import RhythmGuardrail
+from engine.runtime.quality_guardrails.macro_pacing_guardrail import MacroPacingGuardrail
 from engine.runtime.quality_guardrails.quality_guardrail import QualityGuardrail, QualityViolationError
 
 __all__ = [
@@ -23,6 +24,7 @@ __all__ = [
     "NamingGuardrail",
     "ViewpointGuardrail",
     "RhythmGuardrail",
+    "MacroPacingGuardrail",
     "QualityGuardrail",
     "QualityViolationError",
 ]

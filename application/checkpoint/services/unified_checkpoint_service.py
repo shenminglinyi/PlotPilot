@@ -10,48 +10,15 @@
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+
+from application.world.services.bible_snapshot_state import collect_bible_snapshot_state
 
 logger = logging.getLogger(__name__)
 
-_DDL = """
-CREATE TABLE IF NOT EXISTS novel_checkpoints (
-    id                  TEXT PRIMARY KEY,
-    novel_id            TEXT NOT NULL,
-    parent_id           TEXT,
-    branch_name         TEXT NOT NULL DEFAULT 'main',
-    trigger_type        TEXT NOT NULL,
-    name                TEXT NOT NULL,
-    description         TEXT,
-    chapter_pointers    TEXT NOT NULL DEFAULT '[]',
-    anchor_chapter      INTEGER,
-    story_state         TEXT NOT NULL DEFAULT '{}',
-    character_masks     TEXT NOT NULL DEFAULT '{}',
-    emotion_ledger      TEXT NOT NULL DEFAULT '{}',
-    active_foreshadows  TEXT NOT NULL DEFAULT '[]',
-    outline             TEXT NOT NULL DEFAULT '',
-    recent_summary      TEXT NOT NULL DEFAULT '',
-    bible_state         TEXT NOT NULL DEFAULT '{}',
-    foreshadow_state    TEXT NOT NULL DEFAULT '{}',
-    is_active           INTEGER NOT NULL DEFAULT 1,
-    created_at          TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_novel_checkpoints_novel_id ON novel_checkpoints(novel_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_novel_checkpoints_parent_id ON novel_checkpoints(parent_id);
-
-CREATE TABLE IF NOT EXISTS novel_branches (
-    id              TEXT PRIMARY KEY,
-    novel_id        TEXT NOT NULL,
-    name            TEXT NOT NULL,
-    head_id         TEXT NOT NULL,
-    is_default      INTEGER NOT NULL DEFAULT 0,
-    storyline_id    TEXT,
-    created_at      TEXT NOT NULL,
-    UNIQUE(novel_id, name)
-);
-CREATE INDEX IF NOT EXISTS idx_novel_branches_novel_id ON novel_branches(novel_id);
-"""
+# DDL moved to infrastructure/persistence/database/schema.sql (novel_checkpoints + novel_branches)
+_DDL = ""  # kept for backward compatibility; schema.sql is the authoritative DDL
 
 
 class UnifiedCheckpointService:
@@ -74,22 +41,11 @@ class UnifiedCheckpointService:
     # ==================== 内部工具 ====================
 
     def _ensure_tables(self) -> None:
-        """确保 DDL 已执行（只执行一次）"""
-        if self._tables_ensured:
-            return
-        try:
-            conn = self.db.get_connection()
-            for statement in _DDL.strip().split(";"):
-                stmt = statement.strip()
-                if stmt:
-                    conn.execute(stmt)
-            conn.commit()
-            self._tables_ensured = True
-        except Exception as e:
-            logger.error("[UnifiedCheckpoint] DDL 执行失败: %s", e)
+        """DDL 已移入 schema.sql，由数据库初始化时统一执行；此方法保留供兼容调用。"""
+        self._tables_ensured = True
 
     def _now_iso(self) -> str:
-        return datetime.utcnow().isoformat()
+        return datetime.now(timezone.utc).isoformat()
 
     def _json_loads_safe(self, raw: Any, default: Any) -> Any:
         if raw is None:
@@ -100,6 +56,64 @@ class UnifiedCheckpointService:
             return json.loads(raw)
         except (json.JSONDecodeError, TypeError):
             return default
+
+    def _world_slices_by_chapter(self, novel_id: str, branch_id: str = "main") -> Dict[int, Dict[str, Any]]:
+        try:
+            rows = self.db.fetch_all(
+                """
+                SELECT chapter_number, ending_state_json, delta_actions_json, conflicts_json
+                FROM chapter_evolution_snapshots
+                WHERE novel_id = ? AND branch_id = ? AND status != 'stale'
+                ORDER BY chapter_number ASC
+                """,
+                (novel_id, branch_id),
+            )
+        except Exception:
+            return {}
+
+        out: Dict[int, Dict[str, Any]] = {}
+        for row in rows:
+            ch = int(row.get("chapter_number") or 0)
+            ending = self._json_loads_safe(row.get("ending_state_json"), {})
+            scene = ending.get("scene") if isinstance(ending, dict) else {}
+            characters = ending.get("characters") if isinstance(ending, dict) else {}
+            items = ending.get("items") if isinstance(ending, dict) else {}
+            actions = self._json_loads_safe(row.get("delta_actions_json"), [])
+            conflicts = self._json_loads_safe(row.get("conflicts_json"), [])
+            char_list = []
+            if isinstance(characters, dict):
+                for cid, data in list(characters.items())[:8]:
+                    data = data if isinstance(data, dict) else {}
+                    char_list.append(
+                        {
+                            "id": cid,
+                            "name": data.get("name") or cid,
+                            "status": data.get("status") or "alive",
+                            "location": data.get("location") or "",
+                        }
+                    )
+            item_list = []
+            if isinstance(items, dict):
+                for item_id, data in list(items.items())[:8]:
+                    data = data if isinstance(data, dict) else {}
+                    item_list.append(
+                        {
+                            "id": item_id,
+                            "name": data.get("name") or item_id,
+                            "holder": data.get("holder") or data.get("holder_character_id") or "",
+                        }
+                    )
+            out[ch] = {
+                "chapter_number": ch,
+                "time_anchor": (scene or {}).get("time_anchor", "") if isinstance(scene, dict) else "",
+                "location": (scene or {}).get("location", "") if isinstance(scene, dict) else "",
+                "emotional_residue": (scene or {}).get("emotional_residue", "") if isinstance(scene, dict) else "",
+                "characters": char_list,
+                "items": item_list,
+                "actions_count": len(actions) if isinstance(actions, list) else 0,
+                "conflicts_count": len(conflicts) if isinstance(conflicts, list) else 0,
+            }
+        return out
 
     def _get_or_create_branch(self, novel_id: str, branch_name: str, head_id: str) -> None:
         """获取或创建分支，并更新 head_id。"""
@@ -124,6 +138,16 @@ class UnifiedCheckpointService:
             self.db.get_connection().commit()
         except Exception as e:
             logger.error("[UnifiedCheckpoint] 分支更新失败: %s", e)
+
+    def _get_branch_head(self, novel_id: str, branch_name: str) -> Optional[str]:
+        try:
+            row = self.db.fetch_one(
+                "SELECT head_id FROM novel_branches WHERE novel_id = ? AND name = ?",
+                (novel_id, branch_name),
+            )
+            return row.get("head_id") if row else None
+        except Exception:
+            return None
 
     # ==================== 核心方法 ====================
 
@@ -165,6 +189,9 @@ class UnifiedCheckpointService:
 
         from domain.novel.value_objects.novel_id import NovelId
 
+        if parent_id is None:
+            parent_id = self._get_branch_head(novel_id, branch_name)
+
         # 1. 采集章节指针（已完成章节）
         chapter_pointers: List[str] = []
         try:
@@ -173,8 +200,8 @@ class UnifiedCheckpointService:
         except Exception as e:
             logger.warning("[UnifiedCheckpoint] 章节指针采集失败: %s", e)
 
-        # 2. bible_state（简化版）
-        bible_state: Dict[str, Any] = {"exists": True, "timestamp": self._now_iso()}
+        # 2. Bible 结构化状态；只采集 Bible 元数据和结构化条目，不深拷贝章节正文。
+        bible_state: Dict[str, Any] = collect_bible_snapshot_state(self.db, novel_id)
 
         # 3. foreshadow_state
         foreshadow_state: Dict[str, Any] = {}
@@ -267,6 +294,7 @@ class UnifiedCheckpointService:
         """
         self._ensure_tables()
         try:
+            slices = self._world_slices_by_chapter(novel_id)
             rows = self.db.fetch_all(
                 """SELECT id, novel_id, parent_id, branch_name, trigger_type, name,
                           description, anchor_chapter, is_active, created_at
@@ -299,7 +327,7 @@ class UnifiedCheckpointService:
 
         try:
             rows = self.db.fetch_all(
-                """SELECT id, name, trigger_type, branch_name, created_at, parent_id, anchor_chapter
+                """SELECT id, name, trigger_type, branch_name, created_at, parent_id, anchor_chapter, story_state
                    FROM novel_checkpoints
                    WHERE novel_id = ? AND is_active = 1
                    ORDER BY created_at ASC""",
@@ -307,16 +335,28 @@ class UnifiedCheckpointService:
             )
             for row in rows:
                 d = dict(row)
+                anchor = d.get("anchor_chapter")
+                world_slice = slices.get(int(anchor or 0), {}) if anchor is not None else {}
                 nodes.append({
                     "id": d["id"],
                     "name": d["name"],
                     "trigger_type": d["trigger_type"],
                     "branch_name": d["branch_name"],
                     "created_at": d["created_at"],
-                    "anchor_chapter": d.get("anchor_chapter"),
+                    "anchor_chapter": anchor,
+                    "world_slice": world_slice,
+                    "rollback_slice": {
+                        "to_checkpoint_id": d["id"],
+                        "to_chapter": anchor,
+                        "branch_name": d["branch_name"],
+                    },
                 })
                 if d.get("parent_id"):
                     edges.append({"from": d["parent_id"], "to": d["id"]})
+                story_state = self._json_loads_safe(d.get("story_state"), {})
+                merge_from = story_state.get("merge_from_checkpoint_id") if isinstance(story_state, dict) else None
+                if merge_from:
+                    edges.append({"from": merge_from, "to": d["id"], "kind": "merge"})
 
             branch_rows = self.db.fetch_all(
                 "SELECT id, name, head_id, is_default, storyline_id FROM novel_branches WHERE novel_id = ?",
@@ -364,6 +404,42 @@ class UnifiedCheckpointService:
             logger.error("[UnifiedCheckpoint] create_branch 失败: %s", e)
             raise ValueError(f"create_branch 失败: {e}") from e
         return branch_id
+
+    def merge_branch(
+        self,
+        novel_id: str,
+        source_branch_id: str,
+        target_branch_name: str = "main",
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> str:
+        """将一个分支以 merge checkpoint 形式汇入目标分支。"""
+        self._ensure_tables()
+        source = self.db.fetch_one(
+            "SELECT * FROM novel_branches WHERE id = ? AND novel_id = ?",
+            (source_branch_id, novel_id),
+        )
+        if not source:
+            raise ValueError("source_branch_not_found")
+        source_head = source.get("head_id")
+        target_head = self._get_branch_head(novel_id, target_branch_name)
+        if not source_head:
+            raise ValueError("source_branch_has_no_head")
+        checkpoint_id = self.create_checkpoint(
+            novel_id=novel_id,
+            trigger_type="MERGE",
+            name=name or f"{source.get('name') or '分支'} 汇入 {target_branch_name}",
+            description=description or "分支汇流 checkpoint",
+            branch_name=target_branch_name,
+            parent_id=target_head,
+            story_state={
+                "merge_from_branch_id": source_branch_id,
+                "merge_from_branch_name": source.get("name"),
+                "merge_from_checkpoint_id": source_head,
+                "merge_target_branch_name": target_branch_name,
+            },
+        )
+        return checkpoint_id
 
     def list_branches(self, novel_id: str) -> List[Dict[str, Any]]:
         """列出小说所有分支。

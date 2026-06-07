@@ -120,6 +120,11 @@ import LocationRelationGraph from '../components/graphs/LocationRelationGraph.vu
 import KnowledgeTriplesTableEditor from '../components/knowledge/KnowledgeTriplesTableEditor.vue'
 import type { EChartsNode } from '../utils/visToEcharts'
 import type { ComponentPublicInstance } from 'vue'
+import {
+  getLocationImportanceLabel,
+  getLocationImportanceTagType,
+  getLocationTypeDetailLabel,
+} from '@/domain/knowledge'
 
 const route = useRoute()
 const router = useRouter()
@@ -169,32 +174,15 @@ const onTriplesSaved = async () => {
 }
 
 const locationTypeLabel = (type: string) => {
-  const labels: Record<string, string> = {
-    city: '城市',
-    region: '区域',
-    building: '建筑',
-    faction: '势力',
-    realm: '境界/领域'
-  }
-  return labels[type] || type
+  return getLocationTypeDetailLabel(type)
 }
 
 const importanceLabel = (importance: string) => {
-  const labels: Record<string, string> = {
-    core: '核心地点',
-    important: '重要地点',
-    normal: '一般地点'
-  }
-  return labels[importance] || importance
+  return getLocationImportanceLabel(importance)
 }
 
 const importanceTagType = (importance: string) => {
-  const types: Record<string, 'success' | 'warning' | 'default'> = {
-    core: 'success',
-    important: 'warning',
-    normal: 'default'
-  }
-  return types[importance] || 'default'
+  return getLocationImportanceTagType(importance)
 }
 </script>
 

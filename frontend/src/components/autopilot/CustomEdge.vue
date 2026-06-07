@@ -27,14 +27,14 @@ const conditionLabel = computed(() => {
   const condition = props.data?.condition
   if (!condition || condition === 'always') return ''
   const labels: Record<string, string> = {
-    on_success: '✅',
-    on_error: '❌',
-    on_drift_alert: '⚡文风偏离',
-    on_no_drift: '✅文风正常',
-    on_breaker_open: '🔴熔断',
-    on_breaker_closed: '🟢正常',
-    on_review_approved: '✅审批通过',
-    on_review_rejected: '❌审批拒绝',
+    on_success: '成功',
+    on_error: '错误',
+    on_drift_alert: '文风偏离',
+    on_no_drift: '文风正常',
+    on_breaker_open: '熔断',
+    on_breaker_closed: '正常',
+    on_review_approved: '审批通过',
+    on_review_rejected: '审批拒绝',
   }
   return labels[condition] || condition
 })

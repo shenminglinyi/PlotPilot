@@ -7,7 +7,11 @@
 
     <div class="ap-metrics__stack">
       <section class="ap-metrics__hero" aria-label="张力曲线">
-        <TensionChart :novel-id="novelId" :refresh-key="chapterMetricsRefreshKey" />
+        <TensionChart
+          ref="tensionChartRef"
+          :novel-id="novelId"
+          :refresh-key="chapterMetricsRefreshKey"
+        />
       </section>
 
       <section class="ap-metrics__grid" aria-label="质量指标">
@@ -35,9 +39,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch, nextTick } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useMessage } from 'naive-ui'
 import { useDAGRunStore } from '@/stores/dagRunStore'
+import { useAutopilotWorkspaceStore } from '@/stores/autopilotWorkspaceStore'
 import TensionChart from './TensionChart.vue'
 import VoiceDriftIndicator from './VoiceDriftIndicator.vue'
 import ForeshadowLedger from './ForeshadowLedger.vue'
@@ -56,6 +62,25 @@ const runStore = useDAGRunStore()
 
 const monitorRefreshKey = ref(0)
 const chapterMetricsRefreshKey = ref(0)
+const tensionChartRef = ref<InstanceType<typeof TensionChart> | null>(null)
+
+const workspace = useAutopilotWorkspaceStore()
+const { activeTab } = storeToRefs(workspace)
+
+function scheduleTensionRelayout() {
+  void nextTick(() => {
+    requestAnimationFrame(() => {
+      tensionChartRef.value?.relayout()
+    })
+  })
+}
+
+/** 从驾驶舱切到仪表盘时，v-show 刚显示，需等布局完成再 relayout 张力图 */
+watch(activeTab, (tab) => {
+  if (tab === 'dashboard') {
+    scheduleTensionRelayout()
+  }
+})
 
 runStore.onRunComplete(() => {
   monitorRefreshKey.value++
@@ -64,7 +89,14 @@ runStore.onRunComplete(() => {
 
 onMounted(() => {
   runStore.fetchStatus(props.novelId)
+  if (activeTab.value === 'dashboard') {
+    scheduleTensionRelayout()
+  }
 })
+
+function relayoutTension() {
+  scheduleTensionRelayout()
+}
 
 function handleMonitorRefresh() {
   monitorRefreshKey.value++
@@ -88,7 +120,7 @@ function handleBreakerReset() {
   message.success('熔断器已重置，可以重新启动 Autopilot')
 }
 
-defineExpose({ bumpRefresh: handleMonitorRefresh })
+defineExpose({ bumpRefresh: handleMonitorRefresh, relayoutTension })
 </script>
 
 <style scoped>

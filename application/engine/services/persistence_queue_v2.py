@@ -425,14 +425,14 @@ class PersistentQueueV2:
             daemon=True,
         )
         self._consumer_thread.start()
-        logger.info("✅ 持久化队列消费者已启动")
+        logger.info("持久化队列消费者已启动")
 
     def stop_consumer(self):
         """停止消费者线程"""
         self._stop_event.set()
         if self._consumer_thread:
             self._consumer_thread.join(timeout=5)
-        logger.info("🛑 持久化队列消费者已停止")
+        logger.info("持久化队列消费者已停止")
 
     def _consume_loop(self):
         """消费者主循环"""
@@ -501,7 +501,7 @@ class PersistentQueueV2:
 
                 if result.rowcount > 0:
                     self._stats["zombie_recovered"] += result.rowcount
-                    logger.info(f"✅ 恢复了 {result.rowcount} 个僵尸任务")
+                    logger.info(f"恢复了 {result.rowcount} 个僵尸任务")
 
         except Exception as e:
             logger.warning(f"僵尸任务恢复失败: {e}")
@@ -528,7 +528,7 @@ class PersistentQueueV2:
 
                 if total_row and total_row["total"] > self.QUEUE_BLOAT_WARNING:
                     logger.warning(
-                        f"⚠️ 队列膨胀警告：当前 {total_row['total']} 条记录，"
+                        f"队列膨胀警告：当前 {total_row['total']} 条记录，"
                         f"超过阈值 {self.QUEUE_BLOAT_WARNING}"
                     )
 
@@ -579,5 +579,5 @@ def initialize_persistent_queue_v2(db_pool) -> PersistentQueueV2:
     """初始化持久化队列"""
     global _persistent_queue_v2
     _persistent_queue_v2 = PersistentQueueV2(db_pool)
-    logger.info("✅ 持久化队列 V2 已初始化")
+    logger.info("持久化队列 V2 已初始化")
     return _persistent_queue_v2

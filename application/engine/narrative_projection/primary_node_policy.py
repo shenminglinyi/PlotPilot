@@ -58,14 +58,15 @@ class SubstepPrimaryRow:
 SUBSTEP_PRIMARY_ROWS: Tuple[SubstepPrimaryRow, ...] = (
     SubstepPrimaryRow(frozenset({"macro_planning"}), "ctx_blueprint"),
     SubstepPrimaryRow(frozenset({"act_planning"}), "ctx_memory"),
-    SubstepPrimaryRow(frozenset({"outline_planning"}), "exec_beat"),
+    SubstepPrimaryRow(frozenset({"outline_planning", "chapter_plan_ready"}), "exec_beat"),
     SubstepPrimaryRow(frozenset({"llm_calling"}), "exec_writer"),
+    SubstepPrimaryRow(frozenset({"pipeline_run"}), "exec_writer"),
     SubstepPrimaryRow(
-        frozenset({"chapter_found", "context_assembly", "beat_magnification"}),
+        frozenset({"chapter_found", "context_assembly", "beat_magnification", "chapter_plan_ready"}),
         "exec_beat",
     ),
     SubstepPrimaryRow(
-        frozenset({"soft_landing", "persisting", "continuity_check", "chapter_persist"}),
+        frozenset({"persisting", "continuity_check", "chapter_persist"}),
         "exec_writer",
     ),
     SubstepPrimaryRow(frozenset({"audit_voice_check"}), "val_style"),

@@ -57,6 +57,7 @@ import { knowledgeApi, type ChapterSummary, type KnowledgeTriple } from '../../a
 import GraphChart from '../charts/GraphChart.vue'
 import KnowledgeTriplesTableEditor from './KnowledgeTriplesTableEditor.vue'
 import { convertGraph, type VisNode, type VisEdge, type EChartsGraphData } from '../../utils/visToEcharts'
+import { formatApiError } from '@/utils/apiError'
 
 const props = defineProps<{ slug: string }>()
 const message = useMessage()
@@ -151,8 +152,8 @@ const reload = async () => {
     jsonText.value = JSON.stringify(data.facts || [], null, 2)
     jsonError.value = ''
     await redraw()
-  } catch (e: any) {
-    message.error(e?.response?.data?.detail || '加载失败')
+  } catch (e: unknown) {
+    message.error(formatApiError(e, '加载失败'))
   } finally {
     loading.value = false
   }
@@ -173,8 +174,8 @@ const save = async () => {
     })
     message.success('已保存')
     await reload()
-  } catch (e: any) {
-    message.error(e?.response?.data?.detail || '保存失败')
+  } catch (e: unknown) {
+    message.error(formatApiError(e, '保存失败'))
   } finally {
     saving.value = false
   }

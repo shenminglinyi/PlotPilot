@@ -1,4 +1,5 @@
-import { apiClient } from './config'
+import { apiClient, subscribeChapterStream as subscribeChapterStreamRequest } from './config'
+import { apiRoutes } from './endpoints'
 import type { GuardrailCheckResponse } from './engineCore'
 
 export interface ChapterDTO {
@@ -9,6 +10,7 @@ export interface ChapterDTO {
   content: string
   status: string
   word_count: number
+  generation_hint?: string
   created_at: string
   updated_at: string
 }
@@ -18,6 +20,21 @@ export interface ChapterMicroBeatPayload {
   target_words?: number
   focus?: string
   location_id?: string
+  function?: string
+  pov?: string
+  cast_refs?: string[]
+  location_refs?: string[]
+  prop_refs?: string[]
+  knowledge_refs?: string[]
+  visible_action?: string
+  conflict?: string
+  delta?: string
+  handoff_to_next?: string
+  must_include?: string[]
+  must_not_include?: string[]
+  active_action?: string
+  emotion_gap?: string
+  forbidden_drift?: string
 }
 
 export interface UpdateChapterRequest {
@@ -48,6 +65,10 @@ export interface ChapterReviewAiResponse {
   saved: boolean
 }
 
+export interface ChapterListResponse {
+  chapters?: ChapterDTO[]
+}
+
 export const chapterApi = {
   /**
    * List all chapters for a novel
@@ -55,6 +76,18 @@ export const chapterApi = {
    */
   listChapters: (novelId: string) =>
     apiClient.get<ChapterDTO[]>(`/novels/${novelId}/chapters`) as Promise<ChapterDTO[]>,
+
+  /**
+   * Get the latest draft chapter for live preview fallback
+   * GET /api/v1/novels/{novelId}/chapters?status=draft&limit=1
+   */
+  getLatestDraftChapter: async (novelId: string): Promise<ChapterDTO | null> => {
+    const data = await apiClient.get<ChapterListResponse>(
+      apiRoutes.novels.chaptersClient(novelId),
+      { params: { status: 'draft', limit: 1 } },
+    ) as ChapterListResponse
+    return data.chapters?.[0] ?? null
+  },
 
   /**
    * Get a specific chapter by number
@@ -80,6 +113,16 @@ export const chapterApi = {
       `/novels/${novelId}/chapters/${chapterNumber}/micro-beats`,
       { micro_beats },
     ) as Promise<{ ok: boolean; chapter_number: number; count: number }>,
+
+  /**
+   * 更新章节生成约束（用户手写指令，直注 AI 上下文）
+   * PATCH /api/v1/novels/{novelId}/chapters/{chapterNumber}/hint
+   */
+  updateGenerationHint: (novelId: string, chapterNumber: number, generationHint: string) =>
+    apiClient.patch<ChapterDTO>(
+      `/novels/${novelId}/chapters/${chapterNumber}/hint`,
+      { generation_hint: generationHint },
+    ) as Promise<ChapterDTO>,
 
   /**
    * Get chapter review
@@ -129,4 +172,6 @@ export const chapterApi = {
    */
   ensureChapter: (novelId: string, chapterNumber: number, title = '') =>
     apiClient.post<ChapterDTO>(`/novels/${novelId}/chapters/${chapterNumber}/ensure`, { title }) as Promise<ChapterDTO>,
+
+  subscribeStream: subscribeChapterStreamRequest,
 }

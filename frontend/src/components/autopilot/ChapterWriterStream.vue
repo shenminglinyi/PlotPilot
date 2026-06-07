@@ -4,7 +4,7 @@
       <span class="pulse-dot"></span>
       <span class="header-text">
         正在生成第 {{ chapterNumber }} 章
-        <span v-if="beatIndex > 0" class="beat-badge">节拍 {{ beatIndex }}</span>
+        <span v-if="stageLabel" class="beat-badge">{{ stageLabel }}</span>
       </span>
       <span class="word-count">{{ wordCount }} 字</span>
     </div>
@@ -17,7 +17,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onUnmounted, nextTick } from 'vue'
-import { subscribeChapterStream } from '../../api/config'
+import { chapterApi } from '../../api/chapter'
 
 const props = defineProps<{
   novelId: string
@@ -33,6 +33,11 @@ const displayContent = ref('')
 const chapterNumber = ref(0)
 const beatIndex = ref(0)
 const wordCount = computed(() => displayContent.value.length)
+
+const stageLabel = computed(() => {
+  if (beatIndex.value > 0) return '正文撰写中'
+  return ''
+})
 const contentEl = ref<HTMLElement | null>(null)
 
 let abortCtrl: AbortController | null = null
@@ -46,16 +51,20 @@ function startStream() {
   chapterNumber.value = 0
   beatIndex.value = 0
 
-  abortCtrl = subscribeChapterStream(props.novelId, {
+  abortCtrl = chapterApi.subscribeStream(props.novelId, {
     onChapterStart: (num) => {
       chapterNumber.value = num
       displayContent.value = ''
       beatIndex.value = 0
     },
     // 🔥 流式增量文字：直接追加显示
-    onChapterChunk: (chunk, beatIdx) => {
-      displayContent.value += chunk
-      beatIndex.value = beatIdx
+    onChapterChunk: (payload) => {
+      if (payload.isSnapshot && payload.content != null) {
+        displayContent.value = payload.content
+      } else if (payload.chunk) {
+        displayContent.value += payload.chunk
+      }
+      beatIndex.value = payload.beatIndex
 
       // 自动滚动到底部
       nextTick(() => {

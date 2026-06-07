@@ -24,6 +24,13 @@ from application.engine.dag.models import (
     PromptMode,
 )
 from application.engine.dag.registry import BaseNode, NodeRegistry
+from infrastructure.ai.prompt_keys import (
+    REVIEW_CHARACTER_CONSISTENCY,
+    REVIEW_FORESHADOWING_USAGE,
+    REVIEW_IMPROVEMENT_SUGGESTIONS,
+    REVIEW_STORYLINE_CONSISTENCY,
+    REVIEW_TIMELINE_CONSISTENCY,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,9 +44,9 @@ class CharacterReviewNode(BaseNode):
 
     meta = NodeMeta(
         node_type="review_character",
-        display_name="👤 人物OOC检测",
+        display_name="人物OOC检测",
         category=NodeCategory.REVIEW,
-        icon="👤",
+        icon="",
         color="#b45309",
         input_ports=[
             NodePort(name="character_name", data_type=PortDataType.TEXT, required=True),
@@ -50,12 +57,11 @@ class CharacterReviewNode(BaseNode):
             NodePort(name="inconsistencies", data_type=PortDataType.LIST),
             NodePort(name="ooc_score", data_type=PortDataType.SCORE),
         ],
-        prompt_template="你是最苛刻的审稿人...",
         prompt_variables=["character_name", "character_profile", "chapter_content"],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=60,
-        cpms_node_key="review-character-consistency",
+        cpms_node_key=REVIEW_CHARACTER_CONSISTENCY,
         prompt_mode=PromptMode.CPMS_FIRST,
         description="OOC检测 + AI味检测双刀审稿",
         default_edges=["review_storyline"],
@@ -147,12 +153,11 @@ class TimelineReviewNode(BaseNode):
             NodePort(name="conflicts", data_type=PortDataType.LIST),
             NodePort(name="timeline_score", data_type=PortDataType.SCORE),
         ],
-        prompt_template="你是小说的逻辑质检员...",
         prompt_variables=["current_events", "previous_events", "chapter_content"],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=60,
-        cpms_node_key="review-timeline-consistency",
+        cpms_node_key=REVIEW_TIMELINE_CONSISTENCY,
         prompt_mode=PromptMode.CPMS_FIRST,
         description="时间穿帮纠错，审查物理空间与时间的硬伤",
         default_edges=["review_foreshadowing"],
@@ -225,9 +230,9 @@ class StorylineReviewNode(BaseNode):
 
     meta = NodeMeta(
         node_type="review_storyline",
-        display_name="📖 故事线检查",
+        display_name="故事线检查",
         category=NodeCategory.REVIEW,
-        icon="📖",
+        icon="",
         color="#78350f",
         input_ports=[
             NodePort(name="active_storylines", data_type=PortDataType.TEXT, required=True),
@@ -237,12 +242,11 @@ class StorylineReviewNode(BaseNode):
             NodePort(name="gaps", data_type=PortDataType.LIST),
             NodePort(name="storyline_progress", data_type=PortDataType.SCORE),
         ],
-        prompt_template="你是长篇架构审核员...",
         prompt_variables=["active_storylines", "chapter_content"],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=60,
-        cpms_node_key="review-storyline-consistency",
+        cpms_node_key=REVIEW_STORYLINE_CONSISTENCY,
         prompt_mode=PromptMode.CPMS_FIRST,
         description="避免挖坑不填和主线偏移，维持多线叙事的紧凑感",
         default_edges=["review_character"],
@@ -314,9 +318,9 @@ class ForeshadowingReviewNode(BaseNode):
 
     meta = NodeMeta(
         node_type="review_foreshadowing",
-        display_name="🎯 伏笔使用检查",
+        display_name="伏笔使用检查",
         category=NodeCategory.REVIEW,
-        icon="🎯",
+        icon="",
         color="#a16207",
         input_ports=[
             NodePort(name="foreshadowings", data_type=PortDataType.TEXT, required=True),
@@ -325,12 +329,11 @@ class ForeshadowingReviewNode(BaseNode):
         output_ports=[
             NodePort(name="missed_opportunities", data_type=PortDataType.LIST),
         ],
-        prompt_template="你是伏笔追踪大师...",
         prompt_variables=["foreshadowings", "chapter_content"],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=60,
-        cpms_node_key="review-foreshadowing-usage",
+        cpms_node_key=REVIEW_FORESHADOWING_USAGE,
         prompt_mode=PromptMode.CPMS_FIRST,
         description="检查并促成'契诃夫的枪'在最佳时机开火",
         default_edges=["review_improvement"],
@@ -396,9 +399,9 @@ class ImprovementReviewNode(BaseNode):
 
     meta = NodeMeta(
         node_type="review_improvement",
-        display_name="💡 改进建议",
+        display_name="改进建议",
         category=NodeCategory.REVIEW,
-        icon="💡",
+        icon="",
         color="#ca8a04",
         input_ports=[
             NodePort(name="chapter_content", data_type=PortDataType.TEXT, required=True),
@@ -408,12 +411,11 @@ class ImprovementReviewNode(BaseNode):
             NodePort(name="suggestions", data_type=PortDataType.LIST),
             NodePort(name="priority", data_type=PortDataType.TEXT),
         ],
-        prompt_template="你是经验丰富的写作教练...",
         prompt_variables=["chapter_content", "review_reports"],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=60,
-        cpms_node_key="review-improvement-suggestions",
+        cpms_node_key=REVIEW_IMPROVEMENT_SUGGESTIONS,
         prompt_mode=PromptMode.CPMS_FIRST,
         description="基于审稿报告给出可操作的改进建议",
         default_edges=["gw_review"],

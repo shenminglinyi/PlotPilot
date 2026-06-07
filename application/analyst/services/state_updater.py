@@ -30,6 +30,19 @@ def _normalize_text(value: Any) -> str:
     return str(value or "").strip().lower()
 
 
+def _role_to_chapter_importance(role: str) -> str:
+    """将角色的 Bible role 映射到 chapter_elements.importance。
+
+    Bible role (PROTAGONIST/SUPPORTING/MINOR) → 章节级别 (major/normal/minor)
+    """
+    r = (role or '').upper()
+    if r == 'PROTAGONIST':
+        return 'major'
+    if r in ('SUPPORTING', 'MAJOR_SUPPORTING', 'IMPORTANT_SUPPORTING', 'MAJOR'):
+        return 'normal'
+    return 'minor'
+
+
 def _safe_chapter_int(value: Any, fallback: int) -> int:
     """LLM 常在 chapter 字段填「本章」「当前章节」等，避免 int() 直接崩。"""
     if value is None:
@@ -134,7 +147,7 @@ class StateUpdater:
             logger.debug(f"Updating Bible with {len(chapter_state.new_characters)} new characters")
             bible = self.bible_repository.get_by_novel_id(novel_id_obj)
             if bible is None:
-                logger.warning(f"Bible not found for novel {novel_id}, skipping character update")
+                raise ValueError(f"Bible not found for novel {novel_id}")
             else:
                 for char_data in chapter_state.new_characters:
                     char_id = CharacterId(str(uuid.uuid4()))
@@ -483,25 +496,44 @@ class StateUpdater:
                 if not char_name:
                     continue
 
-                # 查询角色ID
+                # 查询角色ID及 role — 优先 unified_characters，回退 bible_characters
+                char_id: str | None = None
+                role: str = char_data.get("role", "")
+
                 cursor.execute(
                     """
-                    SELECT id FROM bible_characters
+                    SELECT id, role FROM unified_characters
                     WHERE novel_id = ? AND name = ?
                     LIMIT 1
                     """,
                     (novel_id, char_name)
                 )
-                char_row = cursor.fetchone()
-                char_id = char_row[0] if char_row else str(uuid.uuid4())
+                unified_row = cursor.fetchone()
+                if unified_row:
+                    char_id = unified_row[0]
+                    if not role:
+                        role = unified_row[1] or ""
+                else:
+                    cursor.execute(
+                        """
+                        SELECT id FROM bible_characters
+                        WHERE novel_id = ? AND name = ?
+                        LIMIT 1
+                        """,
+                        (novel_id, char_name)
+                    )
+                    char_row = cursor.fetchone()
+                    char_id = char_row[0] if char_row else str(uuid.uuid4())
 
-                # 插入 chapter_elements
+                importance = _role_to_chapter_importance(role)
+
+                # 插入 chapter_elements — INSERT OR IGNORE 保留作者预设的 importance
                 element_id = f"elem-{uuid.uuid4().hex[:8]}"
 
                 try:
                     cursor.execute(
                         """
-                        INSERT INTO chapter_elements (
+                        INSERT OR IGNORE INTO chapter_elements (
                             id, chapter_id, element_type, element_id,
                             relation_type, importance, created_at
                         )
@@ -513,7 +545,7 @@ class StateUpdater:
                             'character',
                             char_id,
                             'appears',
-                            'normal',
+                            importance,
                             datetime.now().isoformat()
                         )
                     )

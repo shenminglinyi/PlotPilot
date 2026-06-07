@@ -93,6 +93,12 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import { knowledgeApi, type ChapterSummary, type KnowledgeTriple } from '../../api/knowledge'
+import { formatApiError } from '@/utils/apiError'
+import {
+  KNOWLEDGE_ENTITY_TYPE_OPTIONS,
+  LOCATION_TYPE_OPTIONS,
+  getKnowledgeImportanceOptions,
+} from '@/domain/knowledge'
 
 const props = withDefaults(
   defineProps<{
@@ -135,36 +141,9 @@ interface Fact {
   confidence?: number | null
 }
 
-const entityTypeOptions = [
-  { label: '人物', value: 'character' },
-  { label: '地点', value: 'location' },
-]
-
-const characterImportanceOptions = [
-  { label: '主角', value: 'primary' },
-  { label: '重要配角', value: 'secondary' },
-  { label: '次要人物', value: 'minor' },
-]
-
-const locationImportanceOptions = [
-  { label: '核心地点', value: 'core' },
-  { label: '重要地点', value: 'important' },
-  { label: '一般地点', value: 'normal' },
-]
-
-const locationTypeOptions = [
-  { label: '城市', value: 'city' },
-  { label: '区域', value: 'region' },
-  { label: '建筑', value: 'building' },
-  { label: '势力', value: 'faction' },
-  { label: '领域', value: 'realm' },
-]
-
-const getImportanceOptions = (entityType?: string | null) => {
-  if (entityType === 'character') return characterImportanceOptions
-  if (entityType === 'location') return locationImportanceOptions
-  return []
-}
+const entityTypeOptions = KNOWLEDGE_ENTITY_TYPE_OPTIONS
+const locationTypeOptions = LOCATION_TYPE_OPTIONS
+const getImportanceOptions = getKnowledgeImportanceOptions
 
 const loading = ref(false)
 const saving = ref(false)
@@ -225,8 +204,7 @@ const reload = async () => {
     chaptersSnapshot.value = Array.isArray(data.chapters) ? [...data.chapters] : []
     facts.value = (data.facts || []) as Fact[]
   } catch (e: unknown) {
-    const err = e as { response?: { data?: { detail?: string } } }
-    message.error(err?.response?.data?.detail || '加载失败')
+    message.error(formatApiError(e, '加载失败'))
   } finally {
     loading.value = false
   }
@@ -268,8 +246,7 @@ const save = async () => {
     await reload()
     emit('saved')
   } catch (e: unknown) {
-    const err = e as { response?: { data?: { detail?: string } } }
-    message.error(err?.response?.data?.detail || '保存失败')
+    message.error(formatApiError(e, '保存失败'))
   } finally {
     saving.value = false
   }

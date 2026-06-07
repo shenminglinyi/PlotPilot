@@ -19,6 +19,12 @@ from application.engine.dag.models import (
     PortDataType,
 )
 from application.engine.dag.registry import BaseNode, NodeRegistry
+from infrastructure.ai.prompt_keys import (
+    CIRCUIT_BREAKER,
+    CONDITION_GATEWAY,
+    RETRY_GATEWAY,
+    REVIEW_GATEWAY,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,9 +38,9 @@ class CircuitNode(BaseNode):
 
     meta = NodeMeta(
         node_type="gw_circuit",
-        display_name="🔌 熔断保护",
+        display_name="熔断保护",
         category=NodeCategory.GATEWAY,
-        icon="🔌",
+        icon="",
         color="#ef4444",
         input_ports=[
             NodePort(name="error_count", data_type=PortDataType.SCORE, required=False, default=0),
@@ -43,12 +49,11 @@ class CircuitNode(BaseNode):
         output_ports=[
             NodePort(name="breaker_status", data_type=PortDataType.TEXT),
         ],
-        prompt_template="",
         prompt_variables=[],
         is_configurable=False,
         can_disable=False,
         default_timeout_seconds=5,
-        cpms_node_key="circuit-breaker",
+        cpms_node_key=CIRCUIT_BREAKER,
         description="CircuitBreaker 熔断保护网关",
         default_edges=["val_narrative"],
     )
@@ -97,12 +102,11 @@ class ReviewNode(BaseNode):
         output_ports=[
             NodePort(name="approved", data_type=PortDataType.BOOLEAN),
         ],
-        prompt_template="",
         prompt_variables=[],
         is_configurable=False,
         can_disable=True,
         default_timeout_seconds=10,
-        cpms_node_key="review-gateway",
+        cpms_node_key=REVIEW_GATEWAY,
         description="PAUSED_FOR_REVIEW 审阅网关",
         default_edges=[],
     )
@@ -144,9 +148,9 @@ class ConditionNode(BaseNode):
 
     meta = NodeMeta(
         node_type="gw_condition",
-        display_name="🔀 条件路由",
+        display_name="条件路由",
         category=NodeCategory.GATEWAY,
-        icon="🔀",
+        icon="",
         color="#3b82f6",
         input_ports=[
             NodePort(name="input", data_type=PortDataType.JSON, required=True),
@@ -155,12 +159,11 @@ class ConditionNode(BaseNode):
             NodePort(name="output_true", data_type=PortDataType.JSON),
             NodePort(name="output_false", data_type=PortDataType.JSON),
         ],
-        prompt_template="",
         prompt_variables=[],
         is_configurable=True,
         can_disable=False,
         default_timeout_seconds=5,
-        cpms_node_key="condition-gateway",
+        cpms_node_key=CONDITION_GATEWAY,
         description="条件路由网关",
         default_edges=[],
     )
@@ -205,9 +208,9 @@ class RetryNode(BaseNode):
 
     meta = NodeMeta(
         node_type="gw_retry",
-        display_name="🔄 重写网关",
+        display_name="重写网关",
         category=NodeCategory.GATEWAY,
-        icon="🔄",
+        icon="",
         color="#8b5cf6",
         input_ports=[
             NodePort(name="input", data_type=PortDataType.JSON, required=True),
@@ -217,12 +220,11 @@ class RetryNode(BaseNode):
             NodePort(name="output", data_type=PortDataType.JSON),
             NodePort(name="attempts_used", data_type=PortDataType.SCORE),
         ],
-        prompt_template="以下章节文风偏离角色声线，请重写...",
         prompt_variables=["content"],
         is_configurable=True,
         can_disable=False,
         default_timeout_seconds=10,
-        cpms_node_key="retry-gateway",
+        cpms_node_key=RETRY_GATEWAY,
         description="文风检查失败时触发重写的重试网关",
         default_edges=["exec_writer"],
     )

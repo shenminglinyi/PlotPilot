@@ -4,7 +4,7 @@
       <span class="led" :class="connectionStatus"></span>
       <span class="title">实时日志</span>
       <div class="toolbar-right">
-        <span class="meta">{{ rows.length }} 行</span>
+        <span class="meta">{{ filteredRows.length }} / {{ rows.length }} 行</span>
         <span class="meta dim">{{ statusHint }}</span>
         <button
           v-if="!autoScroll"
@@ -25,6 +25,30 @@
         </n-tag>
       </div>
     </div>
+    <div class="terminal-controls">
+      <input
+        v-model="searchText"
+        class="log-search"
+        type="search"
+        placeholder="搜索来源 / 内容 / 路径"
+      />
+      <button
+        type="button"
+        class="filter-chip"
+        :class="{ 'is-active': hideHttp }"
+        @click="hideHttp = !hideHttp"
+      >
+        隐藏 HTTP
+      </button>
+      <button
+        type="button"
+        class="filter-chip"
+        :class="{ 'is-active': importantOnly }"
+        @click="importantOnly = !importantOnly"
+      >
+        只看重要
+      </button>
+    </div>
     <div v-if="progressHint" class="progress-strip">
       <span class="progress-text">{{ progressHint }}</span>
       <div v-if="wordProgressPct > 0" class="progress-bar-mini">
@@ -37,15 +61,29 @@
       @scroll="onScroll"
     >
       <div
-        v-for="row in rows"
+        v-for="row in visibleRows"
         :key="row.id"
         class="line"
-        :class="'line--' + row.kind"
+        :class="['line--' + row.kind, { 'line--expanded': expandedRows.has(row.id) }]"
+        :title="row.detail"
+        @click="toggleExpanded(row.id)"
       >
         <span class="time">{{ row.time }}</span>
-        <span class="msg">{{ row.text }}</span>
+        <span class="level">{{ row.level }}</span>
+        <span class="source">{{ row.source }}</span>
+        <span class="msg">
+          <template v-if="row.kind === 'http' && row.httpMethod">
+            <span class="http-method">{{ row.httpMethod }}</span>
+            <span class="http-path">{{ row.httpPath }}</span>
+            <span class="http-status" :class="'http-status--' + row.httpStatusKind">{{ row.httpStatus }}</span>
+          </template>
+          <template v-else>
+            {{ expandedRows.has(row.id) ? row.detail : row.text }}
+          </template>
+        </span>
       </div>
       <div v-if="rows.length === 0" class="empty">等待事件…</div>
+      <div v-else-if="filteredRows.length === 0" class="empty">当前筛选没有匹配日志</div>
     </div>
   </div>
 </template>
@@ -53,7 +91,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { NTag } from 'naive-ui'
-import { resolveHttpUrl } from '@/api/config'
+import { autopilotApi } from '@/api/autopilot'
 
 const props = defineProps<{ novelId: string }>()
 
@@ -63,16 +101,26 @@ const emit = defineEmits<{
   'chapter-metrics-refresh': []
 }>()
 
-const MAX_ROWS = 100
-const DISPLAY_MSG_MAX = 88
+const MAX_ROWS = 1000
+const MAX_RENDERED_ROWS = 260
+const DISPLAY_MSG_MAX = 4000
 
-type RowKind = 'info' | 'ok' | 'warn' | 'err' | 'dim'
+type RowKind = 'info' | 'ok' | 'warn' | 'err' | 'dim' | 'debug' | 'http'
+type HttpStatusKind = 'ok' | 'redirect' | 'warn' | 'err' | 'unknown'
 
 interface Row {
   id: string
   time: string
+  level: string
+  source: string
   text: string
+  detail: string
   kind: RowKind
+  searchable: string
+  httpMethod?: string
+  httpPath?: string
+  httpStatus?: string
+  httpStatusKind?: HttpStatusKind
 }
 
 const rows = ref<Row[]>([])
@@ -82,6 +130,10 @@ const lastLogSeq = ref(0)
 const progressHint = ref('')
 const progressMeta = ref<Record<string, unknown> | undefined>(undefined)
 const autoScroll = ref(true)
+const searchText = ref('')
+const hideHttp = ref(false)
+const importantOnly = ref(false)
+const expandedRows = ref<Set<string>>(new Set())
 
 /** 程序设置 scrollTop 时仍会触发 scroll；此期间忽略 onScroll，避免误判为「用户离开底部」 */
 let scrollingProgrammatically = false
@@ -228,16 +280,129 @@ function clipForUi(s: string) {
   return t.slice(0, DISPLAY_MSG_MAX - 1) + '…'
 }
 
-/** 构建细化的进度提示：子步骤 + 节拍进度 + 字数进度 */
+function stripLogIcons(s: string) {
+  return (s || '').replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu, '').trim()
+}
+
+function normalizeLevel(level: string) {
+  const lv = (level || 'INFO').toUpperCase()
+  if (lv === 'WARNING') return 'WARN'
+  if (lv === 'CRITICAL') return 'CRIT'
+  return lv
+}
+
+function compactLogger(logger: string) {
+  const raw = (logger || '').trim()
+  if (!raw || raw === 'file') return 'runtime'
+  if (raw === 'uvicorn.access' || raw.includes('httptools')) return 'uvicorn.access'
+  const aliases: Record<string, string> = {
+    'interfaces.api.v1.engine.autopilot_routes': 'engine.autopilot',
+    'application.engine.services.persistence_queue': 'engine.persist',
+    'application.engine.services.streaming_bus': 'engine.stream',
+    'application.engine.services.novel_stop_signal': 'engine.signal',
+    'application.engine.services.context_budget_allocator': 'engine.budget',
+    'infrastructure.database.connection': 'db.connection',
+    'infrastructure.database.query_optimizations': 'db.query',
+  }
+  if (aliases[raw]) return aliases[raw]
+  const parts = raw.split('.').filter(Boolean)
+  if (parts.length <= 2) return raw
+  return parts.slice(-3).join('.')
+}
+
+function statusKind(status: string): HttpStatusKind {
+  const n = Number(status)
+  if (!Number.isFinite(n)) return 'unknown'
+  if (n >= 500) return 'err'
+  if (n >= 400) return 'warn'
+  if (n >= 300) return 'redirect'
+  if (n >= 200) return 'ok'
+  return 'unknown'
+}
+
+function parseHttpAccess(text: string) {
+  const m = text.match(/"([A-Z]+)\s+([^"\s]+)(?:\s+HTTP\/[\d.]+)?"\s+(\d{3})/)
+  if (!m) return null
+  return {
+    method: m[1],
+    path: m[2],
+    status: m[3],
+    statusKind: statusKind(m[3]),
+  }
+}
+
+function parseRawLogMessage(message: string, defaultLevel: string, defaultLogger: string) {
+  let text = stripLogIcons(message)
+  let level = normalizeLevel(defaultLevel)
+  let logger = defaultLogger || ''
+  let parsedTime = ''
+
+  const full = text.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})(?:\.\d+)?\s+(INFO|DEBUG|WARN|WARNING|ERROR|CRITICAL|HTTP)\s+(?:pid=\d+\s+)?([^\s]+)\s+([\s\S]*)$/)
+  if (full) {
+    parsedTime = full[2]
+    level = normalizeLevel(full[3])
+    logger = full[4]
+    text = full[5].trim()
+  } else {
+    const compact = text.match(/^(\d{2}:\d{2}:\d{2})\s+(INFO|DEBUG|WARN|WARNING|ERROR|CRITICAL|HTTP)\s+([^\s]+)\s+([\s\S]*)$/)
+    if (compact) {
+      parsedTime = compact[1]
+      level = normalizeLevel(compact[2])
+      logger = compact[3]
+      text = compact[4].trim()
+    }
+  }
+
+  if (logger === 'access' || logger.includes('httptools')) {
+    logger = 'uvicorn.access'
+    level = 'HTTP'
+  }
+
+  const http = parseHttpAccess(text)
+  if (http || logger === 'uvicorn.access') {
+    level = 'HTTP'
+  }
+
+  return { text, level, logger, parsedTime, http }
+}
+
+function buildDisplayRow(data: Record<string, unknown>): Row {
+  const t = String(data.type || 'info')
+  const message = stripLogIcons(String(data.message || ''))
+  const timestamp = String(data.timestamp || new Date().toISOString())
+  const meta = data.metadata as Record<string, unknown> | undefined
+  const defaultLevel = String(meta?.level || '')
+  const defaultLogger = String(meta?.logger || '')
+  const parsed = parseRawLogMessage(message, defaultLevel, defaultLogger)
+  const kind = kindForType(t, { ...meta, level: parsed.level, logger: parsed.logger }, parsed.http)
+  const source = compactLogger(parsed.logger)
+  const detail = parsed.text || message
+  const time = parsed.parsedTime || formatTime(timestamp)
+  const text = clipForUi(detail)
+
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    time,
+    level: parsed.level || 'INFO',
+    source,
+    text,
+    detail,
+    kind,
+    searchable: `${parsed.level} ${source} ${detail}`.toLowerCase(),
+    httpMethod: parsed.http?.method,
+    httpPath: parsed.http?.path,
+    httpStatus: parsed.http?.status,
+    httpStatusKind: parsed.http?.statusKind,
+  }
+}
+
+/** 构建细化的进度提示：子步骤 + 字数进度 */
 function buildDetailedProgressHint(message: string, meta?: Record<string, unknown>): string {
   if (!meta) return clipForUi(message)
 
   const substepLabel = String(meta.writing_substep_label || '')
-  const totalBeats = Number(meta.total_beats || 0)
-  const beatIdx = Number(meta.current_beat_index_1based || 0)
   const accumulatedWords = Number(meta.accumulated_words || 0)
   const chapterTargetWords = Number(meta.chapter_target_words || 0)
-  const beatFocus = String(meta.beat_focus || '')
   const contextTokens = Number(meta.context_tokens || 0)
   const stage = String(meta.stage || '')
 
@@ -250,21 +415,10 @@ function buildDetailedProgressHint(message: string, meta?: Record<string, unknow
 
   // writing 阶段特有信息
   if (stage === 'writing') {
-    // 节拍进度
-    if (totalBeats > 0 && beatIdx > 0) {
-      parts.push(`节拍 ${beatIdx}/${totalBeats}`)
-    }
-
     // 字数进度
     if (accumulatedWords > 0 && chapterTargetWords > 0) {
       const pct = Math.min(100, Math.round(accumulatedWords / chapterTargetWords * 100))
       parts.push(`${accumulatedWords}/${chapterTargetWords}字(${pct}%)`)
-    }
-
-    // 节拍焦点
-    if (beatFocus) {
-      const focusClip = beatFocus.length > 16 ? beatFocus.slice(0, 15) + '…' : beatFocus
-      parts.push(`[${focusClip}]`)
     }
 
     // 上下文 tokens
@@ -288,14 +442,17 @@ function isNoiseMessage(msg: string) {
   return false
 }
 
-function kindForType(t: string, meta?: Record<string, unknown>): RowKind {
+function kindForType(t: string, meta?: Record<string, unknown>, http?: ReturnType<typeof parseHttpAccess>): RowKind {
   if (t === 'beat_error' || t.includes('error')) return 'err'
   if (t === 'stage_change') return 'warn'
   if (t.includes('complete') && t !== 'autopilot_complete') return 'ok'
   if (t === 'log_line') {
-    const lv = meta?.level
-    if (lv === 'ERROR' || lv === 'CRITICAL') return 'err'
-    if (lv === 'WARNING') return 'warn'
+    const lv = normalizeLevel(String(meta?.level || ''))
+    const logger = String(meta?.logger || '')
+    if (http || lv === 'HTTP' || logger === 'uvicorn.access') return 'http'
+    if (lv === 'ERROR' || lv === 'CRIT') return 'err'
+    if (lv === 'WARN') return 'warn'
+    if (lv === 'DEBUG') return 'debug'
   }
   if (t === 'autopilot_complete') return 'dim'
   return 'info'
@@ -304,7 +461,6 @@ function kindForType(t: string, meta?: Record<string, unknown>): RowKind {
 function pushRow(data: Record<string, unknown>) {
   const t = String(data.type || 'info')
   const message = String(data.message || '')
-  const timestamp = String(data.timestamp || new Date().toISOString())
   const meta = data.metadata as Record<string, unknown> | undefined
 
   if (t === 'progress') {
@@ -322,13 +478,7 @@ function pushRow(data: Record<string, unknown>) {
     applyBehaviorFromMeta(meta)
   }
 
-  const kind = kindForType(t, meta)
-  rows.value.push({
-    id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-    time: formatTime(timestamp),
-    text: clipForUi(message),
-    kind,
-  })
+  rows.value.push(buildDisplayRow(data))
   if (rows.value.length > MAX_ROWS) {
     rows.value.splice(0, rows.value.length - MAX_ROWS)
   }
@@ -356,6 +506,32 @@ function pushRow(data: Record<string, unknown>) {
       emit('chapter-metrics-refresh')
     }
   }
+}
+
+const filteredRows = computed(() => {
+  const q = searchText.value.trim().toLowerCase()
+  return rows.value.filter((row) => {
+    if (hideHttp.value && row.kind === 'http') return false
+    if (importantOnly.value && !['warn', 'err'].includes(row.kind)) return false
+    if (q && !row.searchable.includes(q)) return false
+    return true
+  })
+})
+
+const visibleRows = computed(() => {
+  const list = filteredRows.value
+  if (list.length <= MAX_RENDERED_ROWS) return list
+  return list.slice(list.length - MAX_RENDERED_ROWS)
+})
+
+function toggleExpanded(id: string) {
+  const next = new Set(expandedRows.value)
+  if (next.has(id)) {
+    next.delete(id)
+  } else {
+    next.add(id)
+  }
+  expandedRows.value = next
 }
 
 function scrollToBottom() {
@@ -413,8 +589,7 @@ function onScroll() {
 
 function connect() {
   if (eventSource) eventSource.close()
-  const q = lastLogSeq.value > 0 ? `?after_seq=${lastLogSeq.value}` : ''
-  const url = resolveHttpUrl(`/api/v1/autopilot/${props.novelId}/stream${q}`)
+  const url = autopilotApi.streamUrl(props.novelId, lastLogSeq.value)
   eventSource = new EventSource(url)
 
   eventSource.onopen = () => {
@@ -492,6 +667,8 @@ watch(
   () => props.novelId,
   () => {
     rows.value = []
+    expandedRows.value = new Set()
+    searchText.value = ''
     progressHint.value = ''
     behaviorStageKey.value = ''
     behaviorAutopilotStatus.value = ''
@@ -552,6 +729,55 @@ onUnmounted(() => {
   font-size: 12px;
   background: rgba(15, 23, 42, 0.95);
   border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.terminal-controls {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: #111827;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.log-search {
+  flex: 1;
+  min-width: 160px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 6px;
+  color: #dbeafe;
+  background: rgba(15, 23, 42, 0.78);
+  outline: none;
+}
+
+.log-search::placeholder {
+  color: #64748b;
+}
+
+.log-search:focus {
+  border-color: rgba(96, 165, 250, 0.65);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.14);
+}
+
+.filter-chip {
+  flex-shrink: 0;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 6px;
+  color: #94a3b8;
+  background: rgba(15, 23, 42, 0.62);
+  cursor: pointer;
+}
+
+.filter-chip:hover,
+.filter-chip.is-active {
+  color: #dbeafe;
+  border-color: rgba(96, 165, 250, 0.55);
+  background: rgba(30, 64, 175, 0.34);
 }
 
 .led {
@@ -669,45 +895,151 @@ onUnmounted(() => {
   overflow-x: hidden;
   scroll-behavior: auto;
   overscroll-behavior: contain;
-  padding: 12px 14px 14px;
+  padding: 10px 10px 12px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
     monospace;
   font-size: 11px;
-  line-height: 1.6;
+  line-height: 1.5;
 }
 
 .line {
-  display: flex;
-  gap: 10px;
-  padding: 3px 0;
-  word-break: break-word;
+  display: grid;
+  grid-template-columns: 58px 52px minmax(180px, 260px) minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  min-height: 28px;
+  padding: 5px 8px;
+  border-left: 2px solid transparent;
+  border-radius: 6px;
+  word-break: normal;
+  cursor: default;
+}
+
+.line:hover {
+  background: rgba(30, 41, 59, 0.68);
+}
+
+.line--expanded {
+  background: rgba(30, 41, 59, 0.74);
 }
 
 .time {
-  flex-shrink: 0;
-  width: 64px;
   color: #64748b;
+  font-variant-numeric: tabular-nums;
+}
+
+.level {
+  justify-self: start;
+  min-width: 42px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: #94a3b8;
+  background: rgba(148, 163, 184, 0.08);
+  text-align: center;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.source {
+  min-width: 0;
+  color: #93c5fd;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
 
 .msg {
-  flex: 1;
   min-width: 0;
   color: #cbd5e1;
   overflow-wrap: anywhere;
-  word-break: break-word;
+  word-break: normal;
+  white-space: pre-wrap;
+  overflow: visible;
+  text-overflow: clip;
 }
 
 .line--ok .msg {
   color: #86efac;
 }
+.line--debug {
+  opacity: 0.74;
+}
+.line--debug .level {
+  color: #94a3b8;
+}
+.line--http {
+  opacity: 0.66;
+}
+.line--http .level {
+  color: #93c5fd;
+  background: rgba(59, 130, 246, 0.12);
+}
+.line--http .source {
+  color: #64748b;
+}
+.line--warn {
+  border-left-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.08);
+}
+.line--warn .level {
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.14);
+}
 .line--warn .msg {
-  color: #fde047;
+  color: #fef3c7;
+}
+.line--err {
+  border-left-color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+}
+.line--err .level {
+  color: #fecaca;
+  background: rgba(239, 68, 68, 0.18);
 }
 .line--err .msg {
   color: #fca5a5;
 }
 .line--dim .msg {
   color: #94a3b8;
+}
+
+.http-method {
+  display: inline-block;
+  width: 42px;
+  color: #bfdbfe;
+  font-weight: 700;
+}
+
+.http-path {
+  color: #cbd5e1;
+}
+
+.http-status {
+  display: inline-block;
+  min-width: 32px;
+  margin-left: 8px;
+  padding: 0 5px;
+  border-radius: 4px;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.http-status--ok {
+  color: #bbf7d0;
+  background: rgba(34, 197, 94, 0.14);
+}
+
+.http-status--redirect {
+  color: #fde68a;
+  background: rgba(245, 158, 11, 0.14);
+}
+
+.http-status--warn,
+.http-status--err {
+  color: #fecaca;
+  background: rgba(239, 68, 68, 0.18);
 }
 
 .empty {
@@ -722,5 +1054,19 @@ onUnmounted(() => {
 .terminal-body::-webkit-scrollbar-thumb {
   background: rgba(148, 163, 184, 0.35);
   border-radius: 3px;
+}
+
+@media (max-width: 760px) {
+  .terminal-controls {
+    flex-wrap: wrap;
+  }
+
+  .line {
+    grid-template-columns: 54px 46px minmax(0, 1fr);
+  }
+
+  .source {
+    display: none;
+  }
 }
 </style>

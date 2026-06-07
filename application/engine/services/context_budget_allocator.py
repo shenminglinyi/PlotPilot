@@ -16,15 +16,14 @@
 import asyncio
 import concurrent.futures
 import logging
-from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
 from typing import Any, Dict, List, Optional
 
 from application.engine.dtos.scene_director_dto import SceneDirectorInput, coerce_scene_director
 
 from domain.novel.value_objects.novel_id import NovelId
 from domain.novel.value_objects.chapter_id import ChapterId
+from engine.core.entities.story import StoryPhase
 from domain.novel.repositories.foreshadowing_repository import ForeshadowingRepository
 from domain.novel.repositories.chapter_repository import ChapterRepository
 from domain.bible.repositories.bible_repository import BibleRepository
@@ -33,6 +32,42 @@ from infrastructure.persistence.database.worldbuilding_repository import Worldbu
 from domain.ai.services.vector_store import VectorStore
 from domain.ai.services.embedding_service import EmbeddingService
 from application.ai.vector_retrieval_facade import VectorRetrievalFacade
+from application.engine.services.context_budget_models import (
+    BudgetAllocation,
+    ContextSlot,
+    PriorityTier,
+)
+from application.engine.services.context_budget_policy import (
+    allocate_tier,
+    truncate_t0_slots,
+)
+from application.engine.services.context_brief import (
+    build_bridge_hint,
+    build_character_state_hint,
+    build_context_brief,
+    build_debt_hint,
+    get_chapter_generation_hint,
+)
+from application.engine.services.context_lifecycle import (
+    DEFAULT_PHASE_THRESHOLDS,
+    build_lifecycle_directive,
+    classify_phase,
+    estimate_total_chapters,
+    get_phase_directives,
+    load_phase_thresholds,
+)
+from application.engine.services.recent_chapter_context import (
+    build_recent_chapters_context,
+    excerpt_immediate_previous_chapter,
+)
+from application.engine.services.context_slot_providers import (
+    build_immersion_details_slot_content,
+    build_key_props_slot_content,
+    build_narrative_promise_slot_content,
+    build_storyline_slot_content,
+    build_worldbuilding_core_slot_content,
+    format_storyline_context_block,
+)
 from infrastructure.ai.prompt_registry import get_prompt_registry
 
 logger = logging.getLogger(__name__)
@@ -47,87 +82,6 @@ def _sync_run_async(coro):
     # 已在事件循环中：在新线程中运行
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
         return pool.submit(lambda: asyncio.run(coro)).result()
-
-
-class PriorityTier(str, Enum):
-    """优先级层级（洋葱模型）"""
-    T0_CRITICAL = "t0_critical"      # 绝对不删减
-    T1_COMPRESSIBLE = "t1_compressible"  # 按比例压缩
-    T2_DYNAMIC = "t2_dynamic"        # 动态水位线
-    T3_SACRIFICIAL = "t3_sacrificial"  # 可牺牲泡沫
-
-
-class StoryPhase(str, Enum):
-    """故事生命周期阶段 —— 全局收敛沙漏的核心状态机"""
-    OPENING = "opening"       # 开局期 (0% - 25%)：尽情铺陈，抛出悬念
-    DEVELOPMENT = "development" # 发展期 (25% - 75%)：激化矛盾，引入支线
-    CONVERGENCE = "convergence" # 收敛期 (75% - 90%)：禁止开新坑，强制填坑
-    FINALE = "finale"          # 终局期 (90% - 100%)：终极对决，切断日常
-
-
-@dataclass
-class ContextSlot:
-    """上下文槽位"""
-    name: str
-    tier: PriorityTier
-    content: str = ""
-    tokens: int = 0
-    max_tokens: Optional[int] = None  # None 表示无上限
-    min_tokens: int = 0  # 最小保留量
-    priority: int = 0  # 同层级内的优先级（越大越优先）
-    
-    @property
-    def is_mandatory(self) -> bool:
-        """是否强制保留"""
-        return self.tier == PriorityTier.T0_CRITICAL
-
-
-@dataclass
-class BudgetAllocation:
-    """预算分配结果"""
-    slots: Dict[str, ContextSlot] = field(default_factory=dict)
-    total_budget: int = 35000
-    used_tokens: int = 0
-    remaining_tokens: int = 0
-    
-    # 分配详情
-    t0_reserved: int = 0
-    t1_allocated: int = 0
-    t2_allocated: int = 0
-    t3_allocated: int = 0
-    
-    # 压缩标记
-    compression_applied: bool = False
-    compression_log: List[str] = field(default_factory=list)
-    expired_foreshadows: List[str] = field(default_factory=list)
-    
-    # V7 全局收敛沙漏
-    progress: float = 0.0           # 全局进度 0.0 ~ 1.0
-    phase: StoryPhase = StoryPhase.OPENING  # 当前生命周期阶段
-    total_chapters: int = 0         # 目标总章节数
-    
-    def get_final_context(self) -> str:
-        """组装最终上下文"""
-        parts = []
-        
-        # 按层级顺序组装（T0 → T1 → T2 → T3）
-        for tier in [PriorityTier.T0_CRITICAL, PriorityTier.T1_COMPRESSIBLE, 
-                     PriorityTier.T2_DYNAMIC, PriorityTier.T3_SACRIFICIAL]:
-            tier_slots = [(name, slot) for name, slot in self.slots.items() if slot.tier == tier]
-            tier_slots.sort(key=lambda x: x[1].priority, reverse=True)
-            
-            for name, slot in tier_slots:
-                if slot.content.strip():
-                    parts.append(f"\n=== {slot.name.upper()} ===\n{slot.content}")
-        
-        # 追加强制收束指令
-        if self.expired_foreshadows:
-            parts.append("\n=== 🚨强制剧情收束令🚨 ===\n" + 
-                         "以下伏笔已超出预期揭晓章节，必须在本章或本节拍的行文中，通过回忆、对话、意外发展或直接揭露等方式去解答或明显推进悬念：\n" + 
-                         "\n".join(f"- {f}" for f in self.expired_foreshadows) + 
-                         "\n【如果你无视此指令，长篇小说的情节网将陷入崩溃】")
-        
-        return "\n".join(parts)
 
 
 class ContextBudgetAllocator:
@@ -162,7 +116,7 @@ class ContextBudgetAllocator:
     CHARS_PER_TOKEN_EN = 4.0  # 英文：1 token ≈ 4 字符
     
     # 默认配额比例
-    # ★ V9 减法改革: T0 从 35% 降至 20% — 约束是药不是饭
+    # V9 减法改革: T0 从 35% 降至 20% — 约束是药不是饭
     # 过多的 T0 强制内容导致注意力坍塌，AI 从"写故事"变成"满足约束条件"
     # 把叙事债务、因果链、伤疤执念等降级到 T1，用自然语言的"编辑手记"替代结构化槽位
     T0_BUDGET_RATIO = 0.20   # 20% 给 T0（仅保留：FACT_LOCK + ANCHOR + 角色锚点 + 编辑手记）
@@ -173,7 +127,7 @@ class ContextBudgetAllocator:
     # 各槽位的默认上限
     MAX_FORESHADOWING_TOKENS = 2000
     MAX_CHARACTER_ANCHORS_TOKENS = 1500
-    MAX_GRAPH_SUBNETWORK_TOKENS = 1000
+    MAX_GRAPH_SUBNETWORK_TOKENS = 1500
     MAX_ACT_SUMMARIES_TOKENS = 1500
     MAX_RECENT_CHAPTERS_TOKENS = 8000   # 扩容：N-1 完整 + N-2 半量 + N-3~5 预览
     MAX_VECTOR_RECALL_TOKENS = 5000
@@ -196,13 +150,18 @@ class ContextBudgetAllocator:
         vector_store: Optional[VectorStore] = None,
         embedding_service: Optional[EmbeddingService] = None,
         memory_engine: Optional['MemoryEngine'] = None,
-        # ★ Phase 3: 沙漏阶段可配置阈值
+        # Phase 3: 沙漏阶段可配置阈值
         phase_thresholds: Optional[Dict[str, float]] = None,
-        # ★ V8 Feed-forward: 上下文反哺管线（因果图谱 + 人物状态 + 叙事债务）
+        # V8 Feed-forward: 上下文反哺管线（因果图谱 + 人物状态 + 叙事债务）
         context_assembler: Optional[Any] = None,
         storyline_repository=None,
         confluence_point_repository=None,
         worldbuilding_repository: Optional[WorldbuildingRepository] = None,
+        evolution_presenter: Optional[Any] = None,
+        evolution_repository: Optional[Any] = None,
+        character_narrative_kernel: Optional[Any] = None,
+        novel_repository: Optional[Any] = None,
+        character_projection_service: Optional[Any] = None,
     ):
         self.foreshadowing_repo = foreshadowing_repository
         self.chapter_repo = chapter_repository
@@ -214,13 +173,18 @@ class ContextBudgetAllocator:
         # V6 记忆引擎（可选，用于 T0 槽位注入 FACT_LOCK / BEATS / CLUES）
         self.memory_engine = memory_engine
 
-        # ★ V8 Feed-forward: 上下文反哺管线
+        # V8 Feed-forward: 上下文反哺管线
         self.context_assembler = context_assembler
         self.storyline_repo = storyline_repository
         self.confluence_repo = confluence_point_repository
         self.worldbuilding_repo = worldbuilding_repository
+        self.evolution_presenter = evolution_presenter
+        self.evolution_repository = evolution_repository
+        self.character_narrative_kernel = character_narrative_kernel
+        self.novel_repository = novel_repository
+        self.character_projection_service = character_projection_service
 
-        # ★ Phase 3: 沙漏阶段阈值（可由 CPMS 节点 lifecycle-phase-directives 的变量覆盖）
+        # Phase 3: 沙漏阶段阈值（可由 CPMS 节点 lifecycle-phase-directives 的变量覆盖）
         self._phase_thresholds = phase_thresholds or self._load_phase_thresholds()
 
         # 向量检索门面
@@ -230,105 +194,36 @@ class ContextBudgetAllocator:
     
     def _build_storyline_slot(self, novel_id: str, chapter_number: int) -> str:
         """构建故事线上下文槽位内容（按汇流距离动态分级）。"""
-        from domain.novel.value_objects.novel_id import NovelId as _NovelId
-        from domain.novel.value_objects.storyline_role import StorylineRole
-
-        storylines = self.storyline_repo.get_by_novel_id(_NovelId(novel_id))
-        confluences = self.confluence_repo.get_by_novel_id(novel_id)
-
-        # 只取本章活跃且权重够用的故事线
-        active = [
-            s for s in storylines
-            if s.estimated_chapter_start <= chapter_number <= s.estimated_chapter_end
-            and s.chapter_weight > 0.05
-        ]
-        if not active:
-            return ""
-
-        # 按 role 排序：MAIN 先，SUB 次，DARK 最后
-        role_order = {StorylineRole.MAIN: 0, StorylineRole.SUB: 1, StorylineRole.DARK: 2}
-        active.sort(key=lambda s: role_order.get(s.role, 9))
-
-        lines = ["━━━ 故事线上下文（本章活跃）━━━"]
-        for sl in active:
-            lines.append(self._format_storyline_block(sl, confluences, chapter_number))
-
-        return "\n".join(lines)
+        return build_storyline_slot_content(
+            self.storyline_repo,
+            self.confluence_repo,
+            novel_id,
+            chapter_number,
+        )
 
     def _build_narrative_contract_slot(self, novel_id: str) -> str:
         """向导确认的五维世界观 + Bible 文风/规则；与 DB 同步，不读共享内存。"""
-        from application.world.services.narrative_contract_text import build_narrative_contract_block
+        from application.world.services.narrative_contract_loader import (
+            build_narrative_contract_for_novel,
+        )
 
-        bible = None
-        if self.bible_repo:
-            try:
-                bible = self.bible_repo.get_by_novel_id(NovelId(novel_id))
-            except Exception as e:
-                logger.debug("创作契约：读取 Bible 跳过 novel=%s err=%s", novel_id, e)
+        return build_narrative_contract_for_novel(
+            novel_id,
+            bible_repository=self.bible_repo,
+            worldbuilding_repository=self.worldbuilding_repo,
+        )
 
-        wb = None
-        if self.worldbuilding_repo:
-            try:
-                wb = self.worldbuilding_repo.get_by_novel_id(novel_id)
-            except Exception as e:
-                logger.debug("创作契约：读取 Worldbuilding 跳过 novel=%s err=%s", novel_id, e)
-
-        return build_narrative_contract_block(bible=bible, worldbuilding=wb)
+    def _build_narrative_promise_slot(self, novel_id: str, chapter_number: int) -> str:
+        """Build the compact story promise lock from the existing Novel aggregate."""
+        return build_narrative_promise_slot_content(
+            self.novel_repository,
+            novel_id,
+            chapter_number,
+        )
 
     def _format_storyline_block(self, sl, confluences, chapter_number: int) -> str:
         """格式化单条故事线的上下文块。"""
-        from domain.novel.value_objects.storyline_role import StorylineRole
-
-        role_label = {"main": "主线", "sub": "支线", "dark": "暗线"}.get(
-            sl.role.value, sl.role.value
-        )
-
-        # 找最近未 resolved 的汇流点
-        near = None
-        min_dist = 9999
-        for cp in confluences:
-            if cp.source_storyline_id == sl.id and not cp.resolved:
-                d = cp.target_chapter - chapter_number
-                if 0 <= d < min_dist:
-                    min_dist = d
-                    near = cp
-
-        name_str = sl.name or f"故事线 {sl.id[:8]}"
-
-        # 暗线：reveal 类型在揭露前只注入行为禁忌
-        if sl.role == StorylineRole.DARK and near and near.merge_type == "reveal" and min_dist > 2:
-            lines = [f"\n● [暗线 ◎ 第{near.target_chapter}章揭露] 「{name_str}」"]
-            if near.pre_reveal_hint:
-                lines.append(f"  {near.pre_reveal_hint}")
-            for g in near.behavior_guards:
-                lines.append(f"  禁忌：{g}")
-            return "\n".join(lines)
-
-        # 普通故事线：按距离分级
-        if near:
-            label_suffix = (
-                f" ↘ 第{near.target_chapter}章汇"
-                f"{'主线' if near.merge_type in ('absorb', 'intersect') else '线'}"
-            )
-        else:
-            label_suffix = ""
-
-        lines = [f"\n● [{role_label}] 「{name_str}」{label_suffix}"]
-
-        if sl.progress_summary:
-            lines.append(f"  当前进度：{sl.progress_summary}")
-
-        current_ms = sl.get_current_milestone()
-        if current_ms:
-            lines.append(f"  当前里程碑：{current_ms.description}")
-
-        if near:
-            if min_dist <= 2:
-                lines.append(f"  ⚠️ 距汇流仅 {min_dist} 章！汇流内容：{near.context_summary}")
-            elif min_dist <= 8:
-                lines.append(f"  距汇流 {min_dist} 章，预期：{near.context_summary[:60]}…")
-
-        return "\n".join(lines)
+        return format_storyline_context_block(sl, confluences, chapter_number)
 
     def estimate_tokens(self, text: str) -> int:
         """估算文本的 Token 数量
@@ -401,7 +296,7 @@ class ContextBudgetAllocator:
         pending_fs_slot = slots.get("pending_foreshadowings")
         if pending_fs_slot and pending_fs_slot.content:
             for line in pending_fs_slot.content.split('\n'):
-                if "🔴已过期" in line:
+                if "已过期" in line:
                     desc = line.split(":", 1)[-1].strip() if ":" in line else line.strip()
                     allocation.expired_foreshadows.append(desc)
         
@@ -409,7 +304,7 @@ class ContextBudgetAllocator:
         t0_slots = {name: slot for name, slot in slots.items() if slot.tier == PriorityTier.T0_CRITICAL}
         t0_total = sum(slot.tokens for slot in t0_slots.values())
         
-        # ★ Phase 2: T0 动态阈值保护 — T0 最多占 40% 总预算
+        # Phase 2: T0 动态阈值保护 — T0 最多占 40% 总预算
         # 防止伏笔/角色等 T0 内容无限膨胀挤占 T2/T3
         T0_MAX_RATIO = 0.40
         t0_max = int(total_budget * T0_MAX_RATIO)
@@ -419,12 +314,12 @@ class ContextBudgetAllocator:
                 f"触发 T0 截断保护"
             )
             t0_total = self._truncate_t0_slots(t0_slots, t0_max)
-            allocation.compression_log.append(f"🛡️ T0 动态阈值保护：截断至 {T0_MAX_RATIO:.0%} 总预算")
+            allocation.compression_log.append(f"T0 动态阈值保护：截断至 {T0_MAX_RATIO:.0%} 总预算")
         
         if t0_total > total_budget:
             # 极端情况：T0 超出总预算，只能截断
             logger.warning(f"T0 强制内容 {t0_total} tokens 超出总预算 {total_budget}")
-            allocation.compression_log.append(f"⚠️ T0 超预算，强制截断")
+            allocation.compression_log.append("T0 超预算，强制截断")
             t0_total = self._truncate_t0_slots(t0_slots, total_budget)
         
         allocation.t0_reserved = t0_total
@@ -447,7 +342,7 @@ class ContextBudgetAllocator:
         
         # T3 配额（剩余全部）
         remaining_after_t2 = remaining_after_t1 - t2_actual
-        # ★ Phase 2: T3 最低保障 — 至少保留 5% 总预算给向量召回
+        # Phase 2: T3 最低保障 — 至少保留 5% 总预算给向量召回
         # 防止 T0 膨胀 + T1/T2 挤占导致 T3（跨幕记忆）完全丢失
         T3_MIN_RATIO = 0.05
         t3_min_tokens = int(total_budget * T3_MIN_RATIO)
@@ -457,14 +352,14 @@ class ContextBudgetAllocator:
             shortfall = t3_min_tokens - remaining_after_t2
             if t2_actual > shortfall:
                 logger.info(
-                    f"🛡️ T3 最低保障：从 T2 回收 {shortfall} tokens 给 T3 "
+                    f"T3 最低保障：从 T2 回收 {shortfall} tokens 给 T3 "
                     f"(确保跨幕记忆不断裂)"
                 )
                 t2_actual -= shortfall
                 allocation.t2_allocated = t2_actual
                 remaining_after_t2 = t3_min_tokens
                 allocation.compression_log.append(
-                    f"🛡️ T3 最低保障：{T3_MIN_RATIO:.0%} 总预算 ({t3_min_tokens} tokens)"
+                    f"T3 最低保障：{T3_MIN_RATIO:.0%} 总预算 ({t3_min_tokens} tokens)"
                 )
         t3_actual = self._allocate_tier(t3_slots, remaining_after_t2, allocation.compression_log)
         allocation.t3_allocated = t3_actual
@@ -523,7 +418,7 @@ class ContextBudgetAllocator:
             except Exception as e:
                 logger.warning(f"STORY_ANCHOR 构建失败: {e}")
         slots["story_anchor"] = ContextSlot(
-            name="📖全书主线锚点(ANCHOR)",
+            name="全书主线锚点(ANCHOR)",
             tier=PriorityTier.T0_CRITICAL,
             content=anchor_content,
             tokens=self.estimate_tokens(anchor_content),
@@ -531,10 +426,21 @@ class ContextBudgetAllocator:
             priority=125,
         )
 
+        # ── T0-2a: 叙事承诺锁 —— 从 title/premise 派生，不新增存储模型 ──
+        narrative_promise = self._build_narrative_promise_slot(novel_id, chapter_number)
+        slots["narrative_promise"] = ContextSlot(
+            name="叙事承诺锁(NARRATIVE_PROMISE)",
+            tier=PriorityTier.T0_CRITICAL,
+            content=narrative_promise,
+            tokens=self.estimate_tokens(narrative_promise),
+            max_tokens=420,
+            priority=123,
+        )
+
         # ── T0-2b: 创作契约（向导五维 + 文风公约 + Bible 规则）—— priority=122 ──
         narrative_contract = self._build_narrative_contract_slot(novel_id)
         slots["narrative_contract"] = ContextSlot(
-            name="📜创作契约(NARRATIVE_CONTRACT)",
+            name="创作契约(NARRATIVE_CONTRACT)",
             tier=PriorityTier.T0_CRITICAL,
             content=narrative_contract,
             tokens=self.estimate_tokens(narrative_contract),
@@ -553,7 +459,7 @@ class ContextBudgetAllocator:
             except Exception as e:
                 logger.warning(f"FACT_LOCK 构建失败: {e}")
         slots["fact_lock"] = ContextSlot(
-            name="🔒绝对事实边界(FACT_LOCK)",
+            name="绝对事实边界(FACT_LOCK)",
             tier=PriorityTier.T0_CRITICAL,
             content=fact_lock_content,
             tokens=self.estimate_tokens(fact_lock_content),
@@ -581,12 +487,22 @@ class ContextBudgetAllocator:
         # 设计哲学：一段自然语言比 8 个 === xxx === 分隔符更容易被 LLM 融入创作
         context_brief = self._build_context_brief(novel_id, chapter_number, outline)
         slots["context_brief"] = ContextSlot(
-            name="📝编辑手记(CONTEXT_BRIEF)",
+            name="编辑手记(CONTEXT_BRIEF)",
             tier=PriorityTier.T0_CRITICAL,
             content=context_brief,
             tokens=self.estimate_tokens(context_brief),
             max_tokens=800,  # V9: 800 tokens 的自然语言手记，替代原来 10,000+ tokens 的结构化槽位
             priority=100,
+        )
+
+        evolution_context = self._build_evolution_presenter_slot(novel_id, chapter_number)
+        slots["evolution_presenter"] = ContextSlot(
+            name="叙事状态锁(EVOLUTION_STATE)",
+            tier=PriorityTier.T0_CRITICAL,
+            content=evolution_context,
+            tokens=self.estimate_tokens(evolution_context),
+            max_tokens=1200,
+            priority=98,
         )
 
         # ── T0-6: 当前幕摘要 —— priority=95 ──
@@ -611,7 +527,7 @@ class ContextBudgetAllocator:
             except Exception as e:
                 logger.warning(f"SCARS_AND_MOTIVATIONS 构建失败: {e}")
         slots["scars_and_motivations"] = ContextSlot(
-            name="💔角色伤疤与执念(SCARS)",
+            name="角色伤疤与执念(SCARS)",
             tier=PriorityTier.T1_COMPRESSIBLE,
             content=scars_content,
             tokens=self.estimate_tokens(scars_content),
@@ -627,7 +543,7 @@ class ContextBudgetAllocator:
             except Exception as e:
                 logger.warning(f"COMPLETED_BEATS 构建失败: {e}")
         slots["completed_beats"] = ContextSlot(
-            name="✅已完成节拍(COMPLETED_BEATS)",
+            name="已完成节拍(COMPLETED_BEATS)",
             tier=PriorityTier.T1_COMPRESSIBLE,
             content=beats_content,
             tokens=self.estimate_tokens(beats_content),
@@ -645,7 +561,7 @@ class ContextBudgetAllocator:
             except Exception as e:
                 logger.warning(f"DEBT_DUE 构建失败: {e}")
         slots["debt_due"] = ContextSlot(
-            name="📋叙事备忘(DEBT_DUE)",
+            name="叙事备忘(DEBT_DUE)",
             tier=PriorityTier.T1_COMPRESSIBLE,
             content=debt_due_content,
             tokens=self.estimate_tokens(debt_due_content),
@@ -661,7 +577,7 @@ class ContextBudgetAllocator:
             except Exception as e:
                 logger.warning(f"REVEALED_CLUES 构建失败: {e}")
         slots["revealed_clues"] = ContextSlot(
-            name="🔍已揭露线索(REVEALED_CLUES)",
+            name="已揭露线索(REVEALED_CLUES)",
             tier=PriorityTier.T1_COMPRESSIBLE,
             content=clues_content,
             tokens=self.estimate_tokens(clues_content),
@@ -685,7 +601,7 @@ class ContextBudgetAllocator:
         # 放在 T1 仍然会被注入，只是可以被压缩，防止约束过载
         anti_ai_protocol_content = self._build_anti_ai_protocol_block(novel_id, chapter_number)
         slots["anti_ai_protocol"] = ContextSlot(
-            name="🛡️ Anti-AI 行为协议(ANTI_AI_PROTOCOL)",
+            name="Anti-AI 行为协议(ANTI_AI_PROTOCOL)",
             tier=PriorityTier.T1_COMPRESSIBLE,
             content=anti_ai_protocol_content,
             tokens=self.estimate_tokens(anti_ai_protocol_content),
@@ -712,7 +628,7 @@ class ContextBudgetAllocator:
             except Exception as e:
                 logger.warning(f"CAUSAL_CHAINS 构建失败: {e}")
         slots["causal_chains"] = ContextSlot(
-            name="🔗未闭环因果链(CAUSAL_CHAINS)",
+            name="未闭环因果链(CAUSAL_CHAINS)",
             tier=PriorityTier.T1_COMPRESSIBLE,
             content=causal_chains_content,
             tokens=self.estimate_tokens(causal_chains_content),
@@ -743,9 +659,9 @@ class ContextBudgetAllocator:
         )
 
         # ── V9 降级: 角色状态锁向量 —— 从 T0(p=128) → T1(p=58) ──
-        character_state_lock_content = self._build_character_state_lock_block(novel_id)
+        character_state_lock_content = self._build_character_state_lock_block(novel_id, chapter_number)
         slots["character_state_lock"] = ContextSlot(
-            name="🔒 角色状态锁(CHARACTER_STATE_LOCK)",
+            name="角色状态锁(CHARACTER_STATE_LOCK)",
             tier=PriorityTier.T1_COMPRESSIBLE,
             content=character_state_lock_content,
             tokens=self.estimate_tokens(character_state_lock_content),
@@ -796,7 +712,7 @@ class ContextBudgetAllocator:
                 sl_content = self._build_storyline_slot(novel_id, chapter_number)
                 if sl_content:
                     slots["storyline_context"] = ContextSlot(
-                        name="📖故事线上下文(STORYLINE_CONTEXT)",
+                        name="故事线上下文(STORYLINE_CONTEXT)",
                         tier=PriorityTier.T1_COMPRESSIBLE,
                         content=sl_content,
                         tokens=self.estimate_tokens(sl_content),
@@ -806,24 +722,87 @@ class ContextBudgetAllocator:
             except Exception as _sl_err:
                 logger.warning(f"故事线上下文构建失败: {_sl_err}")
 
+        # ── T1: 世界核心规则（核心法则维度）── priority=71 ──
+        # 单独抽出最高约束维度，确保预算压缩时仍清晰可见；
+        # narrative_contract 含全部五维但混合文风/文化，此槽位专注硬规则。
+        worldbuilding_core = self._build_worldbuilding_core_slot(novel_id)
+        if worldbuilding_core:
+            slots["worldbuilding_core"] = ContextSlot(
+                name="世界核心规则(WORLD_RULES)",
+                tier=PriorityTier.T1_COMPRESSIBLE,
+                content=worldbuilding_core,
+                tokens=self.estimate_tokens(worldbuilding_core),
+                max_tokens=600,
+                priority=71,
+            )
+
+        # ── T1: 世界沉浸感细节── priority=66 ──
+        # 单独槽位避免沉浸感维度被 narrative_contract 压缩
+        immersion_details = self._build_immersion_details_slot(novel_id)
+        if immersion_details:
+            slots["immersion_details"] = ContextSlot(
+                name="世界沉浸感细节(IMMERSION)",
+                tier=PriorityTier.T1_COMPRESSIBLE,
+                content=immersion_details,
+                tokens=self.estimate_tokens(immersion_details),
+                max_tokens=400,
+                priority=66,
+            )
+
+        # ── T1: 本章关键道具（用户标记 is_key）── priority=64 ──
+        key_props = self._build_key_props_slot(novel_id)
+        if key_props:
+            slots["key_props"] = ContextSlot(
+                name="本章关键道具(KEY_PROPS)",
+                tier=PriorityTier.T1_COMPRESSIBLE,
+                content=key_props,
+                tokens=self.estimate_tokens(key_props),
+                max_tokens=500,
+                priority=64,
+            )
+
         return slots
+
+    def _build_evolution_presenter_slot(self, novel_id: str, chapter_number: int) -> str:
+        if not self.evolution_presenter or not self.evolution_repository:
+            return ""
+        try:
+            snapshot = self.evolution_repository.get_latest_active_before(
+                novel_id, "main", chapter_number
+            )
+            if not snapshot:
+                return ""
+            return self.evolution_presenter.present(snapshot.ending_state)
+        except Exception as e:
+            logger.warning("Evolution presenter 构建失败: %s", e)
+            return ""
     
+    def _build_worldbuilding_core_slot(self, novel_id: str) -> str:
+        """提取世界观核心硬规则字段。
+
+        narrative_contract 含全部五维，但混合了文风公约和文化细节。
+        此方法单独格式化最高约束优先级的核心法则维度，供 T1 专用槽位注入。
+        """
+        return build_worldbuilding_core_slot_content(self.worldbuilding_repo, novel_id)
+
+    def _build_immersion_details_slot(self, novel_id: str) -> str:
+        """提取世界观沉浸感细节维度。
+
+        该槽位避免沉浸感信息被 narrative_contract 压缩掉。
+        """
+        return build_immersion_details_slot_content(self.worldbuilding_repo, novel_id)
+
+    def _build_key_props_slot(self, novel_id: str) -> str:
+        """提取用户标记 is_key=1 的关键道具，注入 T1 上下文。"""
+        return build_key_props_slot_content(novel_id)
+
     def _truncate_t0_slots(self, t0_slots: Dict[str, ContextSlot], budget: int) -> int:
         """极端情况：截断 T0 内容"""
-        total = 0
-        for name, slot in t0_slots.items():
-            if total + slot.tokens <= budget:
-                total += slot.tokens
-            else:
-                # 截断到最后一个
-                remaining = budget - total
-                if remaining > 0:
-                    target_chars = int(remaining * self.CHARS_PER_TOKEN_ZH)
-                    slot.content = slot.content[:target_chars] + "..."
-                    slot.tokens = remaining
-                    total += remaining
-                break
-        return total
+        return truncate_t0_slots(
+            t0_slots,
+            budget,
+            chars_per_token_zh=self.CHARS_PER_TOKEN_ZH,
+        )
     
     def _allocate_tier(
         self,
@@ -838,46 +817,19 @@ class ContextBudgetAllocator:
         2. 高优先级的尽量保留
         3. 超出预算的低优先级内容按比例压缩
         """
-        # 按优先级排序
-        sorted_slots = sorted(tier_slots.items(), key=lambda x: x[1].priority, reverse=True)
-        
-        total_used = 0
-        for name, slot in sorted_slots:
-            if total_used + slot.tokens <= budget:
-                # 可以完整保留
-                total_used += slot.tokens
-            elif slot.max_tokens and slot.max_tokens > 0:
-                # 可以部分保留
-                remaining = budget - total_used
-                if remaining > slot.min_tokens:
-                    # 压缩内容
-                    target_chars = int(remaining * self.CHARS_PER_TOKEN_ZH)
-                    slot.content = slot.content[:target_chars] + "..."
-                    slot.tokens = remaining
-                    total_used += remaining
-                    compression_log.append(f"压缩 {name}: {slot.tokens} → {remaining} tokens")
-                else:
-                    # 完全舍弃
-                    slot.content = ""
-                    slot.tokens = 0
-                    compression_log.append(f"舍弃 {name}（预算不足）")
-            else:
-                # 没有设置上限，按预算截断
-                remaining = budget - total_used
-                if remaining > 0:
-                    target_chars = int(remaining * self.CHARS_PER_TOKEN_ZH)
-                    slot.content = slot.content[:target_chars] + "..."
-                    slot.tokens = remaining
-                    total_used += remaining
-                    compression_log.append(f"截断 {name}: {remaining} tokens")
-                else:
-                    slot.content = ""
-                    slot.tokens = 0
-        
-        return total_used
+        return allocate_tier(
+            tier_slots,
+            budget,
+            compression_log,
+            chars_per_token_zh=self.CHARS_PER_TOKEN_ZH,
+        )
     
     # ==================== 内容收集方法 ====================
     
+    def _get_chapter_generation_hint(self, novel_id: str, chapter_number: int) -> str:
+        """读取用户手写的本章生成约束（generation_hint）"""
+        return get_chapter_generation_hint(novel_id, chapter_number)
+
     def _build_context_brief(
         self,
         novel_id: str,
@@ -890,120 +842,36 @@ class ContextBudgetAllocator:
         COMPLETED_BEATS/REVEALED_CLUES/ACTIVE_ENTITY_MEMORY/CHARACTER_STATE_LOCK），
         用一段 200-400 字的自然语言"编辑手记"告诉 AI 当前状态。
 
-        设计哲学：
-          一段自然语言比 8 个 === xxx === 分隔符更容易被 LLM 自然地融入创作。
-          这不是"约束列表"，而是"编辑的转场笔记"——像真人的责编告诉你：
-          "注意，上一章留了个悬念，有两个坑快到期了。"
+        用户手写的 generation_hint 作为最高优先级约束前置插入，直接覆盖自动推断。
         """
-        parts = []
-
-        # ── 1. 衔接信息（替代 BRIDGE_DIRECTIVE + PREVIOUSLY_ON）──
-        if chapter_number > 1:
-            bridge_hint = self._get_bridge_hint(novel_id, chapter_number)
-            if bridge_hint:
-                parts.append(bridge_hint)
-
-        # ── 2. 角色状态概要（替代 SCARS + CHARACTER_STATE_LOCK）──
-        character_state_hint = self._get_character_state_hint(novel_id)
-        if character_state_hint:
-            parts.append(character_state_hint)
-
-        # ── 3. 叙事备忘（替代 DEBT_DUE）──
-        debt_hint = self._get_debt_hint(novel_id, chapter_number, outline)
-        if debt_hint:
-            parts.append(debt_hint)
-
-        if not parts:
-            return ""
-
-        return "【编辑手记】\n" + "\n".join(parts)
+        return build_context_brief(
+            context_assembler=self.context_assembler,
+            novel_id=novel_id,
+            chapter_number=chapter_number,
+            outline=outline,
+            generation_hint_loader=self._get_chapter_generation_hint,
+            bridge_hint_builder=self._get_bridge_hint,
+        )
 
     def _get_bridge_hint(self, novel_id: str, chapter_number: int) -> str:
         """获取前章衔接提示（柔性建议，非铁律）"""
-        try:
-            from application.engine.services.chapter_bridge_service import ChapterBridgeService
-            from application.paths import get_db_path
-
-            svc = ChapterBridgeService(db_path=str(get_db_path()))
-            prev_bridge = svc.get_prev_chapter_bridge(novel_id, chapter_number)
-            if not prev_bridge:
-                return ""
-
-            hints = []
-            if prev_bridge.suspense_hook:
-                hints.append(f"上一章留了悬念：{prev_bridge.suspense_hook}")
-            if prev_bridge.emotional_residue:
-                hints.append(f"主角情绪：{prev_bridge.emotional_residue}")
-            if prev_bridge.scene_state:
-                hints.append(f"场景：{prev_bridge.scene_state}")
-            if prev_bridge.unfinished_actions:
-                hints.append(f"未完成：{prev_bridge.unfinished_actions}")
-
-            if not hints:
-                return ""
-
-            return "衔接：" + "；".join(hints) + "。你可以自然接续，也可以时间跳跃或视角切换。"
-
-        except Exception as e:
-            logger.debug("衔接提示获取失败: %s", e)
-            return ""
+        return build_bridge_hint(novel_id, chapter_number)
 
     def _get_character_state_hint(self, novel_id: str) -> str:
         """获取角色状态概要（精简版，替代详细的结构化 SCARS 锁）"""
-        if not self.context_assembler:
-            return ""
-
-        try:
-            # 尝试获取伤疤/执念，但压缩为自然语言
-            scars_content = self.context_assembler.build_scars_and_motivations(novel_id)
-            if not scars_content or not scars_content.strip():
-                return ""
-
-            # 从结构化文本中提取关键信息，压缩为 2-3 句话
-            lines = [l.strip() for l in scars_content.split('\n') if l.strip()]
-            # 过滤掉标题行和分隔符
-            content_lines = [l for l in lines if not l.startswith('【') and not l.startswith('═') and not l.startswith('━━')]
-
-            if not content_lines:
-                return ""
-
-            # 只保留前 3 行关键信息（防止膨胀）
-            brief_lines = content_lines[:3]
-            return "角色状态：" + "；".join(l.rstrip('。') for l in brief_lines if l) + "。"
-
-        except Exception as e:
-            logger.debug("角色状态概要获取失败: %s", e)
-            return ""
+        return build_character_state_hint(self.context_assembler, novel_id)
 
     def _get_debt_hint(self, novel_id: str, chapter_number: int, outline: str) -> str:
         """获取叙事债务温和提醒（替代强制收束令）"""
-        if not self.context_assembler:
-            return ""
-
-        try:
-            debt_content = self.context_assembler.build_debt_due_block(
-                novel_id, chapter_number, outline
-            )
-            if not debt_content or not debt_content.strip():
-                return ""
-
-            # 从结构化文本中提取债务描述
-            lines = [l.strip() for l in debt_content.split('\n') if l.strip()]
-            debt_lines = [l for l in lines if l.startswith('-') or l.startswith('•')]
-
-            if not debt_lines:
-                return ""
-
-            # 只保留前 2 条债务（防止膨胀）
-            brief_debts = [l.lstrip('-• ').rstrip() for l in debt_lines[:2]]
-            return "叙事备忘：" + "；".join(brief_debts) + "。如果合适可以推进，不必强求回收。"
-
-        except Exception as e:
-            logger.debug("叙事备忘获取失败: %s", e)
-            return ""
+        return build_debt_hint(
+            self.context_assembler,
+            novel_id,
+            chapter_number,
+            outline,
+        )
 
     def _get_chapter_bridge_directive(self, novel_id: str, chapter_number: int) -> str:
-        """🔥 衔接引擎：从 DB 读取前章桥段，生成首段衔接指令（V9: 降级为 T1 参考）"""
+        """衔接引擎：从 DB 读取前章桥段，生成首段衔接指令（V9: 降级为 T1 参考）"""
         if chapter_number <= 1:
             return ""
 
@@ -1057,8 +925,8 @@ class ContextBudgetAllocator:
         
         return ""
     
-    # ★ 爽文引擎: T0 伏笔最大展示数量（防止 T0 膨胀）
-    MAX_T0_FORESHADOWING_ITEMS = 6
+    # 爽文引擎: T0 伏笔最大展示数量（防止 T0 膨胀；+2 为用户星标条目留余量）
+    MAX_T0_FORESHADOWING_ITEMS = 8
 
     def _get_pending_foreshadowings(self, novel_id: str, chapter_number: int) -> str:
         """获取待回收伏笔（轨道二核心）- 爽文引擎: 使用 T0 精选筛选，剥离冗长 pending。"""
@@ -1072,7 +940,7 @@ class ContextBudgetAllocator:
             if not registry:
                 return ""
             
-            # ★ 爽文引擎: 使用 T0 筛选方法，剥离冗长 pending 伏笔
+            # 爽文引擎: 使用 T0 筛选方法，剥离冗长 pending 伏笔
             pending_foreshadows = registry.get_t0_eligible_foreshadowings(
                 current_chapter=chapter_number,
                 max_items=self.MAX_T0_FORESHADOWING_ITEMS,
@@ -1081,39 +949,42 @@ class ContextBudgetAllocator:
             
             lines = []
             
-            # ★ 爽文引擎: get_t0_eligible_foreshadowings 已排序，无需再次排序
+            # 爽文引擎: get_t0_eligible_foreshadowings 已排序，无需再次排序
             if pending_foreshadows:
                 lines.append("【待回收伏笔（爽文GC精选）】")
                 for f in pending_foreshadows[:self.MAX_T0_FORESHADOWING_ITEMS]:
-                    importance_mark = "⚠️" if f.importance.value >= 3 else ""
+                    importance_mark = "重要" if f.importance.value >= 3 else ""
                     
                     # 构建状态标记
                     status_mark = ""
                     if f.suggested_resolve_chapter:
                         if f.suggested_resolve_chapter <= chapter_number:
-                            status_mark = "🔴已过期"
+                            status_mark = "已过期"
                         elif f.suggested_resolve_chapter <= chapter_number + 3:
-                            status_mark = "🟡即将到期"
+                            status_mark = "即将到期"
                         else:
-                            status_mark = f"⏳预期Ch{f.suggested_resolve_chapter}"
+                            status_mark = f"预期Ch{f.suggested_resolve_chapter}"
                     
                     lines.append(
                         f"- Ch{f.planted_in_chapter} {importance_mark} {status_mark}: {f.description}"
                     )
             
-            # 对潜台词按预期回收章节排序
+            # 对潜台词按星标 > 预期回收章节排序
             def subtext_sort_key(e):
                 suggested = getattr(e, 'suggested_resolve_chapter', None)
                 importance = getattr(e, 'importance', 'medium')
                 importance_val = {'low': 1, 'medium': 2, 'high': 3, 'critical': 4}.get(importance, 2)
-                
+                # 用户标记「本章重点」→ 最高优先级
+                is_priority = getattr(e, 'is_priority_for_chapter', False)
+                priority_tier = 0 if is_priority else 1
+
                 if suggested:
                     if suggested <= chapter_number:
-                        return (0, -importance_val, suggested)
+                        return (priority_tier, 0, -importance_val, suggested)
                     else:
-                        return (1, -importance_val, suggested)
+                        return (priority_tier, 1, -importance_val, suggested)
                 else:
-                    return (2, -importance_val, 9999)
+                    return (priority_tier, 2, -importance_val, 9999)
             
             sorted_subtext = sorted(pending_subtext, key=subtext_sort_key)
             
@@ -1126,11 +997,11 @@ class ContextBudgetAllocator:
                     status_mark = ""
                     if suggested:
                         if suggested <= chapter_number:
-                            status_mark = "🔴已过期"
+                            status_mark = "已过期"
                         elif suggested <= chapter_number + 3:
-                            status_mark = "🟡即将到期"
+                            status_mark = "即将到期"
                         else:
-                            status_mark = f"⏳预期Ch{suggested}"
+                            status_mark = f"预期Ch{suggested}"
                     
                     lines.append(
                         f"- Ch{entry.chapter} [{entry.character_id}] {status_mark}: {entry.question}"
@@ -1144,7 +1015,7 @@ class ContextBudgetAllocator:
         return ""
     
     def _get_deferred_foreshadowings(self, novel_id: str, chapter_number: int) -> str:
-        """★ 爽文引擎: 获取被 T0 剥离的冗长 pending 伏笔（降级到 T1）"""
+        """爽文引擎: 获取被 T0 剥离的冗长 pending 伏笔（降级到 T1）"""
         if not self.foreshadowing_repo:
             return ""
         
@@ -1194,6 +1065,32 @@ class ContextBudgetAllocator:
             return ""
         
         try:
+            kernel = self._get_character_kernel()
+            if kernel:
+                plan = kernel.plan_cast(
+                    novel_id,
+                    chapter_number,
+                    outline,
+                    scene_director=scene_director,
+                )
+                # Generation is allowed to auto-materialize the cast contract.
+                kernel.apply_cast_plan(plan)
+                locks = self._projection_locks_for_plan(novel_id, plan, tier="t0")
+                if not locks:
+                    locks = kernel.build_context_locks(novel_id, chapter_number, plan=plan).t0.strip()
+                parts = []
+                if locks:
+                    parts.append("【角色状态锚点】\n" + locks)
+                loc_hint = self._format_scene_location_hints(
+                    self.bible_repo.get_by_novel_id(NovelId(novel_id)),
+                    outline,
+                    scene_director,
+                )
+                if loc_hint:
+                    parts.append(loc_hint)
+                if parts:
+                    return "\n\n".join(parts)
+
             # 确保 novel_id 是正确的类型
             from domain.novel.value_objects.novel_id import NovelId
             if isinstance(novel_id, str):
@@ -1253,7 +1150,7 @@ class ContextBudgetAllocator:
 
                 # 刚登场标记
                 if is_recently_appeared:
-                    profile_parts.append("⚠️ 刚登场，需保持一致性")
+                    profile_parts.append("刚登场，需保持一致性")
                 
                 lines.append(f"\n- {char.name}: " + " | ".join(profile_parts))
             
@@ -1335,77 +1232,113 @@ class ContextBudgetAllocator:
         scene_director: Optional[Dict[str, Any]] = None,
     ) -> List[tuple]:
         """智能角色调度（核心算法）
-        
+
+        优先级：
+          1. chapter_elements 中预规划的选角（作者手动排班，或前次 StateUpdater 写入）
+          2. 大纲 / 场记中提及的角色（AppearanceScheduler fallback）
+          3. Bible 重要性 + 近期活跃度补位
+
         Returns:
             List[Tuple[Character, bool]]: [(角色, 是否刚登场), ...]
         """
-        # 最大角色数限制
         MAX_CHARACTERS = 7
-        
-        # Step 1: 从大纲中提取提及的角色名
-        mentioned_names = set()
+
+        # Step 0: 读取当前章节预规划选角 {element_id → importance_priority}
+        #         priority: 0=major, 1=normal, 2=minor
+        planned_cast = self._get_planned_cast(novel_id, chapter_number)
+
+        # Step 1: 大纲 + 场记提及名
+        mentioned_names: set = set()
         if outline:
-            # 简单匹配：检查角色名是否在大纲中
             for char in all_characters:
                 if char.name in outline:
                     mentioned_names.add(char.name)
-        
-        # 如果有场记分析，合并场记中的角色
         if scene_director and scene_director.get("characters"):
             mentioned_names.update(scene_director["characters"])
-        
-        # Step 2: 从 chapter_elements 表查询最近出场的角色
+
+        # Step 2: 最近 5 章活跃度
         recent_characters = self._get_recent_characters(novel_id, chapter_number)
-        
-        # Step 3: 分类：提及的 vs 未提及的
-        mentioned_chars = []
-        unmentioned_chars = []
-        
+
+        # Step 3: 分桶 — 预规划 vs 非预规划
+        planned_list: List[tuple] = []    # (char, is_recent, planned_pri)
+        unplanned_list: List[tuple] = []  # (char, is_recent, bible_pri, in_outline)
+
         for char in all_characters:
-            # 检查是否刚登场（最近1章出场次数<=1）
+            char_id = char.character_id.value if hasattr(char, 'character_id') else None
             is_recent = self._is_recently_appeared(char, recent_characters, chapter_number)
-            
-            if char.name in mentioned_names:
-                mentioned_chars.append((char, is_recent, self._get_char_importance(char)))
+
+            if char_id and char_id in planned_cast:
+                planned_list.append((char, is_recent, planned_cast[char_id]))
             else:
-                unmentioned_chars.append((char, is_recent, self._get_char_importance(char)))
-        
-        # Step 4: 排序未提及角色（重要性 > 活动度）
-        unmentioned_chars.sort(key=lambda x: (
-            x[2],  # 重要性优先级（越小越优先）
-            -self._get_activity_score(x[0], recent_characters)  # 活动度降序
+                bible_pri = self._get_char_importance(char)
+                in_outline = char.name in mentioned_names
+                unplanned_list.append((char, is_recent, bible_pri, in_outline))
+
+        # Step 4: 预规划按 importance 排序（major → normal → minor）
+        planned_list.sort(key=lambda x: x[2])
+
+        # Step 5: 非预规划按（大纲提及 → Bible 重要性 → 活跃度）排序
+        unplanned_list.sort(key=lambda x: (
+            not x[3],                                           # 大纲提及优先
+            x[2],                                               # Bible 重要性
+            -self._get_activity_score(x[0], recent_characters), # 活跃度降序
         ))
-        
-        # Step 5: 合并队列
-        queue = mentioned_chars + unmentioned_chars
-        
-        # Step 6: 截断到最大数量
-        selected = queue[:MAX_CHARACTERS]
-        
-        # 返回 (角色, 是否刚登场) 的列表
-        return [(char, is_recent) for char, is_recent, _ in selected]
+
+        # Step 6: 预规划优先填位，剩余槽位由 fallback 补充
+        selected: List[tuple] = [(c, r) for c, r, _ in planned_list]
+        remaining = MAX_CHARACTERS - len(selected)
+        for char, is_recent, _, _ in unplanned_list[:remaining]:
+            selected.append((char, is_recent))
+
+        return selected[:MAX_CHARACTERS]
+
+    def _get_planned_cast(self, novel_id: str, chapter_number: int) -> Dict[str, int]:
+        """返回 {element_id: importance_priority} — priority: 0=major, 1=normal, 2=minor。
+
+        如果没有预规划记录（作者还未排班），返回空字典 → fallback 到 AppearanceScheduler。
+        """
+        if not self.chapter_element_repo:
+            return {}
+        try:
+            chapter_id = self._get_chapter_node_id(novel_id, chapter_number)
+            if not chapter_id:
+                return {}
+            rows = self.chapter_element_repo.get_planned_cast_sync(chapter_id)
+            importance_priority = {'major': 0, 'normal': 1, 'minor': 2}
+            return {r['element_id']: importance_priority.get(r['importance'], 1) for r in rows}
+        except Exception as e:
+            logger.warning(f"读取预规划选角失败: {e}")
+            return {}
+
+    def _get_chapter_node_id(self, novel_id: str, chapter_number: int) -> Optional[str]:
+        """通过 story_node_repo 获取指定章节的 story_nodes.id。"""
+        if not self.story_node_repo:
+            return None
+        try:
+            nodes = self.story_node_repo.get_by_novel_sync(novel_id)
+            for node in nodes:
+                nt = node.node_type
+                nt_val = nt.value if hasattr(nt, 'value') else str(nt)
+                if nt_val == 'chapter' and node.number == chapter_number:
+                    return node.id
+            return None
+        except Exception as e:
+            logger.warning(f"获取章节节点ID失败: {e}")
+            return None
     
     def _get_recent_characters(self, novel_id: str, chapter_number: int) -> Dict[str, Dict]:
-        """从 chapter_elements 表查询最近5章的角色活动
-        
+        """从 chapter_elements 表查询最近 5 章的角色活动统计。
+
         Returns:
-            Dict[char_id, {"count": int, "last_chapter": int}]
+            Dict[element_id, {"count": int, "last_chapter": int}]
         """
-        if not self.story_node_repo:
+        if not self.chapter_element_repo:
             return {}
-        
         try:
-            # 查询最近5章的 chapter_elements
-            # 这里简化实现，实际应该查询 chapter_elements 表
-            # SELECT element_id, COUNT(*) as count, MAX(chapter_number) as last_chapter
-            # FROM chapter_elements
-            # WHERE novel_id = ? AND element_type = 'character'
-            # AND chapter_number >= ?
-            # GROUP BY element_id
-            
-            # 暂时返回空字典，等待实际数据库查询
-            return {}
-            
+            rows = self.chapter_element_repo.get_recent_char_activity_sync(
+                novel_id, chapter_number, window=5
+            )
+            return {r['element_id']: {'count': r['count'], 'last_chapter': r['last_chapter']} for r in rows}
         except Exception as e:
             logger.warning(f"查询最近角色活动失败: {e}")
             return {}
@@ -1513,12 +1446,14 @@ class ContextBudgetAllocator:
                 if t.id not in all_triples:
                     all_triples[t.id] = t
             
-            # 按置信度和相关性排序
+            # 星标三元组优先，其次置信度和相关章节数
+            starred_ids = set(self.triple_repo.get_starred_triple_ids_sync(novel_id))
             sorted_triples = sorted(
                 all_triples.values(),
                 key=lambda x: (
-                    -x.confidence,  # 置信度降序
-                    -len(x.related_chapters or []),  # 相关章节数降序
+                    0 if x.id in starred_ids else 1,  # 星标优先
+                    -(x.confidence or 0),
+                    -len(x.related_chapters or []),
                 )
             )[:30]  # 最多 30 条
             
@@ -1843,20 +1778,10 @@ class ContextBudgetAllocator:
 
     def _excerpt_immediate_previous_chapter(self, content: str) -> str:
         """紧邻上一章正文：头短 + 章末长段，标明供本章开头承接。"""
-        raw = (content or "").strip()
-        if not raw:
-            return ""
-        head_n = self.PREV_CHAPTER_BRIDGE_HEAD_CHARS
-        tail_n = self.PREV_CHAPTER_BRIDGE_TAIL_CHARS
-        if len(raw) <= tail_n:
-            return f"【章末节选，供本章开头承接】\n{raw}"
-        if len(raw) <= head_n + tail_n:
-            return f"【章末节选，供本章开头承接】\n{raw}"
-        head = raw[:head_n]
-        tail = raw[-tail_n:]
-        return (
-            f"【章首略览】\n{head}……\n"
-            f"【章末节选，供本章开头承接】\n{tail}"
+        return excerpt_immediate_previous_chapter(
+            content,
+            head_chars=self.PREV_CHAPTER_BRIDGE_HEAD_CHARS,
+            tail_chars=self.PREV_CHAPTER_BRIDGE_TAIL_CHARS,
         )
 
     def _get_recent_chapters(
@@ -1881,58 +1806,15 @@ class ContextBudgetAllocator:
             nid = NovelId(novel_id)
             all_chapters = self.chapter_repo.list_by_novel(nid)
 
-            # 获取最近的已完成章节
-            recent = sorted(
-                [c for c in all_chapters if c.number < chapter_number],
-                key=lambda c: c.number,
-                reverse=True
-            )[:limit]
-
-            prev_num = chapter_number - 1
-            prev2_num = chapter_number - 2
-            older_cap = self.OLDER_CHAPTER_HEAD_PREVIEW_CHARS
-            lines = ["【最近章节】"]
-
-            # 历史章节（按时间顺序旧 → 新）
-            for chapter in reversed(recent):
-                lines.append(f"\n第 {chapter.number} 章：{chapter.title}")
-                body = (chapter.content or "").strip()
-                if not body:
-                    continue
-                if chapter.number == prev_num:
-                    # N-1：章首略览 + 章末完整
-                    excerpt = self._excerpt_immediate_previous_chapter(chapter.content or "")
-                    if excerpt:
-                        lines.append(excerpt)
-                    continue
-                if chapter.number == prev2_num:
-                    # N-2：章末中等片段（半量），帮助跨章一致性
-                    tail_n = self.PREV_CHAPTER_BRIDGE_TAIL_CHARS // 2
-                    tail = body[-tail_n:] if len(body) > tail_n else body
-                    lines.append(f"【章末节选，供跨章一致性参考】\n{tail}")
-                    continue
-                preview = body[:older_cap]
-                if len(body) > older_cap:
-                    preview = f"{preview}..."
-                lines.append(f"【章首预览】\n{preview}")
-
-            # ★ 断点续写：包含当前章节已生成部分
-            if current_beat_index > 0:
-                current_chapter = next(
-                    (c for c in all_chapters if c.number == chapter_number), None
-                )
-                if current_chapter and current_chapter.content:
-                    current_content = current_chapter.content.strip()
-                    if current_content:
-                        # 取已生成内容的最后部分（最多2000字）
-                        continuation_preview = current_content[-2000:] if len(current_content) > 2000 else current_content
-                        lines.append(f"\n【本章已生成（断点续写上下文）】")
-                        lines.append(f"当前节拍索引: {current_beat_index}")
-                        lines.append(f"已生成 {len(current_content)} 字")
-                        lines.append(f"---")
-                        lines.append(continuation_preview)
-
-            return "\n".join(lines)
+            return build_recent_chapters_context(
+                all_chapters,
+                chapter_number=chapter_number,
+                limit=limit,
+                current_beat_index=current_beat_index,
+                prev_head_chars=self.PREV_CHAPTER_BRIDGE_HEAD_CHARS,
+                prev_tail_chars=self.PREV_CHAPTER_BRIDGE_TAIL_CHARS,
+                older_head_chars=self.OLDER_CHAPTER_HEAD_PREVIEW_CHARS,
+            )
 
         except Exception as e:
             logger.warning(f"获取最近章节失败: {e}")
@@ -1952,7 +1834,7 @@ class ContextBudgetAllocator:
         try:
             collection_name = f"novel_{novel_id}_chunks"
 
-            # 🔥 新书首次运行时 collection 可能不存在，自动创建
+            # 新书首次运行时 collection 可能不存在，自动创建
             try:
                 existing = _sync_run_async(self.vector_facade.vector_store.list_collections())
                 if collection_name not in existing:
@@ -2049,124 +1931,39 @@ class ContextBudgetAllocator:
         3. 已有最大章节号 × 1.2（保守估算，假设已完成 80%+）
         4. 兜底返回 100
         """
-        if not self.story_node_repo:
-            return 100
-        
-        try:
-            nodes = self.story_node_repo.get_by_novel_sync(novel_id)
-            if not nodes:
-                return 100
-            
-            # 策略 1：找根 part 节点的 chapter_end
-            part_nodes = [n for n in nodes if n.node_type.value == "part"]
-            for part in part_nodes:
-                if part.chapter_end and part.chapter_end > 0:
-                    return part.chapter_end
-            
-            # 策略 2：suggested_chapter_count 求和
-            total_suggested = sum(
-                (p.suggested_chapter_count or 0) for p in part_nodes if p.suggested_chapter_count
-            )
-            if total_suggested > 0:
-                return total_suggested
-            
-            # 策略 3：最大章节号 × 1.2
-            chapter_nodes = [n for n in nodes if n.node_type.value == "chapter"]
-            if chapter_nodes:
-                max_ch = max(n.number for n in chapter_nodes)
-                if max_ch > 0:
-                    return max(int(max_ch * 1.2), max_ch + 10)
-            
-        except Exception as e:
-            logger.warning(f"估算总章节数失败: {e}")
-        
-        return 100
+        return estimate_total_chapters(self.story_node_repo, novel_id)
     
-    # ★ Phase 3: 沙漏阶段默认阈值
-    _DEFAULT_PHASE_THRESHOLDS = {
-        "opening": 0.25,      # 0% ~ 25%: 开局期
-        "development": 0.75,   # 25% ~ 75%: 发展期
-        "convergence": 0.90,   # 75% ~ 90%: 收敛期
-        "finale": 1.01,        # 90% ~ 100%: 终局期（设为 1.01 确保边界）
-    }
+    # Phase 3: 沙漏阶段默认阈值
+    _DEFAULT_PHASE_THRESHOLDS = DEFAULT_PHASE_THRESHOLDS
 
     from infrastructure.ai.prompt_keys import LIFECYCLE_PHASE_DIRECTIVES as _LIFECYCLE_PROMPT_ID
 
     def _load_phase_thresholds(self) -> Dict[str, float]:
-        """★ Phase 3: 从 CPMS 节点加载沙漏阶段阈值（lifecycle-phase-directives 的 _phase_thresholds）。"""
-        try:
-            registry = get_prompt_registry()
-            custom = registry.get_field(self._LIFECYCLE_PROMPT_ID, "_phase_thresholds", None)
-            if isinstance(custom, dict):
-                thresholds = dict(self._DEFAULT_PHASE_THRESHOLDS)
-                for key in ["opening", "development", "convergence", "finale"]:
-                    if key in custom:
-                        val = float(custom[key])
-                        if 0.0 <= val <= 1.01:
-                            thresholds[key] = val
-                logger.info(f"沙漏阶段阈值已从配置加载: {thresholds}")
-                return thresholds
-        except Exception as e:
-            logger.debug(f"加载沙漏阶段阈值失败，使用默认值: {e}")
-
-        return dict(self._DEFAULT_PHASE_THRESHOLDS)
+        """Phase 3: 从 CPMS 节点加载沙漏阶段阈值（lifecycle-phase-directives 的 _phase_thresholds）。"""
+        return load_phase_thresholds(
+            get_prompt_registry(),
+            self._LIFECYCLE_PROMPT_ID,
+            self._DEFAULT_PHASE_THRESHOLDS,
+        )
 
     def _classify_phase(self, progress: float) -> StoryPhase:
-        """★ Phase 3: 根据可配置阈值判定当前生命周期阶段"""
-        t = self._phase_thresholds
-        if progress >= t.get("convergence", 0.90):
-            if progress >= t.get("finale", 1.01):
-                return StoryPhase.FINALE
-            return StoryPhase.CONVERGENCE
-        elif progress >= t.get("opening", 0.25):
-            return StoryPhase.DEVELOPMENT
-        else:
-            return StoryPhase.OPENING
+        """Phase 3: 根据可配置阈值判定当前生命周期阶段"""
+        return classify_phase(progress, self._phase_thresholds)
     
     def _get_phase_directives(self) -> Dict[StoryPhase, str]:
         """从 PromptRegistry / CPMS 获取阶段指令字典。"""
-        raw = get_prompt_registry().get_directives_dict(
-            self._LIFECYCLE_PROMPT_ID, directives_key="_directives"
-        )
-        if not raw:
-            logger.warning("沙漏阶段指令未找到 (id=%s)，使用空指令", self._LIFECYCLE_PROMPT_ID)
-            return {}
-
-        result: Dict[StoryPhase, str] = {}
-        for key, value in raw.items():
-            try:
-                phase = StoryPhase[key]
-                result[phase] = str(value)
-            except KeyError:
-                logger.debug("未知阶段 key=%s，跳过", key)
-        return result
+        return get_phase_directives(get_prompt_registry(), self._LIFECYCLE_PROMPT_ID)
 
     def _build_lifecycle_directive(self, novel_id: str, chapter_number: int) -> str:
         """构建生命周期行为准则文本（指令来自 CPMS lifecycle-phase-directives）。"""
-        total = self._estimate_total_chapters(novel_id)
-        progress = chapter_number / max(total, 1)
-        phase = self._classify_phase(progress)
-
-        directives = self._get_phase_directives()
-        base_directive = directives.get(phase, "")
-
-        directive = f"{base_directive}\n\n"
-        directive += f"——\n"
-        directive += f"📊 全局进度：第 {chapter_number} 章 / 约 {total} 章 ({progress:.0%})\n"
-        directive += f"🎯 当前阶段：{phase.value}\n"
-
-        registry = get_prompt_registry()
-
-        if phase == StoryPhase.CONVERGENCE:
-            remaining = total - chapter_number
-            extra_tpl = registry.get_field(self._LIFECYCLE_PROMPT_ID, "_convergence_extra", "")
-            directive += (extra_tpl.format(remaining=remaining) if extra_tpl else f"⚠️ 剩余约 {remaining} 章完成收束，时间紧迫。\n")
-        elif phase == StoryPhase.FINALE:
-            remaining = total - chapter_number
-            extra_tpl = registry.get_field(self._LIFECYCLE_PROMPT_ID, "_finale_extra", "")
-            directive += (extra_tpl.format(remaining=remaining) if extra_tpl else f"🔥 剩余约 {remaining} 章，这是最后的冲刺。\n")
-
-        return directive
+        return build_lifecycle_directive(
+            story_node_repository=self.story_node_repo,
+            novel_id=novel_id,
+            chapter_number=chapter_number,
+            thresholds=self._phase_thresholds,
+            registry=get_prompt_registry(),
+            prompt_id=self._LIFECYCLE_PROMPT_ID,
+        )
 
     # ==================== Anti-AI T0 槽位构建方法 ====================
 
@@ -2193,12 +1990,29 @@ class ContextBudgetAllocator:
 
         return ""
 
-    def _build_character_state_lock_block(self, novel_id: str) -> str:
+    def _build_character_state_lock_block(self, novel_id: str, chapter_number: int) -> str:
         """构建角色状态锁文本块（T0 注入）。
 
-        从 Bible 仓库读取当前章节出场角色的状态向量，
-        生成防记忆漂移的锚点文本。
+        从本章 cast plan 读取 normal/minor 角色，避免 Bible 前 7 个角色污染上下文。
         """
+        kernel = self._get_character_kernel()
+        if kernel:
+            try:
+                plan = kernel.plan_cast(novel_id, chapter_number)
+                projected = self._projection_locks_for_plan(novel_id, plan, tier="support")
+                if projected:
+                    return projected
+                locks = kernel.build_context_locks(novel_id, chapter_number, plan=plan)
+                parts = []
+                if locks.t1.strip():
+                    parts.append(locks.t1.strip())
+                if locks.t2.strip():
+                    parts.append(locks.t2.strip())
+                return "\n\n".join(parts)
+            except Exception as e:
+                logger.debug("角色内核状态锁构建失败: %s", e)
+
+        # Legacy fallback for tests or deployments without repositories.
         try:
             from application.engine.rules.character_state_vector import get_character_state_vector_manager
 
@@ -2239,3 +2053,71 @@ class ContextBudgetAllocator:
             logger.debug("角色状态锁构建失败: %s", e)
 
         return ""
+
+    def _projection_locks_for_plan(self, novel_id: str, plan: Any, *, tier: str) -> str:
+        """Prefer unified character projections for prompt locks; fallback callers handle empty."""
+        try:
+            service = self._get_character_projection_service()
+            if not service:
+                return ""
+            lines: List[str] = []
+            for slot in getattr(plan, "slots", []) or []:
+                projection = service.get_projection(novel_id, slot.character_id)
+                locks = projection.get("context_locks") or {}
+                if tier == "t0" and slot.importance == "major" and locks.get("t0"):
+                    lines.append(str(locks["t0"]))
+                elif tier == "support":
+                    key = "t1" if slot.importance == "normal" else "t2"
+                    if locks.get(key):
+                        lines.append(str(locks[key]))
+            return "\n".join(lines)
+        except Exception as e:
+            logger.debug("角色 Projection 锁构建失败: %s", e)
+            return ""
+
+    def _get_character_projection_service(self):
+        if self.character_projection_service is not None:
+            return self.character_projection_service
+        try:
+            from application.memory.services.character_projection_service import CharacterProjectionService
+            from application.memory.services.narrative_memory_service import NarrativeMemoryService
+            from infrastructure.persistence.database.connection import get_database
+            from infrastructure.persistence.database.sqlite_character_state_repository import (
+                SqliteCharacterStateRepository,
+            )
+            from infrastructure.persistence.database.sqlite_memory_repository import (
+                SqliteNarrativeMemoryRepository,
+            )
+            from infrastructure.persistence.database.sqlite_narrative_debt_repository import (
+                SqliteNarrativeDebtRepository,
+            )
+
+            db = get_database()
+            return CharacterProjectionService(
+                memory_service=NarrativeMemoryService(SqliteNarrativeMemoryRepository(db)),
+                bible_repository=self.bible_repo,
+                character_state_repository=SqliteCharacterStateRepository(db),
+                triple_repository=self.triple_repo,
+                debt_repository=SqliteNarrativeDebtRepository(db),
+            )
+        except Exception as e:
+            logger.debug("角色 Projection 服务不可用: %s", e)
+            return None
+
+    def _get_character_kernel(self):
+        if self.character_narrative_kernel is not None:
+            return self.character_narrative_kernel
+        if not (self.bible_repo and self.chapter_element_repo and self.story_node_repo):
+            return None
+        try:
+            from application.character.services.character_narrative_kernel import CharacterNarrativeKernel
+            self.character_narrative_kernel = CharacterNarrativeKernel(
+                bible_repository=self.bible_repo,
+                chapter_element_repository=self.chapter_element_repo,
+                story_node_repository=self.story_node_repo,
+                triple_repository=self.triple_repo,
+            )
+            return self.character_narrative_kernel
+        except Exception as e:
+            logger.debug("角色叙事内核初始化失败: %s", e)
+            return None

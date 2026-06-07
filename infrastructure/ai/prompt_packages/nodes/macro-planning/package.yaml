@@ -1,0 +1,20 @@
+name: 宏观规划执行
+category: planning
+source: application/engine/dag/nodes/execution_nodes.py::PlanningNode
+description: DAG 中的宏观规划节点提示词，生成或修正章节级推进计划
+builtin: true
+tags:
+- DAG
+- 规划
+output_format: text
+variables:
+- name: novel_id
+  desc: 小说 ID
+  type: string
+  required: false
+- name: target_chapters
+  desc: 目标章节数
+  type: integer
+  required: false
+id: macro-planning
+sort_order: 114

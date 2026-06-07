@@ -10,10 +10,10 @@
     :segmented="{ content: true, footer: true }"
   >
     <n-steps :current="currentStep" :status="stepStatus" size="small" class="wizard-steps">
-      <n-step title="世界观" description="5维度框架" class="wizard-step-clickable" @click="goToStep(1)" />
+      <n-step title="文风 / 世界观" description="先定调，再搭 5 维框架" class="wizard-step-clickable" @click="goToStep(1)" />
       <n-step title="人物" description="主要角色" class="wizard-step-clickable" @click="goToStep(2)" />
       <n-step title="地图" description="地图系统" class="wizard-step-clickable" @click="goToStep(3)" />
-      <n-step title="故事线" description="主线支线" class="wizard-step-clickable" @click="goToStep(4)" />
+      <n-step title="剧情总纲" description="故事主轴" class="wizard-step-clickable" @click="goToStep(4)" />
       <n-step title="开始" description="进入工作台" />
     </n-steps>
 
@@ -38,8 +38,8 @@
               </n-icon>
             </div>
             <div class="generating-text">
-              <h3>{{ phaseMessage || '正在生成世界观...' }}</h3>
-              <p class="generating-sub">AI 正在逐维度构建您的世界，出一个渲染一个</p>
+              <h3>{{ phaseMessage || '正在生成文风公约与世界观...' }}</h3>
+              <p class="generating-sub">AI 会先定文风，再逐维度构建您的世界，出一个渲染一个</p>
             </div>
           </div>
 
@@ -49,48 +49,63 @@
             :completed-dimensions="completedDimensions"
           >
             <template #core_rules>
-              <div class="dimension-fields" v-if="worldbuildingData.core_rules && Object.keys(worldbuildingData.core_rules).length">
-                <div v-for="(val, key) in worldbuildingData.core_rules" :key="key"
-                  class="field-card" :class="{ 'field-card--streaming': activeDimension === 'core_rules' && activeField === key }">
-                  <div class="field-card__title">{{ dimKeyLabels[key] || key }}</div>
-                  <div class="field-card__content">{{ val }}<span v-if="activeDimension === 'core_rules' && activeField === key" class="streaming-cursor">▎</span></div>
+              <div class="dimension-fields" v-if="orderedWorldbuildingFields('core_rules').length">
+                <div v-for="field in orderedWorldbuildingFields('core_rules')" :key="field.key"
+                  class="field-card" :class="{ 'field-card--streaming': activeDimension === 'core_rules' && activeField === field.key }">
+                  <div class="field-card__title">{{ worldbuildingFieldTitle('core_rules', field.key) }}</div>
+                  <div class="field-card__content">{{ field.value }}<span v-if="activeDimension === 'core_rules' && activeField === field.key" class="streaming-cursor">▎</span></div>
                 </div>
+              </div>
+              <div v-else-if="activeDimension === 'core_rules'" class="raw-stream-preview">
+                正在生成核心法则，解析到字段后将逐项展示<span class="streaming-cursor">▎</span>
               </div>
             </template>
             <template #geography>
-              <div class="dimension-fields" v-if="worldbuildingData.geography && Object.keys(worldbuildingData.geography).length">
-                <div v-for="(val, key) in worldbuildingData.geography" :key="key"
-                  class="field-card" :class="{ 'field-card--streaming': activeDimension === 'geography' && activeField === key }">
-                  <div class="field-card__title">{{ dimKeyLabels[key] || key }}</div>
-                  <div class="field-card__content">{{ val }}<span v-if="activeDimension === 'geography' && activeField === key" class="streaming-cursor">▎</span></div>
+              <div class="dimension-fields" v-if="orderedWorldbuildingFields('geography').length">
+                <div v-for="field in orderedWorldbuildingFields('geography')" :key="field.key"
+                  class="field-card" :class="{ 'field-card--streaming': activeDimension === 'geography' && activeField === field.key }">
+                  <div class="field-card__title">{{ worldbuildingFieldTitle('geography', field.key) }}</div>
+                  <div class="field-card__content">{{ field.value }}<span v-if="activeDimension === 'geography' && activeField === field.key" class="streaming-cursor">▎</span></div>
                 </div>
+              </div>
+              <div v-else-if="activeDimension === 'geography'" class="raw-stream-preview">
+                正在生成地理生态，解析到字段后将逐项展示<span class="streaming-cursor">▎</span>
               </div>
             </template>
             <template #society>
-              <div class="dimension-fields" v-if="worldbuildingData.society && Object.keys(worldbuildingData.society).length">
-                <div v-for="(val, key) in worldbuildingData.society" :key="key"
-                  class="field-card" :class="{ 'field-card--streaming': activeDimension === 'society' && activeField === key }">
-                  <div class="field-card__title">{{ dimKeyLabels[key] || key }}</div>
-                  <div class="field-card__content">{{ val }}<span v-if="activeDimension === 'society' && activeField === key" class="streaming-cursor">▎</span></div>
+              <div class="dimension-fields" v-if="orderedWorldbuildingFields('society').length">
+                <div v-for="field in orderedWorldbuildingFields('society')" :key="field.key"
+                  class="field-card" :class="{ 'field-card--streaming': activeDimension === 'society' && activeField === field.key }">
+                  <div class="field-card__title">{{ worldbuildingFieldTitle('society', field.key) }}</div>
+                  <div class="field-card__content">{{ field.value }}<span v-if="activeDimension === 'society' && activeField === field.key" class="streaming-cursor">▎</span></div>
                 </div>
+              </div>
+              <div v-else-if="activeDimension === 'society'" class="raw-stream-preview">
+                正在生成社会结构，解析到字段后将逐项展示<span class="streaming-cursor">▎</span>
               </div>
             </template>
             <template #culture>
-              <div class="dimension-fields" v-if="worldbuildingData.culture && Object.keys(worldbuildingData.culture).length">
-                <div v-for="(val, key) in worldbuildingData.culture" :key="key"
-                  class="field-card" :class="{ 'field-card--streaming': activeDimension === 'culture' && activeField === key }">
-                  <div class="field-card__title">{{ dimKeyLabels[key] || key }}</div>
-                  <div class="field-card__content">{{ val }}<span v-if="activeDimension === 'culture' && activeField === key" class="streaming-cursor">▎</span></div>
+              <div class="dimension-fields" v-if="orderedWorldbuildingFields('culture').length">
+                <div v-for="field in orderedWorldbuildingFields('culture')" :key="field.key"
+                  class="field-card" :class="{ 'field-card--streaming': activeDimension === 'culture' && activeField === field.key }">
+                  <div class="field-card__title">{{ worldbuildingFieldTitle('culture', field.key) }}</div>
+                  <div class="field-card__content">{{ field.value }}<span v-if="activeDimension === 'culture' && activeField === field.key" class="streaming-cursor">▎</span></div>
                 </div>
+              </div>
+              <div v-else-if="activeDimension === 'culture'" class="raw-stream-preview">
+                正在生成历史文化，解析到字段后将逐项展示<span class="streaming-cursor">▎</span>
               </div>
             </template>
             <template #daily_life>
-              <div class="dimension-fields" v-if="worldbuildingData.daily_life && Object.keys(worldbuildingData.daily_life).length">
-                <div v-for="(val, key) in worldbuildingData.daily_life" :key="key"
-                  class="field-card" :class="{ 'field-card--streaming': activeDimension === 'daily_life' && activeField === key }">
-                  <div class="field-card__title">{{ dimKeyLabels[key] || key }}</div>
-                  <div class="field-card__content">{{ val }}<span v-if="activeDimension === 'daily_life' && activeField === key" class="streaming-cursor">▎</span></div>
+              <div class="dimension-fields" v-if="orderedWorldbuildingFields('daily_life').length">
+                <div v-for="field in orderedWorldbuildingFields('daily_life')" :key="field.key"
+                  class="field-card" :class="{ 'field-card--streaming': activeDimension === 'daily_life' && activeField === field.key }">
+                  <div class="field-card__title">{{ worldbuildingFieldTitle('daily_life', field.key) }}</div>
+                  <div class="field-card__content">{{ field.value }}<span v-if="activeDimension === 'daily_life' && activeField === field.key" class="streaming-cursor">▎</span></div>
                 </div>
+              </div>
+              <div v-else-if="activeDimension === 'daily_life'" class="raw-stream-preview">
+                正在生成沉浸感细节，解析到字段后将逐项展示<span class="streaming-cursor">▎</span>
               </div>
             </template>
           </WizardSkeleton>
@@ -108,29 +123,11 @@
 
         <!-- 生成完成后显示可编辑预览 -->
         <div v-else-if="bibleGenerated" class="bible-preview">
-          <n-alert type="success" title="世界观生成完成" style="margin-bottom: 16px">
-            请查看并修改世界观设定和文风公约，确认后下一步将基于此生成人物和地点。
+          <n-alert type="success" title="文风公约与世界观生成完成" style="margin-bottom: 16px">
+            请查看并修改文风公约和世界观设定，确认后下一步将基于此生成人物和地点。
           </n-alert>
 
-          <n-collapse :default-expanded-names="['worldbuilding', 'style']">
-            <n-collapse-item title="世界观（5维度框架）" name="worldbuilding">
-              <n-space vertical size="small">
-                <n-card v-for="dim in wbDimensionCards" :key="dim.key" size="small" :title="dim.label">
-                  <div class="dimension-fields">
-                    <div v-for="(_val, key) in dim.data" :key="key" class="field-card field-card--editable">
-                      <div class="field-card__title">{{ dimKeyLabels[key] || key }}</div>
-                      <n-input
-                        v-model:value="worldbuildingData[dim.key][key]"
-                        type="textarea"
-                        :autosize="{ minRows: 1, maxRows: 4 }"
-                        size="small"
-                      />
-                    </div>
-                  </div>
-                </n-card>
-              </n-space>
-            </n-collapse-item>
-
+          <n-collapse :default-expanded-names="['style', 'worldbuilding']">
             <n-collapse-item title="文风公约" name="style">
               <n-card size="small">
                 <n-input
@@ -140,6 +137,24 @@
                   placeholder="文风公约"
                 />
               </n-card>
+            </n-collapse-item>
+
+            <n-collapse-item title="世界观（5维度框架）" name="worldbuilding">
+              <n-space vertical size="small">
+                <n-card v-for="dim in wbDimensionCards" :key="dim.key" size="small" :title="dim.label">
+                  <div class="dimension-fields">
+                    <div v-for="field in orderedWorldbuildingFields(dim.key, { includeEmpty: true })" :key="field.key" class="field-card field-card--editable">
+                      <div class="field-card__title">{{ worldbuildingFieldTitle(dim.key, field.key) }}</div>
+                      <n-input
+                        v-model:value="worldbuildingData[dim.key][field.key]"
+                        type="textarea"
+                        :autosize="{ minRows: 1, maxRows: 4 }"
+                        size="small"
+                      />
+                    </div>
+                  </div>
+                </n-card>
+              </n-space>
             </n-collapse-item>
           </n-collapse>
           <n-button secondary style="margin-top: 12px" @click="startBibleGeneration()">
@@ -152,8 +167,8 @@
           <n-icon size="48" color="#18a058">
             <IconBook />
           </n-icon>
-          <h3>准备生成世界观</h3>
-          <p>AI 将分析您的故事创意，逐维度构建世界观和文风公约。</p>
+          <h3>准备生成文风公约与世界观</h3>
+          <p>AI 将先生成文风公约，再逐维度构建世界观。</p>
           <n-button type="primary" style="margin-top: 16px" @click="startBibleGeneration()">
             开始生成
           </n-button>
@@ -192,6 +207,14 @@
                   </div>
                 </div>
                 <div v-if="char.description" class="char-card__desc">{{ char.description }}</div>
+                <div v-if="char.core_belief" class="char-card__anchor">
+                  <span class="char-card__anchor-label">核心信念</span>
+                  <span>{{ char.core_belief }}</span>
+                </div>
+                <div v-if="char.verbal_tic || char.idle_behavior" class="char-card__anchor">
+                  <span class="char-card__anchor-label">声线/动作</span>
+                  <span>{{ [char.verbal_tic, char.idle_behavior].filter(Boolean).join('；') }}</span>
+                </div>
                 <div v-if="char.relationships && char.relationships.length" class="char-card__relations">
                   <n-tag v-for="(rel, ri) in char.relationships.slice(0, 3)" :key="ri" size="tiny" :bordered="false" type="info">
                     {{ typeof rel === 'string' ? rel : (rel.relation || rel.description || rel.target || '') }}
@@ -238,62 +261,147 @@
               与工作台「角色锚点」同一套 Bible 字段；仅填补仍为空的 T0 / 声线风格等，不覆盖已写内容。可在下方改完再点「确认修改并继续」落库。
             </n-text>
           </n-space>
-          <n-list bordered>
+          <n-list bordered class="character-editor-list">
             <n-list-item v-for="(char, idx) in editableCharacters" :key="idx">
               <div class="editable-character">
                 <n-space vertical size="small" style="width: 100%">
-                  <!-- 姓名 + 角色 + 删除 -->
-                  <n-space :size="8" align="center" wrap>
-                    <n-input v-model:value="char.name" size="small" style="width: 120px" placeholder="姓名" />
-                    <n-button size="small" secondary @click="rollCharacterName(idx)">抽卡起名</n-button>
-                    <n-input v-model:value="char.role" size="small" style="width: 100px" placeholder="角色定位" />
+                  <div class="character-editor-head">
+                    <n-input v-model:value="char.name" size="small" class="character-editor-head__name" placeholder="姓名" />
+                    <n-input v-model:value="char.role" size="small" class="character-editor-head__role" placeholder="角色定位" />
                     <n-button quaternary size="small" type="error" @click="editableCharacters.splice(idx, 1)">删除</n-button>
-                  </n-space>
-                  <!-- 简介 -->
-                  <div class="editable-field">
-                    <div class="editable-field__label">简介</div>
-                    <n-input
-                      v-model:value="char.description"
-                      type="textarea"
-                      :autosize="{ minRows: 1, maxRows: 4 }"
-                      size="small"
-                      placeholder="角色描述"
-                    />
                   </div>
-                  <!-- 心理状态 -->
-                  <div v-if="char.mental_state" class="editable-field">
-                    <div class="editable-field__label">心理状态</div>
-                    <n-input v-model:value="char.mental_state" type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" size="small" />
-                  </div>
-                  <!-- 口头禅 -->
-                  <div v-if="char.verbal_tic" class="editable-field">
-                    <div class="editable-field__label">口头禅</div>
-                    <n-input v-model:value="char.verbal_tic" size="small" />
-                  </div>
-                  <!-- 习惯动作 -->
-                  <div v-if="char.idle_behavior" class="editable-field">
-                    <div class="editable-field__label">习惯动作</div>
-                    <n-input v-model:value="char.idle_behavior" size="small" />
-                  </div>
-                  <!-- 人物关系 -->
-                  <div v-if="char.relationships && char.relationships.length" class="editable-field">
-                    <div class="editable-field__label">人物关系</div>
-                    <n-space :size="4">
-                      <n-tag v-for="(rel, ri) in char.relationships" :key="ri" size="small" :bordered="false">
-                        {{ typeof rel === 'string' ? rel : (rel.relation || rel.description || rel.target || JSON.stringify(rel)) }}
-                      </n-tag>
-                    </n-space>
-                  </div>
-                  <!-- 公开人设 -->
-                  <div v-if="char.public_profile" class="editable-field">
-                    <div class="editable-field__label">公开人设</div>
-                    <n-input v-model:value="char.public_profile" type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" size="small" />
-                  </div>
-                  <!-- 隐藏身份 -->
-                  <div v-if="char.hidden_profile" class="editable-field">
-                    <div class="editable-field__label">隐藏身份</div>
-                    <n-input v-model:value="char.hidden_profile" type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" size="small" />
-                  </div>
+
+                  <n-grid :cols="2" :x-gap="10" :y-gap="10" responsive="screen">
+                    <n-grid-item>
+                      <div class="role-lock-panel">
+                        <div class="role-lock-panel__title">基础</div>
+                        <div class="character-meta-grid">
+                          <n-input v-model:value="char.gender" size="small" placeholder="性别/呈现" />
+                          <n-input v-model:value="char.age" size="small" placeholder="年龄/年龄段" />
+                        </div>
+                        <div class="editable-field">
+                          <div class="editable-field__label">功能定位</div>
+                          <n-input v-model:value="char.description" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" size="small" />
+                        </div>
+                        <div class="editable-field">
+                          <div class="editable-field__label">外貌锚点</div>
+                          <n-input v-model:value="char.appearance" type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" size="small" />
+                        </div>
+                        <div class="editable-field">
+                          <div class="editable-field__label">性格底色</div>
+                          <n-input v-model:value="char.personality" type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" size="small" />
+                        </div>
+                        <div class="editable-field">
+                          <div class="editable-field__label">公开人设</div>
+                          <n-input v-model:value="char.public_profile" type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" size="small" />
+                        </div>
+                      </div>
+                    </n-grid-item>
+
+                    <n-grid-item>
+                      <div class="role-lock-panel role-lock-panel--strong">
+                        <div class="role-lock-panel__title">写作锁</div>
+                        <div class="editable-field">
+                          <div class="editable-field__label">核心信念</div>
+                          <n-input v-model:value="char.core_belief" type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" size="small" />
+                        </div>
+                        <div class="editable-field">
+                          <div class="editable-field__label">核心驱动力</div>
+                          <n-input v-model:value="char.core_motivation" type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" size="small" />
+                        </div>
+                        <div class="editable-field">
+                          <div class="editable-field__label">内在缺口</div>
+                          <n-input v-model:value="char.inner_lack" type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" size="small" />
+                        </div>
+                        <div class="editable-field">
+                          <div class="editable-field__label">道德禁忌</div>
+                          <n-dynamic-tags v-model:value="char.moral_taboos" size="small" />
+                        </div>
+                        <div class="editable-field">
+                          <div class="editable-field__label">心理状态</div>
+                          <n-input v-model:value="char.mental_state" size="small" placeholder="例如：警惕、愧疚、亢奋" />
+                        </div>
+                        <div class="editable-field">
+                          <div class="editable-field__label">状态成因</div>
+                          <n-input v-model:value="char.mental_state_reason" type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" size="small" />
+                        </div>
+                      </div>
+                    </n-grid-item>
+
+                    <n-grid-item>
+                      <div class="role-lock-panel">
+                        <div class="role-lock-panel__title">声线与动作</div>
+                        <div class="editable-field">
+                          <div class="editable-field__label">口头禅</div>
+                          <n-input v-model:value="char.verbal_tic" size="small" />
+                        </div>
+                        <div class="editable-field">
+                          <div class="editable-field__label">压力动作</div>
+                          <n-input v-model:value="char.idle_behavior" size="small" />
+                        </div>
+                        <div class="voice-grid">
+                          <n-input v-model:value="char.voice_profile.style" size="small" placeholder="声线风格" />
+                          <n-input v-model:value="char.voice_profile.sentence_pattern" size="small" placeholder="句式模式" />
+                          <n-input v-model:value="char.voice_profile.speech_tempo" size="small" placeholder="语速" />
+                        </div>
+                      </div>
+                    </n-grid-item>
+
+                    <n-grid-item>
+                      <div class="role-lock-panel">
+                        <div class="role-lock-panel__title">隐藏线索</div>
+                        <div class="editable-field">
+                          <div class="editable-field__label">隐藏身份 / 真实动机</div>
+                          <n-input v-model:value="char.hidden_profile" type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" size="small" />
+                        </div>
+                        <div class="editable-field">
+                          <div class="editable-field__label">背景经历</div>
+                          <n-input v-model:value="char.background" type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" size="small" />
+                        </div>
+                        <div class="editable-field">
+                          <div class="editable-field__label">揭示章节</div>
+                          <n-input-number v-model:value="char.reveal_chapter" size="small" :min="1" clearable style="width: 100%" />
+                        </div>
+                        <div class="editable-field">
+                          <div class="editable-field__label">人物关系</div>
+                          <div class="relationship-editor">
+                            <div v-for="(rel, ri) in char.relationships" :key="ri" class="relationship-row">
+                              <n-input
+                                v-model:value="rel.target"
+                                size="small"
+                                placeholder="目标人物"
+                              />
+                              <n-input
+                                v-model:value="rel.relation"
+                                size="small"
+                                placeholder="关系类型"
+                              />
+                              <n-input
+                                v-model:value="rel.description"
+                                size="small"
+                                placeholder="张力说明"
+                              />
+                              <n-button quaternary size="small" type="error" @click="char.relationships.splice(ri, 1)">删除</n-button>
+                            </div>
+                            <n-button size="small" secondary @click="addRelationship(char)">添加关系</n-button>
+                          </div>
+                        </div>
+                      </div>
+                    </n-grid-item>
+
+                    <n-grid-item :span="2" v-if="char.active_wounds.length">
+                      <div class="role-lock-panel">
+                        <div class="role-lock-panel__title">创伤触发器</div>
+                        <div class="wound-grid">
+                          <div v-for="(wound, wi) in char.active_wounds" :key="wi" class="wound-row">
+                            <n-input v-model:value="wound.description" size="small" placeholder="创伤" />
+                            <n-input v-model:value="wound.trigger" size="small" placeholder="触发条件" />
+                            <n-input v-model:value="wound.effect" size="small" placeholder="触发反应" />
+                          </div>
+                        </div>
+                      </div>
+                    </n-grid-item>
+                  </n-grid>
                 </n-space>
               </div>
             </n-list-item>
@@ -411,7 +519,7 @@
         </div>
       </div>
 
-      <!-- Step 4: 主线候选（LLM 推演） -->
+      <!-- Step 4: 剧情总纲（LLM 推演） -->
       <div v-else-if="currentStep === 4" class="step-panel step-panel--storyline">
         <n-alert
           v-if="step4RestoredFromCache"
@@ -421,98 +529,149 @@
           style="margin-bottom: 12px; width: 100%"
           @close="step4RestoredFromCache = false"
         >
-          已恢复上次浏览时的<strong>主线候选</strong>与未提交的自定义文案（本地缓存，减少重复推演）。
+          已恢复上次生成的<strong>剧情总纲</strong>预览（本地缓存，减少重复生成）。
         </n-alert>
         <div class="step-info step-info--wide">
           <n-icon size="48" color="#2080f0">
             <IconTimeline />
           </n-icon>
-          <h3>确立故事主轴</h3>
-          <p>基于你已确认的世界观、人物与地图，系统推演三条可选<strong>主线方向</strong>。选定一条即可落库为「主线」；支线留到工作台再养。</p>
+          <h3>生成剧情总纲</h3>
+          <p>基于你已确认的世界观、人物与地图，系统会生成一份完整的<strong>剧情总纲</strong>，包含主线概述、阶段规划、核心冲突与预期结局。</p>
         </div>
 
-        <n-alert v-if="plotSuggestError" type="error" style="margin-bottom: 12px; width: 100%">
-          {{ plotSuggestError }}
+        <n-alert v-if="plotOutlineError" type="error" style="margin-bottom: 12px; width: 100%">
+          {{ plotOutlineError }}
         </n-alert>
-        <n-alert v-if="mainPlotCommitted" type="success" title="已保存主线" style="margin-bottom: 12px; width: 100%">
-          已进入本书的主故事线记录，可随时在工作台「设置 → 故事线」中修改。
+        <n-alert v-if="plotOutlineCommitted" type="success" title="已保存剧情总纲" style="margin-bottom: 12px; width: 100%">
+          剧情总纲已保存，可供后续宏观规划与章节规划直接读取。
         </n-alert>
 
-        <n-spin :show="plotSuggesting" style="width: 100%">
-          <template #description>
-            <span style="color: #999; font-size: 13px">AI 正在推演故事主线方向...</span>
-          </template>
-
-          <div v-if="plotSuggesting && !plotOptions.length" style="width: 100%">
-            <WizardSkeleton type="storyline" />
+        <div v-if="plotOutlineBusy && !plotOutline" class="step-generating plot-outline-generating">
+          <div class="generating-header">
+            <div class="generating-icon">
+              <n-icon size="36" color="#2080f0">
+                <IconTimeline />
+              </n-icon>
+            </div>
+            <div class="generating-text">
+              <h3>{{ plotOutlineStatusMessage }}</h3>
+              <p class="generating-sub">正在汇总已确认设定并生成可编辑的故事主轴</p>
+            </div>
           </div>
 
-          <div v-if="!customMode" class="plot-options-block">
+          <div class="plot-outline-progress">
+            <div
+              v-for="item in plotOutlineProgressItems"
+              :key="item.key"
+              class="plot-outline-progress__item"
+              :class="`plot-outline-progress__item--${item.state}`"
+            >
+              <div class="plot-outline-progress__dot"></div>
+              <div class="plot-outline-progress__body">
+                <div class="plot-outline-progress__label">{{ item.label }}</div>
+                <div class="plot-outline-progress__desc">{{ item.desc }}</div>
+              </div>
+            </div>
+          </div>
+
+          <WizardSkeleton type="storyline" />
+
+          <div v-if="plotOutlineLivePreview" class="raw-stream-preview plot-outline-live-preview">
+            {{ plotOutlineLivePreview }}<span class="streaming-cursor">▎</span>
+          </div>
+
+          <n-space v-if="featureFlags.aiInvocationDebug && plotOutlineSessionId" justify="center">
+            <n-button secondary @click="openPlotOutlineReviewPanel(plotOutlineSessionId)">
+              打开 AI 审阅
+            </n-button>
+          </n-space>
+        </div>
+
+        <div v-else class="plot-options-block">
             <n-space vertical :size="12" style="width: 100%">
-              <transition-group name="fade-slide">
-                <n-card
-                  v-for="opt in plotOptions"
-                  :key="opt.id"
-                  size="small"
-                  :bordered="true"
-                  class="plot-option-card"
-                  :class="{ 'plot-option-card--disabled': mainPlotCommitted }"
-                >
-                  <template #header>
-                    <n-space align="center" :size="8">
-                      <n-tag size="small" type="info" round>{{ opt.type || '主线方案' }}</n-tag>
-                      <span class="plot-option-title">{{ opt.title }}</span>
-                    </n-space>
-                  </template>
-                  <n-space vertical :size="8">
-                    <div class="plot-line"><strong>梗概：</strong>{{ opt.logline }}</div>
-                    <div v-if="opt.core_conflict" class="plot-line"><strong>核心冲突：</strong>{{ opt.core_conflict }}</div>
-                    <div v-if="opt.starting_hook" class="plot-line"><strong>开篇钩子：</strong>{{ opt.starting_hook }}</div>
-                    <n-button
-                      type="primary"
-                      size="small"
-                      :loading="adoptingPlotId === opt.id"
-                      :disabled="mainPlotCommitted"
-                      @click="adoptPlotOption(opt)"
-                    >
-                      选这条作为主线
-                    </n-button>
+              <n-card v-if="plotOutline" size="small" :bordered="true" class="plot-option-card">
+                <template #header>
+                  <n-space align="center" :size="8">
+                    <n-tag size="small" type="info" round>剧情总纲</n-tag>
+                    <span class="plot-option-title">完整主线规划</span>
                   </n-space>
-                </n-card>
-              </transition-group>
+                </template>
+                <n-space vertical :size="12">
+                  <div class="plot-outline-editor">
+                    <div
+                      v-for="key in plotOutlineTopFieldKeys"
+                      :key="key"
+                      class="plot-kv-field"
+                    >
+                      <div class="plot-kv-label">{{ plotFieldLabel(key) }}</div>
+                      <n-input
+                        :value="plotFieldText(editablePlotOutline, key)"
+                        type="textarea"
+                        :autosize="{ minRows: key === 'main_story_overview' ? 4 : 3, maxRows: 8 }"
+                        :placeholder="`填写${plotFieldLabel(key)}`"
+                        @update:value="updatePlotField(editablePlotOutline, key, $event)"
+                      />
+                    </div>
+                  </div>
+                  <div v-if="editablePlotOutline.stage_plan?.length" class="plot-subline-list plot-outline-stage-editor">
+                    <div class="plot-subline-title">阶段规划</div>
+                    <div v-for="(stage, index) in editablePlotOutline.stage_plan" :key="stage.phase || index" class="plot-subline-item plot-stage-edit-item">
+                      <div class="plot-stage-edit-header">
+                        <n-tag size="tiny" type="default" round>{{ stage.label }}</n-tag>
+                        <span class="plot-subline-name">{{ stageRangePercentLabel(stage) }}</span>
+                      </div>
+                      <div class="plot-stage-chapter-row">
+                        <n-input-number
+                          :value="stage.chapter_start ?? null"
+                          :min="1"
+                          :precision="0"
+                          placeholder="起始章"
+                          @update:value="updateStageChapterNumber(index, 'chapter_start', $event)"
+                        />
+                        <span class="plot-stage-chapter-separator">至</span>
+                        <n-input-number
+                          :value="stage.chapter_end ?? null"
+                          :min="1"
+                          :precision="0"
+                          placeholder="结束章"
+                          @update:value="updateStageChapterNumber(index, 'chapter_end', $event)"
+                        />
+                        <span class="plot-subline-purpose">章</span>
+                      </div>
+                      <div
+                        v-for="key in stageContentFieldKeys(stage)"
+                        :key="key"
+                        class="plot-kv-field"
+                      >
+                        <div class="plot-kv-label">{{ plotFieldLabel(key) }}</div>
+                        <n-input
+                          :value="plotFieldText(stage, key)"
+                          type="textarea"
+                          :autosize="{ minRows: 3, maxRows: 7 }"
+                          :placeholder="`填写${plotFieldLabel(key)}`"
+                          @update:value="updatePlotField(stage, key, $event)"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </n-space>
+              </n-card>
             </n-space>
 
             <n-space style="margin-top: 16px; width: 100%" justify="center" :size="12">
-              <n-button secondary :disabled="mainPlotCommitted || plotSuggesting" @click="refreshPlotSuggestions">
-                换一组方向
+              <n-button secondary :disabled="plotOutlineBusy" @click="refreshPlotOutline">
+                重新生成
               </n-button>
-              <n-button secondary :disabled="mainPlotCommitted" @click="customMode = true">
-                我有自己的想法
-              </n-button>
-            </n-space>
-          </div>
-
-          <div v-else class="plot-custom-block">
-            <n-input
-              v-model:value="customLogline"
-              type="textarea"
-              placeholder="用一句话写下你想写的主线（例如：废柴少年为救妹妹卷入财阀灵根黑市……）"
-              :autosize="{ minRows: 2, maxRows: 5 }"
-              :disabled="mainPlotCommitted"
-            />
-            <n-space style="margin-top: 12px" :size="8">
-              <n-button :disabled="mainPlotCommitted" @click="cancelCustomMainPlot">返回候选</n-button>
               <n-button
-                type="primary"
-                :loading="adoptingCustom"
-                :disabled="mainPlotCommitted"
-                @click="adoptCustomMainPlot"
+                v-if="featureFlags.aiInvocationDebug && plotOutlineSessionId"
+                secondary
+                :disabled="plotOutlineBusy"
+                @click="openPlotOutlineReviewPanel(plotOutlineSessionId)"
               >
-                用这句话作为主线
+                打开 AI 审阅
               </n-button>
             </n-space>
           </div>
-        </n-spin>
       </div>
 
       <!-- Step 5: Complete -->
@@ -531,10 +690,10 @@
     <template #footer>
       <n-space justify="space-between">
         <n-space>
-          <n-button v-if="currentStep > 1 && currentStep < 5" @click="handlePrev">
+          <n-button v-if="currentStep > 1 && currentStep < 5" :disabled="isWizardGenerating" @click="handlePrev">
             上一步
           </n-button>
-          <n-button v-if="currentStep > 1 && currentStep < 5" @click="handleSkip">
+          <n-button v-if="currentStep > 1 && currentStep < 5" :disabled="isWizardGenerating" @click="handleSkip">
             跳过向导
           </n-button>
         </n-space>
@@ -548,8 +707,15 @@
           >
             确认修改并继续
           </n-button>
-          <!-- 步骤4：选了主线后可下一步 -->
-          <n-button v-if="currentStep === 4" :disabled="!mainPlotCommitted" @click="handleNext"> 下一步 </n-button>
+          <n-button
+            v-if="currentStep === 4"
+            type="primary"
+            :loading="savingStep"
+            :disabled="!plotOutline || plotOutlineBusy"
+            @click="handleNext"
+          >
+            确认修改并继续
+          </n-button>
           <!-- 步骤5：进入工作台 -->
           <n-button v-if="currentStep === 5" type="primary" @click="handleComplete">
             进入工作台
@@ -563,156 +729,128 @@
 <script setup lang="ts">
 import { h, ref, watch, computed, onMounted, onUnmounted } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
-import { bibleApi, type BibleDTO, type BibleRelationshipEntry, type CharacterDTO, type StyleNoteDTO, consumeBibleGenerateStream, type WorldbuildingDimensionData } from '@/api/bible'
+import { bibleApi, type BibleDTO, consumeBibleGenerateStream, type WorldbuildingDimensionData } from '@/api/bible'
 // timeout constants removed - SSE runs until complete or error
 import { worldbuildingApi } from '@/api/worldbuilding'
-import { workflowApi, type MainPlotOptionDTO } from '@/api/workflow'
+import { consumePlotOutlineStream, workflowApi, type PlotOutlineDTO } from '@/api/workflow'
+import type { InvocationResponseDTO, InvocationVariableBinding } from '@/api/aiInvocation'
 import { characterPsycheApi } from '@/api/engineCore'
-import { resolveHttpUrl } from '@/api/config'
+import { featureFlags } from '@/config/features'
+import { getWorldbuildingDimensionLabel } from '@/domain/worldbuilding/contract'
+import { formatApiError, isLikelyTimeoutError } from '@/utils/apiError'
+import {
+  WB_DIMS,
+  createEmptyBible,
+  emptyWorldbuildingShape,
+  hasWorldbuildingContent,
+  mergeWorldbuildingDisplay,
+  normalizeWorldbuildingFromApi,
+  orderedWorldbuildingFields as buildOrderedWorldbuildingFields,
+  styleConventionFromBible,
+  worldbuildingFieldTitle,
+  worldbuildingFromWorldSettings,
+  type WorldbuildingDimKey,
+  type WorldbuildingDraftShape,
+} from '@/onboarding/bibleSetupModel'
+import {
+  characterDraftKey,
+  createEmptyRelationship,
+  formatCharacterDescriptionForSave,
+  formatRelationship,
+  mapCharacterToEditable,
+  mapGeneratedCharacterToEditable,
+  serializeRelationships,
+  type EditableCharacter,
+  type GeneratedCharacterPayload,
+} from '@/onboarding/characterSetupModel'
+import {
+  buildEditablePlotOutlinePayload as buildPlotOutlinePayload,
+  buildStageRangePercentLabel,
+  clonePlotOutline,
+  createEmptyPlotOutline,
+  extractPlotOutlineFromResult,
+  getPlotOutlineTopFieldKeys,
+  normalizePlotOutlineShape,
+  plotFieldLabel,
+  plotFieldText,
+  stageContentFieldKeys,
+  updatePlotField,
+  validateEditablePlotOutline,
+  type PlotOutlineProgressItem,
+  type PlotOutlineProgressState,
+  type PlotOutlineStatus,
+} from '@/onboarding/plotOutlineModel'
+import { useAIInvocationStore } from '@/stores/aiInvocationStore'
+import { extractBoundOutputMaps, parseJsonLikeRecord } from '@/utils/invocationOutput'
 import BibleLocationsGraphPreview from './BibleLocationsGraphPreview.vue'
 import WizardSkeleton from './WizardSkeleton.vue'
 import {
   clearWizardUiCache,
-  isPlotOptionsCacheFresh,
+  isPlotOutlineCacheFresh,
   markWizardCompleted,
   readWizardUiCache,
   setWizardLastStep,
   writeWizardUiCache,
   type WizardUiCachePayload,
 } from '@/utils/wizardStageCache'
-import { drawGachaFullName } from '@/utils/characterNameGacha'
 
-const WB_DIMS = ['core_rules', 'geography', 'society', 'culture', 'daily_life'] as const
-
-/** 世界观维度 key → 中文标签 */
-const dimKeyLabels: Record<string, string> = {
-  power_system: '力量体系',
-  physics_rules: '物理规律',
-  magic_tech: '魔法/科技',
-  cost_and_limitation: '代价与限制',
-  resource_scarcity: '稀缺资源',
-  terrain: '地形',
-  climate: '气候',
-  resources: '资源',
-  ecology: '生态',
-  forbidden_zones: '禁区',
-  urban_core: '核心城市',
-  hidden_realms: '秘境',
-  politics: '政治',
-  economy: '经济',
-  class_system: '阶级',
-  power_structure: '权力结构',
-  oppression_mechanism: '压迫机制',
-  class_division: '阶层划分',
-  history: '历史',
-  religion: '宗教',
-  taboos: '禁忌',
-  worship: '崇拜与祭祀',
-  oaths_and_curses: '誓言与诅咒',
-  food_clothing: '衣食住行',
-  language_slang: '俚语口音',
-  entertainment: '娱乐方式',
-  survival_tactics: '生存策略',
-  market_reality: '市场真相',
-  food_and_drink: '饮食文化',
-  slang_and_profanity: '黑话粗话',
+function orderedWorldbuildingFields(
+  dim: WorldbuildingDimKey,
+  opts: { includeEmpty?: boolean } = {},
+): Array<{ key: string; value: string }> {
+  return buildOrderedWorldbuildingFields(worldbuildingData.value, dim, opts)
 }
 
-function emptyWorldbuildingShape(): Record<(typeof WB_DIMS)[number], Record<string, string>> {
-  return {
-    core_rules: {},
-    geography: {},
-    society: {},
-    culture: {},
-    daily_life: {},
-  }
-}
-
-function createEmptyBible(): BibleDTO {
-  return {
-    id: '',
-    novel_id: '',
-    characters: [],
-    world_settings: [],
-    locations: [],
-    timeline_notes: [],
-    style_notes: [],
-  }
-}
-
-function worldbuildingFromWorldSettings(
-  settings: { name: string; description?: string }[] | undefined
-): Record<(typeof WB_DIMS)[number], Record<string, string>> {
-  const out = emptyWorldbuildingShape()
-  const dimSet = new Set<string>(WB_DIMS)
-  for (const s of settings || []) {
-    const dot = s.name.indexOf('.')
-    if (dot < 0) continue
-    const dim = s.name.slice(0, dot)
-    const key = s.name.slice(dot + 1)
-    if (!dimSet.has(dim) || !key) continue
-    out[dim as (typeof WB_DIMS)[number]][key] = (s.description || '').trim()
-  }
-  return out
-}
-
-function normalizeWorldbuildingFromApi(raw: Record<string, unknown> | null | undefined) {
-  const out = emptyWorldbuildingShape()
-  if (!raw || typeof raw !== 'object') return out
-  for (const d of WB_DIMS) {
-    const block = raw[d]
-    if (block && typeof block === 'object') {
-      out[d] = { ...(block as Record<string, string>) }
-    }
-  }
-  return out
-}
-
-function mergeWorldbuildingDisplay(
-  fromApi: ReturnType<typeof normalizeWorldbuildingFromApi>,
-  fromBibleSettings: ReturnType<typeof worldbuildingFromWorldSettings>
+function mergeWorldbuildingIntoCurrent(
+  next: WorldbuildingDraftShape,
+  opts: { markCompleted?: boolean } = {},
 ) {
-  const out = emptyWorldbuildingShape()
-  for (const d of WB_DIMS) {
-    const merged = { ...fromBibleSettings[d], ...fromApi[d] }
-    out[d] = merged
-  }
-  return out
+  if (!hasWorldbuildingContent(next)) return
+  worldbuildingData.value = mergeWorldbuildingDisplay(next, worldbuildingData.value)
+  if (opts.markCompleted === false) return
+  completedDimensions.value = new Set([
+    ...completedDimensions.value,
+    ...WB_DIMS.filter(dim => Object.values(next[dim]).some(value => String(value || '').trim())),
+  ])
 }
 
-function styleConventionFromBible(bible: BibleDTO): string {
-  const b = bible as BibleDTO & { style?: string }
-  if (b.style && String(b.style).trim()) return String(b.style).trim()
-  const notes: StyleNoteDTO[] = b.style_notes || []
-  const conv = notes.filter(
-    (n: StyleNoteDTO) => n.category === '文风公约' || (n.category || '').includes('文风')
+function applyWorldbuildingRecord(record: Record<string, unknown>) {
+  const normalized = normalizeWorldbuildingFromApi(record)
+  mergeWorldbuildingIntoCurrent(normalized)
+  const style = String(record.style ?? '').trim()
+  if (style) styleText.value = style
+}
+
+function applyWorldbuildingBoundOutputs(record: Record<string, unknown>, bindings: InvocationVariableBinding[]) {
+  if (!bindings.length) return
+  const { byVariableKey } = extractBoundOutputMaps(record, bindings)
+  const boundRecord: Record<string, unknown> = {}
+  const style = byVariableKey['worldbuilding.style']
+  if (style) boundRecord.style = style
+  const content = byVariableKey['worldbuilding.content']
+  if (content !== undefined) boundRecord.worldbuilding = content
+  for (const dim of WB_DIMS) {
+    const value = byVariableKey[`worldbuilding.${dim}`]
+    if (value !== undefined) boundRecord[dim] = value
+  }
+  if (Object.keys(boundRecord).length) applyWorldbuildingRecord(boundRecord)
+}
+
+function applyBibleInvocationPreview(stage: 'worldbuilding' | 'characters' | 'locations', payload: InvocationResponseDTO) {
+  if (stage !== 'worldbuilding') return
+  const content = payload.attempt?.content || ''
+  const record = parseJsonLikeRecord(content)
+  if (!record) return
+  applyWorldbuildingRecord(record)
+  applyWorldbuildingBoundOutputs(
+    record,
+    payload.session?.output_bindings || payload.session?.variable_plan?.bindings || [],
   )
-  if (conv.length) return conv.map((n: StyleNoteDTO) => (n.content || '').trim()).filter(Boolean).join('\n\n')
-  if (notes.length)
-    return notes
-      .map((n: StyleNoteDTO) => `[${n.category || '风格'}] ${n.content || ''}`.trim())
-      .join('\n\n')
-  return ''
 }
 
-function formatApiError(error: unknown): string {
-  const e = error as {
-    response?: { data?: { detail?: unknown } }
-    message?: string
-    code?: string
-  }
-  const d = e?.response?.data?.detail
-  if (typeof d === 'string') return d
-  if (Array.isArray(d))
-    return d.map((x: { msg?: string }) => x?.msg || JSON.stringify(x)).join('；')
-  if (d != null && typeof d === 'object') return JSON.stringify(d)
-  if (e?.message) return e.message
-  return ''
-}
-
-function isLikelyTimeoutError(error: unknown): boolean {
-  const text = `${formatApiError(error)} ${error instanceof Error ? error.message : ''} ${(error as { code?: string })?.code || ''}`
-  return /timeout|ECONNABORTED|ETIMEDOUT|aborted|超时/i.test(text)
+function applyWorldbuildingChunk(chunk: string) {
+  if (!chunk) return
+  worldbuildingRawStream.value += chunk
 }
 
 const IconBook = () =>
@@ -760,68 +898,15 @@ const props = withDefaults(
 )
 
 const message = useMessage()
+const aiInvocationStore = useAIInvocationStore()
+let mainPlotSessionUnsub: (() => void) | null = null
+const bibleInvocationUnsubs = new Map<string, () => void>()
 
 const emit = defineEmits<{
   (e: 'update:show', value: boolean): void
   (e: 'complete'): void
   (e: 'skip'): void
 }>()
-
-/** 增量 JSON 解析器：从流式文本中提取已完成和正在流式的字段 */
-function parseStreamingJsonFields(text: string): {
-  completed: Record<string, string>
-  streamingKey: string
-  streamingValue: string
-} {
-  const result: { completed: Record<string, string>; streamingKey: string; streamingValue: string } = {
-    completed: {},
-    streamingKey: '',
-    streamingValue: '',
-  }
-
-  if (!text) return result
-
-  // 提取 JSON 内容（去除 markdown 代码块标记）
-  let jsonStr = text
-  const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/)
-  if (jsonMatch) {
-    jsonStr = jsonMatch[1]
-  }
-  // 尝试提取 { ... } 部分
-  const braceStart = jsonStr.indexOf('{')
-  if (braceStart === -1) return result
-  jsonStr = jsonStr.slice(braceStart)
-
-  // 用正则逐个匹配 "key": "value" 对
-  // 已完成的字段：key 和 value 都完整闭合
-  const completedRe = /"(\w+)"\s*:\s*"((?:[^"\\]|\\.)*)"/g
-  let m: RegExpExecArray | null
-  while ((m = completedRe.exec(jsonStr)) !== null) {
-    result.completed[m[1]] = m[2]
-      .replace(/\\n/g, '\n')
-      .replace(/\\t/g, '\t')
-      .replace(/\\"/g, '"')
-      .replace(/\\\\/g, '\\')
-  }
-
-  // 正在流式的字段：key 完整但 value 还没闭合
-  // 匹配 "key": "value_so_far... (末尾没有闭合引号)
-  const streamingRe = /"(\w+)"\s*:\s*"((?:[^"\\]|\\.)*)$/
-  const streamMatch = streamingRe.exec(jsonStr)
-  if (streamMatch) {
-    // 确保这个字段不在已完成列表中（可能是最后一个字段刚好闭合了）
-    if (!(streamMatch[1] in result.completed)) {
-      result.streamingKey = streamMatch[1]
-      result.streamingValue = streamMatch[2]
-        .replace(/\\n/g, '\n')
-        .replace(/\\t/g, '\t')
-        .replace(/\\"/g, '"')
-        .replace(/\\\\/g, '\\')
-    }
-  }
-
-  return result
-}
 
 const modalOpen = computed({
   get: () => props.show,
@@ -843,7 +928,7 @@ const generatingBible = ref(false)
 const bibleGenerated = ref(false)
 const bibleError = ref('')
 const bibleData = ref<BibleDTO>(createEmptyBible())
-const worldbuildingData = ref<ReturnType<typeof emptyWorldbuildingShape>>(emptyWorldbuildingShape())
+const worldbuildingData = ref<WorldbuildingDraftShape>(emptyWorldbuildingShape())
 const styleText = ref('')
 
 /** SSE 流式状态 */
@@ -852,9 +937,8 @@ const activeDimension = ref('')
 const completedDimensions = ref<Set<string>>(new Set())
 const activeField = ref('')
 const arrivedFields = ref<Set<string>>(new Set())
-/** 维度级流式文本：LLM 逐 token 输出时暂存，字段解析完成后清空 */
-const streamingDimText = ref('')
 const sseAbortController = ref<AbortController | null>(null)
+const worldbuildingRawStream = ref('')
 
 const styleConventionDisplay = computed(() => {
   if (styleText.value) return styleText.value
@@ -863,90 +947,27 @@ const styleConventionDisplay = computed(() => {
 
 /** 世界观维度卡片（用于生成完后的折叠面板） */
 const wbDimensionCards = computed(() => {
-  const labels: Record<string, string> = {
-    core_rules: '核心法则',
-    geography: '地理生态',
-    society: '社会结构',
-    culture: '历史文化',
-    daily_life: '沉浸感细节',
-  }
-  return WB_DIMS.map(key => ({ key, label: labels[key], data: worldbuildingData.value[key] }))
+  return WB_DIMS.map(key => ({
+    key,
+    label: getWorldbuildingDimensionLabel(key),
+    data: worldbuildingData.value[key],
+  }))
 })
 
 // ── 第2步：SSE 流式生成人物 ──
 const generatingCharacters = ref(false)
 const charactersGenerated = ref(false)
 const charactersError = ref('')
-const streamingCharacters = ref<Array<{ name: string; role: string; description: string; relationships: BibleRelationshipEntry[] }>>([])
+const streamingCharacters = ref<Array<Partial<EditableCharacter> & { name: string; role: string; description: string }>>([])
 const charactersSseAbort = ref<AbortController | null>(null)
-/** 可编辑的人物列表（从 bibleData 拷贝，用户可修改后确认落库） */
-interface EditableCharacter {
-  id: string
-  name: string
-  role: string
-  description: string
-  mental_state: string
-  verbal_tic: string
-  idle_behavior: string
-  relationships: BibleRelationshipEntry[]
-  public_profile: string
-  hidden_profile: string
-  reveal_chapter: number | null
-  core_belief: string
-  moral_taboos: string[]
-  voice_profile: Record<string, unknown>
-  active_wounds: Array<Record<string, string>>
-}
+const generatedCharacterDrafts = ref<Record<string, Partial<EditableCharacter>>>({})
 
-/** 从 CharacterDTO 映射到 EditableCharacter，解析 description 中的 role */
-function mapCharacterToEditable(c: CharacterDTO): EditableCharacter {
-  let role = c.role || ''
-  let desc = c.description || ''
-  // 后端存储时把 role 拼到 description 开头："主角 - 描述内容"
-  // 如果 role 为空但 description 包含 " - "，尝试从中解析
-  if (!role && desc.includes(' - ')) {
-    const sepIdx = desc.indexOf(' - ')
-    role = desc.slice(0, sepIdx).trim()
-    desc = desc.slice(sepIdx + 3).trim()
-  } else if (role && desc.startsWith(role) && desc.includes(' - ')) {
-    // description 仍包含 role 前缀，去掉重复
-    const sepIdx = desc.indexOf(' - ')
-    desc = desc.slice(sepIdx + 3).trim()
-  }
-  return {
-    id: c.id || '',
-    name: c.name || '',
-    role,
-    description: desc,
-    mental_state: c.mental_state || '',
-    verbal_tic: c.verbal_tic || '',
-    idle_behavior: c.idle_behavior || '',
-    relationships: c.relationships || [],
-    public_profile: c.public_profile || '',
-    hidden_profile: c.hidden_profile || '',
-    reveal_chapter: c.reveal_chapter ?? null,
-    core_belief: c.core_belief || '',
-    moral_taboos: [...(c.moral_taboos || [])],
-    voice_profile: { ...(c.voice_profile || {}) },
-    active_wounds: [...(c.active_wounds || [])] as Array<Record<string, string>>,
-  }
+/** 可编辑的人物列表（从 bibleData 拷贝，用户可修改后确认落库） */
+function addRelationship(char: EditableCharacter): void {
+  char.relationships.push(createEmptyRelationship())
 }
 
 const editableCharacters = ref<EditableCharacter[]>([])
-
-/** 引导页第 2 步：从扩展姓氏池随机组合姓名，尽量避免与本页其他角色重名 */
-function rollCharacterName(idx: number) {
-  const row = editableCharacters.value[idx]
-  if (!row) return
-  const taken = new Set<string>()
-  for (let i = 0; i < editableCharacters.value.length; i++) {
-    if (i === idx) continue
-    const n = editableCharacters.value[i]?.name?.trim()
-    if (n) taken.add(n)
-  }
-  row.name = drawGachaFullName(taken)
-  message.success('已抽卡起名，可再点替换直到满意')
-}
 
 // ── 第3步：SSE 流式生成地点 ──
 const generatingLocations = ref(false)
@@ -957,125 +978,478 @@ const locationsSseAbort = ref<AbortController | null>(null)
 /** 可编辑的地点列表（从 bibleData 拷贝，用户可修改后确认落库） */
 const editableLocations = ref<Array<{ name: string; id?: string; location_type?: string; description: string }>>([])
 
-// ── Step 4：主线推演 ──
-const plotOptions = ref<MainPlotOptionDTO[]>([])
-const plotSuggesting = ref(false)
-const plotSuggestError = ref('')
-const mainPlotCommitted = ref(false)
-const customMode = ref(false)
-const customLogline = ref('')
-const adoptingPlotId = ref<string | null>(null)
-const adoptingCustom = ref(false)
+function setBibleStageReviewWaiting(stage: string, waiting: boolean) {
+  if (stage === 'worldbuilding') {
+    generatingBible.value = waiting
+    bibleGenerated.value = false
+    activeDimension.value = ''
+    activeField.value = ''
+    completedDimensions.value = new Set()
+  } else if (stage === 'characters') {
+    generatingCharacters.value = waiting
+    charactersGenerated.value = false
+  } else if (stage === 'locations') {
+    generatingLocations.value = waiting
+    locationsGenerated.value = false
+  }
+  phaseMessage.value = waiting ? '等待 AI 审阅批准...' : ''
+}
+
+function setBibleStageHeadlessGenerating(stage: string) {
+  if (stage === 'worldbuilding') {
+    generatingBible.value = true
+    bibleGenerated.value = false
+    activeDimension.value = ''
+    activeField.value = ''
+    completedDimensions.value = new Set()
+    phaseMessage.value = '正在生成文风公约与世界观...'
+  } else if (stage === 'characters') {
+    generatingCharacters.value = true
+    charactersGenerated.value = false
+    phaseMessage.value = '正在生成人物...'
+  } else if (stage === 'locations') {
+    generatingLocations.value = true
+    locationsGenerated.value = false
+    phaseMessage.value = '正在生成地点...'
+  }
+}
+
+function markBibleStageCommitted(stage: string) {
+  if (stage === 'worldbuilding') {
+    completedDimensions.value = new Set(WB_DIMS)
+    generatingBible.value = false
+    bibleGenerated.value = true
+  } else if (stage === 'characters') {
+    generatingCharacters.value = false
+    charactersGenerated.value = true
+  } else if (stage === 'locations') {
+    generatingLocations.value = false
+    locationsGenerated.value = true
+  }
+  phaseMessage.value = ''
+  void loadBibleData()
+}
+
+async function openBibleReviewPanel(stage: 'worldbuilding' | 'characters' | 'locations', sessionId: string) {
+  if (!sessionId) return
+  if (featureFlags.aiInvocationDebug) {
+    setBibleStageReviewWaiting(stage, true)
+  } else {
+    setBibleStageHeadlessGenerating(stage)
+  }
+  try {
+    bibleInvocationUnsubs.get(sessionId)?.()
+    const unsub = aiInvocationStore.onSessionUpdate(sessionId, (payload) => {
+      applyBibleInvocationPreview(stage, payload)
+      if (payload.session?.status === 'completed' || payload.commit?.status === 'succeeded') {
+        markBibleStageCommitted(stage)
+        bibleInvocationUnsubs.get(sessionId)?.()
+        bibleInvocationUnsubs.delete(sessionId)
+      }
+    })
+    bibleInvocationUnsubs.set(sessionId, unsub)
+    await aiInvocationStore.open(sessionId)
+    if (aiInvocationStore.session?.id === sessionId) {
+      applyBibleInvocationPreview(stage, {
+        session: aiInvocationStore.session,
+        attempt: aiInvocationStore.attempt,
+        decision: aiInvocationStore.decision,
+        commit: aiInvocationStore.commit,
+        next_action: aiInvocationStore.nextAction,
+      })
+    }
+  } catch (e: unknown) {
+    setBibleStageReviewWaiting(stage, false)
+    message.error(formatApiError(e) || 'AI 调用处理失败')
+  }
+}
+
+// ── Step 4：剧情总纲 ──
+const plotOutline = ref<PlotOutlineDTO | null>(null)
+const plotOutlineGenerating = ref(false)
+const plotOutlineError = ref('')
+const plotOutlineCommitted = ref(false)
+const plotOutlineSessionId = ref('')
 const step4RestoredFromCache = ref(false)
+const editablePlotOutline = ref<PlotOutlineDTO>(createEmptyPlotOutline())
+const syncingPlotOutlineDraft = ref(false)
+const plotOutlineStatus = ref<PlotOutlineStatus>('idle')
+const plotOutlineTopFieldKeys = computed(() => {
+  return getPlotOutlineTopFieldKeys(editablePlotOutline.value)
+})
+const plotOutlineTotalChapters = computed(() => {
+  const maxStageEnd = Math.max(
+    0,
+    ...editablePlotOutline.value.stage_plan.map(stage =>
+      typeof stage.chapter_end === 'number' ? stage.chapter_end : 0
+    ),
+  )
+  return Math.max(1, props.targetChapters || 0, maxStageEnd)
+})
+const plotOutlineBusy = computed(() =>
+  plotOutlineGenerating.value ||
+  (plotOutlineStatus.value !== 'idle' && plotOutlineStatus.value !== 'done' && plotOutlineStatus.value !== 'error')
+)
+const isWizardGenerating = computed(() =>
+  generatingBible.value || generatingCharacters.value || generatingLocations.value || plotOutlineBusy.value
+)
+const plotOutlineStatusMessage = computed(() => {
+  if (phaseMessage.value) return phaseMessage.value
+  if (plotOutlineStatus.value === 'creating') return '正在创建剧情总纲任务...'
+  if (plotOutlineStatus.value === 'reviewing') {
+    return featureFlags.aiInvocationDebug ? '等待 AI 审阅确认...' : '正在确认剧情总纲生成...'
+  }
+  if (plotOutlineStatus.value === 'generating') return 'AI 正在生成剧情总纲...'
+  if (plotOutlineStatus.value === 'committing') return '正在写入剧情总纲...'
+  return '正在生成剧情总纲...'
+})
+const plotOutlineLivePreview = computed(() => {
+  if (!plotOutlineSessionId.value) return ''
+  if (aiInvocationStore.session?.id !== plotOutlineSessionId.value) return ''
+  const text = aiInvocationStore.liveAttemptDisplay.trim()
+  if (!text) return ''
+  return text.length > 1000 ? text.slice(-1000) : text
+})
+const plotOutlineProgressIndex = computed(() => {
+  if (plotOutlineStatus.value === 'done') return 4
+  if (plotOutlineStatus.value === 'committing') return 3
+  if (plotOutlineStatus.value === 'generating' || plotOutlineStatus.value === 'reviewing') return 2
+  if (plotOutlineStatus.value === 'creating') return 1
+  return plotOutlineBusy.value ? 1 : 0
+})
+const plotOutlineProgressItems = computed<PlotOutlineProgressItem[]>(() => {
+  const current = plotOutlineProgressIndex.value
+  const items = [
+    { key: 'context', label: '汇总设定', desc: '读取世界观、人物与地图' },
+    { key: 'outline', label: '推演主线', desc: '生成核心冲突与故事走向' },
+    { key: 'stage', label: '拆分阶段', desc: '规划阶段任务与章节范围' },
+    { key: 'commit', label: '写入结果', desc: '回填可编辑的剧情总纲' },
+  ]
+  return items.map((item, index) => ({
+    ...item,
+    state: current > index + 1 ? 'done' : current === index + 1 ? 'active' : 'pending',
+  }))
+})
 
-const chapterEndForStoryline = computed(() => Math.max(1, props.targetChapters ?? 100))
+function syncEditablePlotOutline(outline: PlotOutlineDTO | null | undefined) {
+  syncingPlotOutlineDraft.value = true
+  editablePlotOutline.value = clonePlotOutline(outline, plotOutlineTotalChapters.value)
+  queueMicrotask(() => {
+    syncingPlotOutlineDraft.value = false
+  })
+}
 
-function persistStepFourUiToCache(opts?: { includePlotOptions?: boolean }) {
+function normalizeIncomingPlotOutline(outline: PlotOutlineDTO | null | undefined): PlotOutlineDTO | null {
+  return normalizePlotOutlineShape(outline, plotOutlineTotalChapters.value)
+}
+
+function updateStageChapterNumber(
+  index: number,
+  key: 'chapter_start' | 'chapter_end',
+  value: number | null,
+) {
+  const stage = editablePlotOutline.value.stage_plan[index]
+  if (!stage) return
+  stage[key] = typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function stageRangePercentLabel(stage: { chapter_start?: number; chapter_end?: number; range_percent?: string }): string {
+  return buildStageRangePercentLabel(stage, plotOutlineTotalChapters.value)
+}
+
+function buildEditablePlotOutlinePayload(): PlotOutlineDTO {
+  return buildPlotOutlinePayload(editablePlotOutline.value, plotOutlineTotalChapters.value)
+}
+
+function touchPlotOutlineDraft() {
+  if (syncingPlotOutlineDraft.value) return
+  if (!plotOutline.value) return
+  plotOutline.value = buildEditablePlotOutlinePayload()
+  plotOutlineCommitted.value = false
+}
+
+function persistStepFourUiToCache(opts?: { includePlotOutline?: boolean }) {
   if (currentStep.value !== 4) return
   const patch: Partial<Omit<WizardUiCachePayload, 'v' | 'novelId'>> = {
-    customMode: customMode.value,
-    customLogline: customLogline.value,
+    invocationSessionId: plotOutlineSessionId.value || undefined,
   }
-  if (opts?.includePlotOptions) {
-    patch.plotOptions = plotOptions.value.length ? plotOptions.value : undefined
+  if (opts?.includePlotOutline) {
+    patch.plotOutline = plotOutline.value || undefined
   }
   writeWizardUiCache(props.novelId, patch)
 }
 
-async function loadPlotSuggestions() {
-  step4RestoredFromCache.value = false
-  plotSuggesting.value = true
-  plotSuggestError.value = ''
-  try {
-    const res = await workflowApi.suggestMainPlotOptions(props.novelId)
-    plotOptions.value = res.plot_options || []
-    if (plotOptions.value.length) {
-      writeWizardUiCache(props.novelId, { plotOptions: plotOptions.value })
-    }
-  } catch (e: unknown) {
-    let msg = formatApiError(e) || '推演失败，请重试'
-    if (isLikelyTimeoutError(e)) {
-      msg = `请求超时：LLM 响应时间过长。请换更快模型后重试。`
-    }
-    plotSuggestError.value = msg
-  } finally {
-    plotSuggesting.value = false
-  }
+function finishPlotOutlineInvocation() {
+  plotOutlineGenerating.value = false
+  plotOutlineStatus.value = 'done'
+  phaseMessage.value = ''
+  mainPlotSessionUnsub?.()
+  mainPlotSessionUnsub = null
 }
 
-async function refreshPlotSuggestions() {
-  await loadPlotSuggestions()
+function failPlotOutlineInvocation(messageText: string) {
+  plotOutlineError.value = messageText
+  plotOutlineGenerating.value = false
+  plotOutlineStatus.value = 'error'
+  phaseMessage.value = ''
+  mainPlotSessionUnsub?.()
+  mainPlotSessionUnsub = null
 }
 
-async function adoptPlotOption(opt: MainPlotOptionDTO) {
-  adoptingPlotId.value = opt.id
-  try {
-    const parts = [
-      opt.logline,
-      opt.core_conflict ? `核心冲突：${opt.core_conflict}` : '',
-      opt.starting_hook ? `开篇钩子：${opt.starting_hook}` : '',
-    ].filter(Boolean)
-    await workflowApi.createStoryline(props.novelId, {
-      storyline_type: 'main_plot',
-      estimated_chapter_start: 1,
-      estimated_chapter_end: chapterEndForStoryline.value,
-      name: opt.title.slice(0, 200),
-      description: parts.join('\n\n').slice(0, 8000),
-    })
-    mainPlotCommitted.value = true
-    clearWizardUiCache(props.novelId)
-    message.success('主线已保存')
-  } catch (e: unknown) {
-    message.error(formatApiError(e) || '保存失败')
-  } finally {
-    adoptingPlotId.value = null
-  }
+function resetPlotOutlineInvocationState() {
+  plotOutlineGenerating.value = false
+  plotOutlineStatus.value = 'idle'
+  phaseMessage.value = ''
 }
 
-async function adoptCustomMainPlot() {
-  const t = customLogline.value.trim()
-  if (!t) {
-    message.warning('请先写下一句话主线')
+function updatePlotOutlineStatusFromInvocation(payload: InvocationResponseDTO) {
+  const commitStatus = String(payload.commit?.status || '')
+  const sessionStatus = String(payload.session?.status || '')
+  if (commitStatus === 'succeeded' || sessionStatus === 'completed') {
+    plotOutlineStatus.value = 'committing'
+    phaseMessage.value = '正在写入剧情总纲...'
     return
   }
-  adoptingCustom.value = true
+  if (commitStatus === 'failed' || sessionStatus === 'failed' || sessionStatus === 'cancelled' || sessionStatus === 'blocked') {
+    return
+  }
+  if (sessionStatus === 'awaiting_commit' || sessionStatus === 'committing' || commitStatus === 'running') {
+    plotOutlineStatus.value = 'committing'
+    phaseMessage.value = '正在写入剧情总纲...'
+    return
+  }
+  if (sessionStatus === 'generating') {
+    plotOutlineStatus.value = 'generating'
+    phaseMessage.value = 'AI 正在生成剧情总纲...'
+    return
+  }
+  if (sessionStatus === 'awaiting_acceptance') {
+    plotOutlineStatus.value = featureFlags.aiInvocationDebug ? 'reviewing' : 'generating'
+    phaseMessage.value = featureFlags.aiInvocationDebug ? '等待 AI 审阅确认...' : '正在确认剧情总纲生成...'
+    return
+  }
+  if (sessionStatus === 'awaiting_pre_call_review') {
+    plotOutlineStatus.value = featureFlags.aiInvocationDebug ? 'reviewing' : 'creating'
+    phaseMessage.value = featureFlags.aiInvocationDebug ? '等待 AI 审阅确认...' : '正在准备剧情总纲生成...'
+    return
+  }
+  plotOutlineStatus.value = 'creating'
+  phaseMessage.value = '正在创建剧情总纲任务...'
+}
+
+async function refreshPlotOutlineFromApi(): Promise<boolean> {
   try {
-    await workflowApi.createStoryline(props.novelId, {
-      storyline_type: 'main_plot',
-      estimated_chapter_start: 1,
-      estimated_chapter_end: chapterEndForStoryline.value,
-      name: t.length > 80 ? `${t.slice(0, 80)}…` : t,
-      description: t.slice(0, 8000),
-    })
-    mainPlotCommitted.value = true
-    customMode.value = false
-    clearWizardUiCache(props.novelId)
-    message.success('主线已保存')
-  } catch (e: unknown) {
-    message.error(formatApiError(e) || '保存失败')
-  } finally {
-    adoptingCustom.value = false
+    const response = await workflowApi.getPlotOutline(props.novelId)
+    if (!response.plot_outline) return false
+    const normalized = normalizeIncomingPlotOutline(response.plot_outline)
+    if (!normalized) return false
+    plotOutline.value = normalized
+    syncEditablePlotOutline(normalized)
+    plotOutlineCommitted.value = true
+    writeWizardUiCache(props.novelId, { plotOutline: normalized })
+    return true
+  } catch {
+    return false
   }
 }
 
-function cancelCustomMainPlot() {
-  customMode.value = false
-  persistStepFourUiToCache()
+function applyPlotOutlineFromResult(
+  result: Record<string, unknown>,
+  outputBindings: InvocationVariableBinding[] = [],
+): boolean {
+  const outline = extractPlotOutlineFromResult(result, outputBindings, plotOutlineTotalChapters.value)
+  if (!outline) return false
+  plotOutline.value = outline
+  syncEditablePlotOutline(outline)
+  plotOutlineCommitted.value = true
+  writeWizardUiCache(props.novelId, { plotOutline: outline })
+  message.success('AI 审阅已完成，剧情总纲已回填')
+  finishPlotOutlineInvocation()
+  return true
+}
+
+async function handlePlotOutlineInvocationUpdate(payload: InvocationResponseDTO) {
+  updatePlotOutlineStatusFromInvocation(payload)
+  const result = payload.commit?.result
+  if (result && applyPlotOutlineFromResult(result, payload.session?.output_bindings || [])) {
+    return
+  }
+
+  const commitStatus = String(payload.commit?.status || '')
+  const sessionStatus = String(payload.session?.status || '')
+  if (commitStatus === 'failed' || sessionStatus === 'failed' || sessionStatus === 'cancelled' || sessionStatus === 'blocked') {
+    failPlotOutlineInvocation(payload.commit?.error || '剧情总纲生成失败，请重试')
+    return
+  }
+
+  if (commitStatus === 'succeeded' || sessionStatus === 'completed') {
+    const refreshed = await refreshPlotOutlineFromApi()
+    if (refreshed) {
+      message.success('AI 审阅已完成，剧情总纲已回填')
+      finishPlotOutlineInvocation()
+    } else {
+      failPlotOutlineInvocation('剧情总纲生成完成，但未能读取结果，请重试')
+    }
+  }
+}
+
+async function openPlotOutlineReviewPanel(sessionId: string) {
+  if (!sessionId) return
+  plotOutlineSessionId.value = sessionId
+  plotOutlineGenerating.value = true
+  if (plotOutlineStatus.value === 'idle' || plotOutlineStatus.value === 'done' || plotOutlineStatus.value === 'error') {
+    plotOutlineStatus.value = 'creating'
+    phaseMessage.value = '正在创建剧情总纲任务...'
+  }
+  if (featureFlags.aiInvocationDebug) {
+    message.info('已进入 AI 审阅')
+  }
+  try {
+    writeWizardUiCache(props.novelId, { invocationSessionId: sessionId })
+    mainPlotSessionUnsub?.()
+    mainPlotSessionUnsub = aiInvocationStore.onSessionUpdate(sessionId, (payload) => {
+      void handlePlotOutlineInvocationUpdate(payload)
+    })
+    await aiInvocationStore.open(sessionId)
+    if (aiInvocationStore.session?.id === sessionId) {
+      await handlePlotOutlineInvocationUpdate({
+        session: aiInvocationStore.session,
+        attempt: aiInvocationStore.attempt,
+        decision: aiInvocationStore.decision,
+        commit: aiInvocationStore.commit,
+        next_action: aiInvocationStore.nextAction,
+      })
+    }
+  } catch (e: unknown) {
+    failPlotOutlineInvocation(formatApiError(e) || 'AI 调用处理失败')
+  }
+}
+
+async function loadPlotOutline(opts?: { forceNew?: boolean }) {
+  step4RestoredFromCache.value = false
+  plotOutlineError.value = ''
+  plotOutlineStatus.value = 'creating'
+  phaseMessage.value = '正在创建剧情总纲任务...'
+  const cached = opts?.forceNew ? null : readWizardUiCache(props.novelId)
+  const cachedPlotOutline =
+    !opts?.forceNew && cached && isPlotOutlineCacheFresh(cached) ? cached.plotOutline : null
+
+  if (cachedPlotOutline) {
+    const cachedSessionId = cached?.invocationSessionId || ''
+    const normalizedCachedPlotOutline = normalizeIncomingPlotOutline(cachedPlotOutline)
+    plotOutline.value = normalizedCachedPlotOutline
+    syncEditablePlotOutline(normalizedCachedPlotOutline)
+    plotOutlineSessionId.value = cachedSessionId
+    step4RestoredFromCache.value = true
+    resetPlotOutlineInvocationState()
+    if (cachedSessionId && !plotOutlineCommitted.value) {
+      void openPlotOutlineReviewPanel(cachedSessionId)
+    }
+    return
+  }
+
+  plotOutlineGenerating.value = true
+  if (!plotOutline.value || opts?.forceNew) {
+    plotOutline.value = null
+    syncEditablePlotOutline(null)
+  }
+  if (opts?.forceNew) {
+    plotOutlineCommitted.value = false
+    plotOutlineSessionId.value = ''
+    writeWizardUiCache(props.novelId, { invocationSessionId: undefined, plotOutline: undefined })
+  }
+  try {
+    if (cached?.invocationSessionId) {
+      plotOutlineSessionId.value = cached.invocationSessionId
+      await openPlotOutlineReviewPanel(cached.invocationSessionId)
+      return
+    }
+
+    let streamError = ''
+    await consumePlotOutlineStream(props.novelId, {
+      onApprovalRequired: (sessionId) => {
+        plotOutlineSessionId.value = sessionId
+        void openPlotOutlineReviewPanel(sessionId)
+      },
+      onPhase: (message) => {
+        if (message) phaseMessage.value = message
+      },
+      onDone: (outline) => {
+        if (outline) {
+          const normalized = normalizeIncomingPlotOutline(outline)
+          plotOutline.value = normalized
+          syncEditablePlotOutline(normalized)
+        }
+      },
+      onError: (message) => {
+        streamError = message || '流式生成失败'
+      },
+    })
+    if (streamError && !plotOutline.value) {
+      throw new Error(streamError)
+    }
+    if (plotOutline.value) {
+      writeWizardUiCache(props.novelId, { plotOutline: plotOutline.value })
+    }
+  } catch (e: unknown) {
+    try {
+      const res = await workflowApi.generatePlotOutline(props.novelId)
+      plotOutline.value = normalizeIncomingPlotOutline(res.plot_outline)
+      syncEditablePlotOutline(plotOutline.value)
+      if (res.invocation_session_id) {
+        plotOutlineSessionId.value = res.invocation_session_id
+        void openPlotOutlineReviewPanel(res.invocation_session_id)
+      }
+      if (!res.invocation_session_id && cached?.invocationSessionId) {
+        plotOutlineSessionId.value = cached.invocationSessionId
+        void openPlotOutlineReviewPanel(cached.invocationSessionId)
+      }
+      if (plotOutline.value) {
+        writeWizardUiCache(props.novelId, { plotOutline: plotOutline.value })
+      }
+    } catch (directError: unknown) {
+      let msg = formatApiError(directError) || formatApiError(e) || '生成失败，请重试'
+      if (isLikelyTimeoutError(directError) || isLikelyTimeoutError(e)) {
+        msg = `请求超时：LLM 响应时间过长。请换更快模型后重试。`
+      }
+      plotOutlineError.value = msg
+    }
+  } finally {
+    if (plotOutline.value || plotOutlineError.value || !plotOutlineSessionId.value) {
+      resetPlotOutlineInvocationState()
+    }
+  }
+}
+
+async function refreshPlotOutline() {
+  await loadPlotOutline({ forceNew: true })
 }
 
 function hydrateStepFourFromCache() {
   step4RestoredFromCache.value = false
   const cached = readWizardUiCache(props.novelId)
   if (!cached) return
-  if (cached.customMode != null) customMode.value = cached.customMode
-  if (cached.customLogline != null) customLogline.value = cached.customLogline
-  if (isPlotOptionsCacheFresh(cached) && cached.plotOptions?.length) {
-    plotOptions.value = cached.plotOptions
+  if (isPlotOutlineCacheFresh(cached) && cached.plotOutline) {
+    const normalizedCachedPlotOutline = normalizeIncomingPlotOutline(cached.plotOutline)
+    plotOutline.value = normalizedCachedPlotOutline
+    syncEditablePlotOutline(normalizedCachedPlotOutline)
+    plotOutlineSessionId.value = cached.invocationSessionId || ''
     step4RestoredFromCache.value = true
+    if (cached.invocationSessionId && !plotOutlineCommitted.value) {
+      void openPlotOutlineReviewPanel(cached.invocationSessionId)
+    }
     return
   }
-  if (cached.plotOptions?.length && !isPlotOptionsCacheFresh(cached)) {
-    writeWizardUiCache(props.novelId, { plotOptions: undefined })
+  if (cached.invocationSessionId) {
+    plotOutlineSessionId.value = cached.invocationSessionId
+    plotOutlineGenerating.value = true
+    plotOutlineStatus.value = 'creating'
+    phaseMessage.value = '正在恢复剧情总纲生成任务...'
+    void openPlotOutlineReviewPanel(cached.invocationSessionId)
+    return
+  }
+  if (cached.plotOutline && !isPlotOutlineCacheFresh(cached)) {
+    writeWizardUiCache(props.novelId, { plotOutline: undefined })
   }
 }
 
@@ -1083,219 +1457,37 @@ function hydrateStepFourFromCache() {
 // SSE 流式生成函数（含降级到轮询的逻辑）
 // ════════════════════════════════════════════════════════════════════════════
 
-/** SSE 是否可用的缓存标记（同会话内只检测一次） */
-const sseAvailable = ref<boolean | null>(null)
-
-/** 检测 SSE 流式接口是否可用 */
-async function checkSseAvailable(novelId: string): Promise<boolean> {
-  if (sseAvailable.value !== null) return sseAvailable.value
-  try {
-    const url = resolveHttpUrl(`/api/v1/bible/novels/${novelId}/generate-stream?stage=worldbuilding`)
-    // 用 HEAD 请求快速检测（FastAPI 对 HEAD 自动返回 GET 的 headers）
-    const res = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(5000) })
-    const ok = res.ok || res.status === 405  // 405 = Method Not Allowed 也说明路由存在
-    sseAvailable.value = ok
-    return ok
-  } catch {
-    // 检测失败不等于不可用，可能只是网络抖动，默认尝试 SSE
-    sseAvailable.value = true
-    return true
-  }
+function finishWorldbuildingGeneration() {
+  completedDimensions.value = new Set(WB_DIMS)
+  activeDimension.value = ''
+  activeField.value = ''
+  generatingBible.value = false
+  bibleGenerated.value = true
+  phaseMessage.value = ''
+  currentStep.value = 1
+  setWizardLastStep(props.novelId, 1)
+  void loadBibleData()
 }
 
-// ── 轮询降级逻辑（保留原轮询代码作为 fallback） ──
+// ── AI Invocation 模式入口 ──
 
-const pollTimerRef = ref<ReturnType<typeof setTimeout> | null>(null)
-const biblePollEpoch = ref(0)
-const step2PollEpoch = ref(0)
-const step3PollEpoch = ref(0)
-
-function clearGenerationTimers() {
-  if (pollTimerRef.value != null) { clearTimeout(pollTimerRef.value); pollTimerRef.value = null }
+/** 启动第1步：创建可调试的 AI Invocation；调试面板由 feature flag 控制。 */
+function startBibleGeneration() {
+  startBibleGenerationSSE()
 }
 
-function clearPollTimer() {
-  if (pollTimerRef.value != null) { clearTimeout(pollTimerRef.value); pollTimerRef.value = null }
-}
-
-function pollBibleUntil(
-  predicate: (bible: BibleDTO) => boolean,
-  options: {
-    isStale: () => boolean
-    onSuccess: () => void
-    onTimeout: () => void
-    onFatal: (message: string) => void
-    watchBackendFailure?: boolean
-  },
-): void {
-  const tick = async () => {
-    if (options.isStale()) return
-    try {
-      const bible = await bibleApi.getBible(props.novelId)
-      if (options.isStale()) return
-      bibleData.value = bible
-      if (predicate(bible)) { options.onSuccess(); return }
-      if (options.watchBackendFailure) {
-        try {
-          const fb = await bibleApi.getBibleGenerationFeedback(props.novelId)
-          if (options.isStale()) return
-          if (fb.error) { options.onFatal(`${fb.error}（阶段：${fb.stage || '未知'}）`); return }
-        } catch { /* */ }
-      }
-    } catch (err: unknown) {
-      if (options.isStale()) return
-      options.onFatal(formatApiError(err) || '查询 Bible 失败')
-      return
-    }
-    window.setTimeout(() => { void tick() }, 2000)
-  }
-  void tick()
-}
-
-/** 轮询模式：第1步生成世界观 */
-async function startBibleGenerationPoll() {
-  clearGenerationTimers()
-  biblePollEpoch.value += 1
-  const epoch = biblePollEpoch.value
+/** 启动第1步：生成文风公约与世界观 */
+function startBibleGenerationSSE() {
   generatingBible.value = true
   bibleGenerated.value = false
   bibleError.value = ''
-  phaseMessage.value = '正在生成世界观...'
-
-  try {
-    await bibleApi.generateBible(props.novelId, 'worldbuilding')
-    if (biblePollEpoch.value !== epoch || !generatingBible.value) return
-    phaseMessage.value = '正在生成世界观和文风...'
-
-    const schedulePoll = (delayMs: number) => {
-      clearPollTimer()
-      pollTimerRef.value = window.setTimeout(() => { void runPoll() }, delayMs)
-    }
-
-    const runPoll = async () => {
-      if (biblePollEpoch.value !== epoch || !generatingBible.value) return
-      try {
-        const status = await bibleApi.getBibleStatus(props.novelId)
-        if (biblePollEpoch.value !== epoch || !generatingBible.value) return
-        if (status.ready) {
-          clearGenerationTimers()
-          generatingBible.value = false
-          phaseMessage.value = ''
-          completedDimensions.value = new Set(WB_DIMS)
-          bibleGenerated.value = true
-          await loadBibleData()
-          return
-        }
-      } catch (error: unknown) {
-        if (biblePollEpoch.value !== epoch) return
-        clearGenerationTimers()
-        generatingBible.value = false
-        bibleError.value = formatApiError(error) || '检查状态失败'
-        phaseMessage.value = ''
-        return
-      }
-      if (biblePollEpoch.value !== epoch || !generatingBible.value) return
-      schedulePoll(2000)
-    }
-
-    schedulePoll(0)
-  } catch (error: unknown) {
-    if (biblePollEpoch.value !== epoch) return
-    generatingBible.value = false
-    let detail = formatApiError(error) || '生成失败，请重试'
-    if (isLikelyTimeoutError(error)) {
-      detail = '提交「世界观生成」时连接超时。请确认 API 已启动后再试。'
-    }
-    bibleError.value = detail
-    phaseMessage.value = ''
-  }
-}
-
-/** 轮询模式：第2步生成人物 */
-async function startCharactersGenerationPoll() {
-  step2PollEpoch.value += 1
-  const epoch2 = step2PollEpoch.value
-  generatingCharacters.value = true
-  charactersGenerated.value = false
-  charactersError.value = ''
-  phaseMessage.value = '正在生成人物...'
-
-  try {
-    await bibleApi.generateBible(props.novelId, 'characters')
-    pollBibleUntil(
-      (b) => (b.characters?.length ?? 0) > 0,
-      {
-        isStale: () => step2PollEpoch.value !== epoch2 || currentStep.value !== 2 || !generatingCharacters.value,
-        watchBackendFailure: true,
-        onSuccess: () => { generatingCharacters.value = false; charactersGenerated.value = true; phaseMessage.value = '' },
-        onTimeout: () => { generatingCharacters.value = false; charactersError.value = `等待人物生成超时。`; phaseMessage.value = '' },
-        onFatal: (msg) => { generatingCharacters.value = false; charactersError.value = msg; phaseMessage.value = '' },
-      },
-    )
-  } catch (error: unknown) {
-    generatingCharacters.value = false
-    charactersError.value = isLikelyTimeoutError(error) ? '提交人物生成超时' : formatApiError(error) || '人物生成启动失败'
-    phaseMessage.value = ''
-  }
-}
-
-/** 轮询模式：第3步生成地点 */
-async function startLocationsGenerationPoll() {
-  step3PollEpoch.value += 1
-  const epoch3 = step3PollEpoch.value
-  generatingLocations.value = true
-  locationsGenerated.value = false
-  locationsError.value = ''
-  phaseMessage.value = '正在生成地图...'
-
-  try {
-    await bibleApi.generateBible(props.novelId, 'locations')
-    pollBibleUntil(
-      (b) => (b.locations?.length ?? 0) > 0,
-      {
-        isStale: () => step3PollEpoch.value !== epoch3 || currentStep.value !== 3 || !generatingLocations.value,
-        watchBackendFailure: true,
-        onSuccess: () => { generatingLocations.value = false; locationsGenerated.value = true; phaseMessage.value = '' },
-        onTimeout: () => { generatingLocations.value = false; locationsError.value = `等待地图生成超时。`; phaseMessage.value = '' },
-        onFatal: (msg) => { generatingLocations.value = false; locationsError.value = msg; phaseMessage.value = '' },
-      },
-    )
-  } catch (error: unknown) {
-    generatingLocations.value = false
-    locationsError.value = isLikelyTimeoutError(error) ? '提交地图生成超时' : formatApiError(error) || '地图生成启动失败'
-    phaseMessage.value = ''
-  }
-}
-
-// ── SSE 模式入口（自动降级） ──
-
-/** 启动第1步生成（SSE 流式，失败降级到轮询） */
-async function startBibleGeneration() {
-  try {
-    const useSse = await checkSseAvailable(props.novelId)
-    if (useSse) {
-      startBibleGenerationSSE()
-    } else {
-      startBibleGenerationPoll()
-    }
-  } catch {
-    // SSE 检测异常时直接尝试 SSE
-    startBibleGenerationSSE()
-  }
-}
-
-/** 启动第1步 SSE 流式生成世界观 */
-function startBibleGenerationSSE() {
-generatingBible.value = true
-bibleGenerated.value = false
-bibleError.value = ''
-  phaseMessage.value = '正在准备生成环境...'
+  phaseMessage.value = '正在准备生成文风公约...'
   activeDimension.value = ''
-  completedDimensions.value = new Set()
   activeField.value = ''
+  completedDimensions.value = new Set()
   arrivedFields.value = new Set()
-  streamingDimText.value = ''
   worldbuildingData.value = emptyWorldbuildingShape()
+  worldbuildingRawStream.value = ''
   styleText.value = ''
 
   const ctrl = new AbortController()
@@ -1309,16 +1501,9 @@ bibleError.value = ''
       if (phase.startsWith('worldbuilding_') && phase !== 'worldbuilding_done') {
         const dimKey = phase.replace('worldbuilding_', '')
         if (WB_DIMS.includes(dimKey as typeof WB_DIMS[number])) {
-          // 维度级 phase：worldbuilding_core_rules
-          // 标记上一个维度为已完成
-          if (activeDimension.value && activeDimension.value !== dimKey) {
-            completedDimensions.value = new Set([...completedDimensions.value, activeDimension.value])
-          }
           activeDimension.value = dimKey
-          // 切换到新维度时重置字段状态
           activeField.value = ''
           arrivedFields.value = new Set()
-          streamingDimText.value = ''
         } else if (dimKey === 'style') {
           // worldbuilding_style phase：文风公约生成中，清除 activeDimension
           // 让所有维度都显示"等待中"，文风信息通过 phaseMessage 显示
@@ -1328,9 +1513,7 @@ bibleError.value = ''
           // 其他 worldbuilding_* phase 事件（如 worldbuilding_done），忽略
         }
       }
-      if (phase === 'worldbuilding') {
-        // 进入世界观阶段，暂时不设置维度为"生成中"
-        // 等待 worldbuilding_style 或 worldbuilding_core_rules phase 再设置
+      if (phase === 'worldbuilding' || phase === 'worldbuilding_streaming') {
         activeDimension.value = ''
         activeField.value = ''
       }
@@ -1338,131 +1521,56 @@ bibleError.value = ''
         completedDimensions.value = new Set(WB_DIMS)
         activeDimension.value = ''
         activeField.value = ''
-        streamingDimText.value = ''
       }
     },
     onStyle: (content) => {
       styleText.value = content
     },
+    onStyleChunk: (chunk) => {
+      styleText.value += chunk
+    },
+    onWorldbuildingChunk: (chunk) => {
+      applyWorldbuildingChunk(chunk)
+    },
     onWorldbuildingField: (dimension, field, value) => {
-      // 字段级推送：维度流式完成后逐字段推送最终值
       const dim = dimension as keyof typeof worldbuildingData.value
-      worldbuildingData.value = {
-        ...worldbuildingData.value,
-        [dimension]: { ...worldbuildingData.value[dim], [field]: value },
-      }
-      // 第一个字段到达时清空流式预览文本
-      streamingDimText.value = ''
-      if (activeDimension.value !== dimension) {
-        if (activeDimension.value) {
-          completedDimensions.value = new Set([...completedDimensions.value, activeDimension.value])
-        }
-        activeDimension.value = dimension
-      }
+      worldbuildingData.value[dim][field] = value
+      activeDimension.value = dimension
       arrivedFields.value = new Set([...arrivedFields.value, field])
-      activeField.value = ''
-    },
-    onWorldbuildingFieldChunk: (dimension, field, chunk) => {
-      // 已弃用，保留空实现以兼容旧版
-    },
-    onWorldbuildingFieldDone: (dimension, field, value) => {
-      // 已弃用，保留空实现以兼容旧版
-    },
-    onWorldbuildingDimChunk: (dimension, chunk) => {
-      // 维度级流式 chunk：增量解析 JSON，实时提取字段
-      streamingDimText.value += chunk
-
-      // 确保当前维度标记为 active
-      if (activeDimension.value !== dimension) {
-        if (activeDimension.value) {
-          completedDimensions.value = new Set([...completedDimensions.value, activeDimension.value])
-        }
-        activeDimension.value = dimension
-      }
-
-      // ── 增量 JSON 解析：提取已完成和正在流式的字段 ──
-      const parsed = parseStreamingJsonFields(streamingDimText.value)
-      const dim = dimension as keyof typeof worldbuildingData.value
-
-      // 已完成的字段 → 更新到 worldbuildingData
-      const completedFields: Record<string, string> = {}
-      for (const [k, v] of Object.entries(parsed.completed)) {
-        completedFields[k] = v
-        if (!arrivedFields.value.has(k)) {
-          arrivedFields.value = new Set([...arrivedFields.value, k])
-        }
-      }
-
-      // 正在流式的字段 → 也更新到 worldbuildingData（带流式光标）
-      if (parsed.streamingKey && parsed.streamingValue !== undefined) {
-        completedFields[parsed.streamingKey] = parsed.streamingValue
-        activeField.value = parsed.streamingKey
-      } else {
-        activeField.value = ''
-      }
-
-      if (Object.keys(completedFields).length > 0) {
-        worldbuildingData.value = {
-          ...worldbuildingData.value,
-          [dimension]: { ...worldbuildingData.value[dim], ...completedFields },
-        }
-      }
+      activeField.value = field
     },
     onWorldbuildingDimension: (data: WorldbuildingDimensionData) => {
       const dim = data.dimension as keyof typeof worldbuildingData.value
-      worldbuildingData.value = {
-        ...worldbuildingData.value,
-        [data.dimension]: { ...worldbuildingData.value[dim], ...data.content },
-      }
-      if (activeDimension.value && activeDimension.value !== data.dimension) {
-        completedDimensions.value = new Set([...completedDimensions.value, activeDimension.value])
-      }
+      Object.assign(worldbuildingData.value[dim], data.content)
       activeDimension.value = data.dimension
+      completedDimensions.value = new Set([...completedDimensions.value, data.dimension])
+    },
+    onApprovalRequired: (sessionId) => {
+      void openBibleReviewPanel('worldbuilding', sessionId)
     },
     onDone: () => {
-      completedDimensions.value = new Set(WB_DIMS)
-      activeDimension.value = ''
-      activeField.value = ''
-      streamingDimText.value = ''
-      generatingBible.value = false
-      bibleGenerated.value = true
-      phaseMessage.value = ''
-      loadBibleData()
+      finishWorldbuildingGeneration()
     },
     onError: (msg) => {
-      // SSE 失败时降级到轮询（后台可能已经启动了生成任务）
-      if (msg.includes('HTTP') || msg.includes('fetch') || msg.includes('连接') || msg.includes('Stream')) {
-        console.warn('[Wizard] SSE 流式生成失败，降级到轮询模式:', msg)
-        startBibleGenerationPoll()
-      } else {
-        generatingBible.value = false
-        bibleError.value = msg
-        phaseMessage.value = ''
-      }
+      bibleError.value = msg
+      phaseMessage.value = ''
     },
   })
 }
 
-/** 启动第2步生成（SSE 流式，失败降级到轮询） */
-async function startCharactersGeneration() {
-  try {
-    const useSse = await checkSseAvailable(props.novelId)
-    if (useSse) {
-      startCharactersGenerationSSE()
-    } else {
-      startCharactersGenerationPoll()
-    }
-  } catch {
-    startCharactersGenerationSSE()
-  }
+/** 启动第2步：创建可调试的 AI Invocation；调试面板由 feature flag 控制。 */
+function startCharactersGeneration() {
+  startCharactersGenerationSSE()
 }
 
-/** 启动第2步 SSE 流式生成人物 */
+/** 启动第2步：生成人物 */
 function startCharactersGenerationSSE() {
-generatingCharacters.value = true
-charactersGenerated.value = false
-charactersError.value = ''
+  generatingCharacters.value = true
+  charactersGenerated.value = false
+  charactersError.value = ''
   streamingCharacters.value = []
+  editableCharacters.value = []
+  generatedCharacterDrafts.value = {}
   phaseMessage.value = '正在生成人物...'
 
   const ctrl = new AbortController()
@@ -1474,25 +1582,17 @@ charactersError.value = ''
       phaseMessage.value = msg
     },
     onCharacter: (char) => {
-      const c = char as { name?: string; role?: string; description?: string; relationships?: BibleRelationshipEntry[] }
+      const c = char as GeneratedCharacterPayload
       if (c.name) {
-        // 从 description 中解析 role（后端可能把 role 拼到 description 开头）
-        let role = c.role || ''
-        let desc = c.description || ''
-        if (!role && desc.includes(' - ')) {
-          const sepIdx = desc.indexOf(' - ')
-          role = desc.slice(0, sepIdx).trim()
-          desc = desc.slice(sepIdx + 3).trim()
-        } else if (role && desc.startsWith(role) && desc.includes(' - ')) {
-          const sepIdx = desc.indexOf(' - ')
-          desc = desc.slice(sepIdx + 3).trim()
+        const editable = mapGeneratedCharacterToEditable(c)
+        const draftKey = characterDraftKey({ id: editable.id, name: editable.name })
+        if (draftKey) {
+          generatedCharacterDrafts.value = {
+            ...generatedCharacterDrafts.value,
+            [draftKey]: editable,
+          }
         }
-        streamingCharacters.value = [...streamingCharacters.value, {
-          name: c.name,
-          role,
-          description: desc,
-          relationships: c.relationships || [],
-        }]
+        streamingCharacters.value = [...streamingCharacters.value, editable]
       }
     },
     onCharacterChunk: (_chunk) => {
@@ -1501,6 +1601,9 @@ charactersError.value = ''
         phaseMessage.value = 'AI 正在构思角色...'
       }
     },
+    onApprovalRequired: (sessionId) => {
+      void openBibleReviewPanel('characters', sessionId)
+    },
     onDone: () => {
       generatingCharacters.value = false
       charactersGenerated.value = true
@@ -1508,40 +1611,26 @@ charactersError.value = ''
       loadBibleData()
     },
     onError: (msg) => {
-      // SSE 失败时降级到轮询
-      if (msg.includes('HTTP') || msg.includes('fetch') || msg.includes('连接') || msg.includes('Stream')) {
-        console.warn('[Wizard] 人物 SSE 失败，降级到轮询:', msg)
-        startCharactersGenerationPoll()
-      } else {
-        generatingCharacters.value = false
-        charactersError.value = msg
-        phaseMessage.value = ''
-      }
+      generatingCharacters.value = false
+      charactersError.value = msg
+      phaseMessage.value = ''
     },
   })
 }
 
-/** 启动第3步生成（SSE 流式，失败降级到轮询） */
-async function startLocationsGeneration() {
-  try {
-    const useSse = await checkSseAvailable(props.novelId)
-    if (useSse) {
-      startLocationsGenerationSSE()
-    } else {
-      startLocationsGenerationPoll()
-    }
-  } catch {
-    startLocationsGenerationSSE()
-  }
+/** 启动第3步：创建可调试的 AI Invocation；调试面板由 feature flag 控制。 */
+function startLocationsGeneration() {
+  startLocationsGenerationSSE()
 }
 
-/** 启动第3步 SSE 流式生成地点 */
+/** 启动第3步：生成地点 */
 function startLocationsGenerationSSE() {
-generatingLocations.value = true
-locationsGenerated.value = false
-locationsError.value = ''
+  generatingLocations.value = true
+  locationsGenerated.value = false
+  locationsError.value = ''
   streamingLocations.value = []
-  phaseMessage.value = '正在生成地图...'
+  editableLocations.value = []
+  phaseMessage.value = '正在生成地点...'
 
   const ctrl = new AbortController()
   locationsSseAbort.value = ctrl
@@ -1569,6 +1658,9 @@ locationsError.value = ''
         phaseMessage.value = 'AI 正在构思地点...'
       }
     },
+    onApprovalRequired: (sessionId) => {
+      void openBibleReviewPanel('locations', sessionId)
+    },
     onDone: () => {
       generatingLocations.value = false
       locationsGenerated.value = true
@@ -1576,15 +1668,9 @@ locationsError.value = ''
       loadBibleData()
     },
     onError: (msg) => {
-      // SSE 失败时降级到轮询
-      if (msg.includes('HTTP') || msg.includes('fetch') || msg.includes('连接') || msg.includes('Stream')) {
-        console.warn('[Wizard] 地图 SSE 失败，降级到轮询:', msg)
-        startLocationsGenerationPoll()
-      } else {
-        generatingLocations.value = false
-        locationsError.value = msg
-        phaseMessage.value = ''
-      }
+      generatingLocations.value = false
+      locationsError.value = msg
+      phaseMessage.value = ''
     },
   })
 }
@@ -1607,7 +1693,9 @@ async function loadBibleData() {
     styleText.value = styleConventionFromBible(bible)
 
     // 将人物/地点拷贝到可编辑列表
-    editableCharacters.value = (bible.characters || []).map(mapCharacterToEditable)
+    editableCharacters.value = (bible.characters || []).map((char) =>
+      mapCharacterToEditable(char, generatedCharacterDrafts.value[characterDraftKey(char)])
+    )
     editableLocations.value = (bible.locations || []).map(l => ({
       name: l.name || '',
       id: l.id || undefined,
@@ -1626,11 +1714,11 @@ async function loadBibleData() {
 function resetWizardStateForOpen() {
   currentStep.value = 1
   stepStatus.value = 'process'
-  plotOptions.value = []
-  mainPlotCommitted.value = false
-  customMode.value = false
-  customLogline.value = ''
-  plotSuggestError.value = ''
+  plotOutline.value = null
+  syncEditablePlotOutline(null)
+  plotOutlineCommitted.value = false
+  plotOutlineSessionId.value = ''
+  plotOutlineError.value = ''
   charactersError.value = ''
   locationsError.value = ''
   resumedFromStep.value = 0
@@ -1655,7 +1743,7 @@ async function detectWizardProgress(): Promise<number> {
     styleText.value = styleConventionFromBible(bible)
 
     // ── 判断后端是否已有数据（用于决定步骤内部显示"生成中"还是"可编辑预览"） ──
-    const hasWorldbuilding = bible.world_settings?.length > 0 || Object.values(worldbuildingData.value).some(dim => Object.keys(dim).length > 0)
+    const hasWorldbuilding = hasWorldbuildingContent(fromWs) || hasWorldbuildingContent(worldbuildingData.value)
     const hasStyle = styleConventionFromBible(bible).length > 0
     const hasCharacters = (bible.characters?.length ?? 0) > 0
     const hasLocations = (bible.locations?.length ?? 0) > 0
@@ -1666,7 +1754,9 @@ async function detectWizardProgress(): Promise<number> {
     }
     if (hasCharacters) {
       charactersGenerated.value = true
-      editableCharacters.value = (bible.characters || []).map(mapCharacterToEditable)
+      editableCharacters.value = (bible.characters || []).map((char) =>
+        mapCharacterToEditable(char, generatedCharacterDrafts.value[characterDraftKey(char)])
+      )
     }
     if (hasLocations) {
       locationsGenerated.value = true
@@ -1678,14 +1768,18 @@ async function detectWizardProgress(): Promise<number> {
       }))
     }
 
-    // ── 判断主线是否已提交 ──
-    let hasMainPlot = false
+    // ── 判断剧情总纲是否已提交 ──
+    let hasPlotOutline = false
     try {
-      const storylines = await workflowApi.getStorylines(props.novelId)
-      hasMainPlot = storylines.some(s => s.storyline_type === 'main_plot')
-      if (hasMainPlot) {
-        mainPlotCommitted.value = true
-        clearWizardUiCache(props.novelId)
+      const response = await workflowApi.getPlotOutline(props.novelId)
+      if (response.plot_outline) {
+        const normalized = normalizeIncomingPlotOutline(response.plot_outline)
+        if (normalized) {
+          plotOutline.value = normalized
+          syncEditablePlotOutline(normalized)
+          plotOutlineCommitted.value = true
+          hasPlotOutline = true
+        }
       }
     } catch { /* 忽略 */ }
 
@@ -1699,22 +1793,23 @@ async function detectWizardProgress(): Promise<number> {
       return cachedLastStep
     }
 
-    // 没有缓存（新创建的书），按后端数据推断，但不跳过 —— 回到第一个"还没确认"的步骤
+    // 没有缓存时，回到最近一个已生成但尚未确认的步骤。
+    // 生成完成只展示可编辑预览，只有用户点"下一步"才进入下一阶段。
     if (!hasWorldbuilding && !hasStyle) {
       resumedFromStep.value = 0
       return 1
     }
     if (!hasCharacters) {
+      resumedFromStep.value = 1
+      return 1
+    }
+    if (!hasLocations) {
       resumedFromStep.value = 2
       return 2
     }
-    if (!hasLocations) {
+    if (!hasPlotOutline) {
       resumedFromStep.value = 3
       return 3
-    }
-    if (!hasMainPlot) {
-      resumedFromStep.value = 4
-      return 4
     }
 
     resumedFromStep.value = 5
@@ -1730,11 +1825,8 @@ async function runWizardOpenSequence() {
   const step = await detectWizardProgress()
   currentStep.value = step
   maxVisitedStep.value = step
-  if (step === 4 && !mainPlotCommitted.value) {
+  if (step === 4 && !plotOutlineCommitted.value) {
     hydrateStepFourFromCache()
-  }
-  if (step === 1 && !bibleGenerated.value) {
-    startBibleGeneration()
   }
 }
 
@@ -1745,6 +1837,15 @@ function stopGenerationOnClose() {
   generatingBible.value = false
   generatingCharacters.value = false
   generatingLocations.value = false
+  plotOutlineGenerating.value = false
+  plotOutlineStatus.value = 'idle'
+  phaseMessage.value = ''
+  mainPlotSessionUnsub?.()
+  mainPlotSessionUnsub = null
+  for (const unsub of bibleInvocationUnsubs.values()) {
+    unsub()
+  }
+  bibleInvocationUnsubs.clear()
 }
 
 watch(
@@ -1754,7 +1855,7 @@ watch(
       await runWizardOpenSequence()
     } else {
       stopGenerationOnClose()
-      persistStepFourUiToCache({ includePlotOptions: true })
+      persistStepFourUiToCache({ includePlotOutline: true })
     }
   }
 )
@@ -1778,16 +1879,18 @@ watch(currentStep, (step, prevStep) => {
   if (prevStep !== undefined && props.show) {
     void loadBibleData()
   }
-  if (step === 4 && props.show && !mainPlotCommitted.value && plotOptions.value.length === 0 && !plotSuggesting.value) {
-    void loadPlotSuggestions()
+  if (step === 4 && props.show && !plotOutlineCommitted.value && !plotOutline.value && !plotOutlineGenerating.value) {
+    void loadPlotOutline()
   }
 })
 
-watch([customMode, customLogline], () => {
-  if (currentStep.value === 4 && props.show) {
-    persistStepFourUiToCache()
-  }
-})
+watch(plotOutline, () => {
+  if (currentStep.value === 4 && props.show) persistStepFourUiToCache()
+}, { deep: true })
+
+watch(editablePlotOutline, () => {
+  if (currentStep.value === 4 && props.show) touchPlotOutlineDraft()
+}, { deep: true })
 
 /** 保存中状态 */
 const savingStep = ref(false)
@@ -1802,18 +1905,28 @@ async function saveWorldbuildingEdits(): Promise<boolean> {
     }
     await worldbuildingApi.updateWorldbuilding(props.novelId, wbData as any)
 
-    // 保存文风公约
+    // 保存文风公约。世界观主数据已写入 Worldbuilding V2；Bible.world_settings
+    // 只保留用户/系统补充的零散规则，不再承载五维世界观。
+    const existing = await bibleApi.getBible(props.novelId)
     if (styleText.value) {
       await bibleApi.updateBible(props.novelId, {
-        characters: [],
-        world_settings: [],
-        locations: [],
-        timeline_notes: [],
+        characters: existing.characters || [],
+        world_settings: existing.world_settings || [],
+        locations: existing.locations || [],
+        timeline_notes: existing.timeline_notes || [],
         style_notes: [{
           id: `${props.novelId}-style-1`,
           category: '文风公约',
           content: styleText.value,
         }],
+      })
+    } else {
+      await bibleApi.updateBible(props.novelId, {
+        characters: existing.characters || [],
+        world_settings: existing.world_settings || [],
+        locations: existing.locations || [],
+        timeline_notes: existing.timeline_notes || [],
+        style_notes: existing.style_notes || [],
       })
     }
     return true
@@ -1826,16 +1939,25 @@ async function saveWorldbuildingEdits(): Promise<boolean> {
 /** 保存步骤2的编辑（人物）到后端 */
 async function saveCharactersEdits(): Promise<boolean> {
   try {
+    const existing = await bibleApi.getBible(props.novelId)
     await bibleApi.updateBible(props.novelId, {
       characters: editableCharacters.value.map((c, idx) => ({
         id: c.id || `${props.novelId}-char-${idx + 1}`,
         name: c.name,
-        description: c.description,
+        description: formatCharacterDescriptionForSave(c.role, c.description),
         role: c.role,
+        gender: c.gender,
+        age: c.age,
+        appearance: c.appearance,
+        personality: c.personality,
+        background: c.background,
+        core_motivation: c.core_motivation,
+        inner_lack: c.inner_lack,
         mental_state: c.mental_state,
+        mental_state_reason: c.mental_state_reason,
         verbal_tic: c.verbal_tic,
         idle_behavior: c.idle_behavior,
-        relationships: c.relationships || [],
+        relationships: serializeRelationships(c.relationships || []),
         public_profile: c.public_profile,
         hidden_profile: c.hidden_profile,
         reveal_chapter: c.reveal_chapter,
@@ -1844,10 +1966,10 @@ async function saveCharactersEdits(): Promise<boolean> {
         voice_profile: c.voice_profile,
         active_wounds: c.active_wounds,
       })),
-      world_settings: [],
-      locations: [],
-      timeline_notes: [],
-      style_notes: [],
+      world_settings: existing.world_settings || [],
+      locations: existing.locations || [],
+      timeline_notes: existing.timeline_notes || [],
+      style_notes: existing.style_notes || [],
     })
     return true
   } catch (e) {
@@ -1888,21 +2010,43 @@ async function runBulkCharacterExtract() {
 /** 保存步骤3的编辑（地点）到后端 */
 async function saveLocationsEdits(): Promise<boolean> {
   try {
+    const existing = await bibleApi.getBible(props.novelId)
     await bibleApi.updateBible(props.novelId, {
-      characters: [],
-      world_settings: [],
+      characters: existing.characters || [],
+      world_settings: existing.world_settings || [],
       locations: editableLocations.value.map(l => ({
         id: l.id || '',
         name: l.name,
         description: l.description,
         location_type: l.location_type || '场景',
       })),
-      timeline_notes: [],
-      style_notes: [],
+      timeline_notes: existing.timeline_notes || [],
+      style_notes: existing.style_notes || [],
     })
     return true
   } catch (e) {
     message.error(formatApiError(e) || '保存地点修改失败')
+    return false
+  }
+}
+
+async function savePlotOutlineEdits(): Promise<boolean> {
+  try {
+    const payload = buildEditablePlotOutlinePayload()
+    const validationError = validateEditablePlotOutline(payload)
+    if (validationError) {
+      message.error(validationError)
+      return false
+    }
+    const response = await workflowApi.savePlotOutline(props.novelId, payload)
+    const saved = response.plot_outline || payload
+    plotOutline.value = saved
+    syncEditablePlotOutline(saved)
+    plotOutlineCommitted.value = true
+    writeWizardUiCache(props.novelId, { plotOutline: saved })
+    return true
+  } catch (e) {
+    message.error(formatApiError(e) || '保存剧情总纲失败')
     return false
   }
 }
@@ -1916,7 +2060,7 @@ function goToStep(step: number) {
   if (step > maxVisitedStep.value) return // 不允许跳到还没到过的步骤
   if (step === currentStep.value) return
   // 正在生成中不允许切换
-  if (generatingBible.value || generatingCharacters.value || generatingLocations.value) return
+  if (isWizardGenerating.value) return
   currentStep.value = step
 }
 
@@ -1924,7 +2068,7 @@ function goToStep(step: number) {
 function handlePrev() {
   if (currentStep.value > 1) {
     // 正在生成中不允许返回
-    if (generatingBible.value || generatingCharacters.value || generatingLocations.value) return
+    if (isWizardGenerating.value) return
     currentStep.value--
   }
 }
@@ -1955,6 +2099,11 @@ const handleNext = async () => {
       if (!ok) return
       currentStep.value = 4
       maxVisitedStep.value = Math.max(maxVisitedStep.value, 4)
+    } else if (currentStep.value === 4) {
+      const ok = await savePlotOutlineEdits()
+      if (!ok) return
+      currentStep.value = 5
+      maxVisitedStep.value = Math.max(maxVisitedStep.value, 5)
     } else if (currentStep.value < 5) {
       currentStep.value++
       maxVisitedStep.value = Math.max(maxVisitedStep.value, currentStep.value)
@@ -1969,7 +2118,7 @@ const dialog = useDialog()
 const handleSkip = () => {
   dialog.warning({
     title: '确认跳过向导',
-    content: '已写入作品的数据会保留；第 4 步未提交的主线候选与自定义文案仍会缓存在本机，便于以后从向导继续。',
+    content: '已写入作品的数据会保留；第 4 步未提交的剧情总纲预览仍会缓存在本机，便于以后从向导继续。',
     positiveText: '跳过',
     negativeText: '取消',
     onPositiveClick: () => {
@@ -1983,7 +2132,7 @@ const handleSkip = () => {
 const requestClose = () => {
   dialog.warning({
     title: '关闭向导',
-    content: '进度已按步骤写入作品；第 4 步未提交的主线候选与自定义文案会缓存在本机以便下次继续。',
+    content: '进度已按步骤写入作品；第 4 步未提交的剧情总纲预览会缓存在本机以便下次继续。',
     positiveText: '关闭',
     negativeText: '取消',
     onPositiveClick: () => {
@@ -2084,16 +2233,16 @@ const handleComplete = () => {
 }
 
 .field-card {
-  background: var(--n-color-modal);
-  border: 1px solid var(--n-border-color);
+  background: var(--app-surface, var(--n-color-modal));
+  border: 1px solid var(--app-border, var(--n-border-color));
   border-radius: 8px;
   padding: 10px 14px;
   animation: field-appear 0.35s ease;
-  transition: border-color 0.2s ease;
+  transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
 }
 
 .field-card:hover {
-  border-color: #2080f060;
+  border-color: var(--color-brand-border, var(--n-primary-color-hover));
 }
 
 .field-card--editable {
@@ -2107,18 +2256,49 @@ const handleComplete = () => {
 .field-card__title {
   font-size: 12px;
   font-weight: 600;
-  color: #666;
+  color: var(--app-text-muted, var(--n-text-color-3));
   margin-bottom: 6px;
-  letter-spacing: 0.5px;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
 .field-card__content {
   font-size: 13px;
   line-height: 1.65;
-  color: #333;
+  color: var(--app-text-primary, var(--n-text-color-1));
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.raw-stream-preview {
+  min-height: 42px;
+  padding: 12px 14px 12px 16px;
+  border-radius: 8px;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--color-brand, #2563eb) 9%, transparent), transparent 42%),
+    var(--app-surface-subtle, var(--n-color-modal));
+  border: 1px solid color-mix(in srgb, var(--color-brand, #2563eb) 34%, var(--app-border, rgba(15, 23, 42, 0.12)));
+  border-left: 3px solid var(--color-brand, var(--n-primary-color));
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--color-brand, #2563eb) 10%, transparent);
+  color: var(--app-text-primary, var(--n-text-color-1));
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.raw-stream-preview::before {
+  content: '实时输出';
+  display: block;
+  width: fit-content;
+  margin-bottom: 6px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--color-brand-light, rgba(37, 99, 235, 0.08));
+  color: var(--color-brand, var(--n-primary-color));
+  font-size: 11px;
+  font-weight: 700;
 }
 
 @keyframes field-appear {
@@ -2127,15 +2307,18 @@ const handleComplete = () => {
 }
 
 .field-card--streaming {
-  border-color: #2080f060;
-  background: #2080f008;
+  border-color: color-mix(in srgb, var(--color-brand, #2563eb) 46%, var(--app-border, transparent));
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--color-brand, #2563eb) 8%, transparent), transparent 48%),
+    var(--app-surface, var(--n-color-modal));
+  box-shadow: inset 3px 0 0 var(--color-brand, var(--n-primary-color));
 }
 
 .streaming-cursor {
   display: inline;
-  color: #2080f0;
+  color: var(--color-brand, var(--n-primary-color));
   animation: blink-cursor 0.8s ease-in-out infinite;
-  font-weight: 300;
+  font-weight: 700;
 }
 
 @keyframes blink-cursor {
@@ -2148,8 +2331,11 @@ const handleComplete = () => {
   margin-top: 12px;
   padding: 12px 16px;
   border-radius: 8px;
-  background: #18a05808;
-  border: 1px solid #18a05840;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--color-success, #22c55e) 9%, transparent), transparent 45%),
+    var(--app-surface-subtle, var(--n-color-modal));
+  border: 1px solid color-mix(in srgb, var(--color-success, #22c55e) 34%, var(--app-border, rgba(15, 23, 42, 0.12)));
+  border-left: 3px solid var(--color-success, var(--n-success-color));
   animation: fade-in 0.4s ease;
 }
 
@@ -2163,13 +2349,14 @@ const handleComplete = () => {
 .style-preview-title {
   font-weight: 500;
   font-size: 14px;
+  color: var(--app-text-primary, var(--n-text-color-1));
   flex: 1;
 }
 
 .style-preview-content {
   font-size: 13px;
   line-height: 1.6;
-  color: #444;
+  color: var(--app-text-primary, var(--n-text-color-1));
   padding-left: 24px;
 }
 
@@ -2253,10 +2440,30 @@ const handleComplete = () => {
 
 .char-card__desc {
   font-size: 13px;
-  color: #666;
+  color: var(--app-text-secondary, var(--n-text-color-2));
   line-height: 1.6;
   margin-top: 8px;
   padding-left: 46px;
+}
+
+.char-card__anchor {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  margin-top: 6px;
+  padding-left: 46px;
+  color: var(--app-text-primary, var(--n-text-color-1));
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.char-card__anchor-label {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--color-brand-light, rgba(37, 99, 235, 0.08));
+  color: var(--color-brand, var(--n-primary-color));
+  font-weight: 700;
 }
 
 .char-card__relations {
@@ -2412,6 +2619,81 @@ const handleComplete = () => {
   width: 100%;
 }
 
+.plot-outline-generating {
+  width: 100%;
+}
+
+.plot-outline-progress {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.plot-outline-progress__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--app-border, var(--n-border-color));
+  border-radius: 8px;
+  background: var(--app-surface, var(--n-color-modal));
+}
+
+.plot-outline-progress__dot {
+  width: 9px;
+  height: 9px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--app-border, var(--n-border-color));
+  flex: 0 0 auto;
+}
+
+.plot-outline-progress__item--active {
+  border-color: color-mix(in srgb, var(--color-brand, #2563eb) 42%, var(--app-border, transparent));
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--color-brand, #2563eb) 7%, transparent), transparent 50%),
+    var(--app-surface, var(--n-color-modal));
+}
+
+.plot-outline-progress__item--active .plot-outline-progress__dot {
+  background: var(--color-brand, var(--n-primary-color));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-brand, #2563eb) 12%, transparent);
+  animation: plot-progress-pulse 1.2s ease-in-out infinite;
+}
+
+.plot-outline-progress__item--done .plot-outline-progress__dot {
+  background: var(--color-success, var(--n-success-color));
+}
+
+.plot-outline-progress__body {
+  min-width: 0;
+}
+
+.plot-outline-progress__label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--app-text-primary, var(--n-text-color-1));
+  line-height: 1.4;
+}
+
+.plot-outline-progress__desc {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--app-text-muted, var(--n-text-color-3));
+  line-height: 1.45;
+}
+
+.plot-outline-live-preview {
+  max-height: 180px;
+  overflow: auto;
+}
+
+@keyframes plot-progress-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.68; transform: scale(0.92); }
+}
+
 .wizard-error-text {
   white-space: pre-line;
   line-height: 1.65;
@@ -2435,6 +2717,137 @@ const handleComplete = () => {
   text-align: left;
 }
 
+.plot-outline-editor {
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.plot-outline-editor :deep(.n-form-item-label) {
+  font-weight: 600;
+}
+
+.plot-kv-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.plot-kv-label {
+  width: fit-content;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-brand, #2563eb) 8%, transparent);
+  color: var(--app-text-secondary, var(--n-text-color-2));
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.plot-guard-grid,
+.plot-subline-list {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.03);
+  text-align: left;
+}
+
+.plot-guard-grid {
+  display: grid;
+  gap: 6px;
+}
+
+.plot-guard-cell {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.plot-guard-k {
+  color: #777;
+  font-weight: 700;
+}
+
+.plot-guard-v {
+  color: #555;
+}
+
+.plot-subline-title {
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #666;
+}
+
+.plot-subline-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #555;
+}
+
+.plot-subline-item + .plot-subline-item {
+  margin-top: 5px;
+}
+
+.plot-subline-name {
+  font-weight: 600;
+}
+
+.plot-subline-purpose {
+  color: #777;
+}
+
+.plot-outline-stage-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.plot-stage-edit-item {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--app-surface, var(--n-color-modal));
+  border: 1px solid var(--app-border, var(--n-border-color));
+}
+
+.plot-stage-edit-item + .plot-stage-edit-item {
+  margin-top: 0;
+}
+
+.plot-stage-edit-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.plot-stage-chapter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.plot-stage-chapter-row :deep(.n-input-number) {
+  width: 112px;
+}
+
+.plot-stage-chapter-separator {
+  color: var(--app-text-muted, var(--n-text-color-3));
+  font-size: 13px;
+}
+
 .plot-option-card--disabled {
   opacity: 0.72;
   pointer-events: none;
@@ -2454,14 +2867,108 @@ const handleComplete = () => {
   padding: 4px 0;
 }
 
+.character-editor-list :deep(.n-list-item__main) {
+  width: 100%;
+}
+
+.character-editor-head {
+  display: grid;
+  grid-template-columns: minmax(120px, 180px) minmax(100px, 150px) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.character-editor-head__name,
+.character-editor-head__role {
+  min-width: 0;
+}
+
+.role-lock-panel {
+  height: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--app-border, var(--n-border-color));
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--color-brand, #2563eb) 5%, transparent), transparent 42%),
+    var(--app-surface, var(--n-color-modal));
+}
+
+.role-lock-panel--strong {
+  border-color: color-mix(in srgb, var(--color-brand, #2563eb) 30%, var(--app-border, rgba(15, 23, 42, 0.12)));
+  box-shadow: inset 3px 0 0 var(--color-brand, var(--n-primary-color));
+}
+
+.role-lock-panel__title {
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-brand, var(--n-primary-color));
+}
+
 .editable-field {
   width: 100%;
+  margin-top: 8px;
 }
 .editable-field__label {
   font-size: 12px;
-  color: #999;
-  margin-bottom: 2px;
+  color: var(--app-text-muted, var(--n-text-color-3));
+  margin-bottom: 4px;
   line-height: 1.4;
+}
+
+.character-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.voice-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.relationship-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.relationship-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.wound-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wound-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+@media (max-width: 720px) {
+  .character-editor-head {
+    grid-template-columns: 1fr;
+  }
+
+  .plot-outline-progress {
+    grid-template-columns: 1fr;
+  }
+
+  .voice-grid,
+  .character-meta-grid,
+  .relationship-row,
+  .wound-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* 步骤导航可点击 */

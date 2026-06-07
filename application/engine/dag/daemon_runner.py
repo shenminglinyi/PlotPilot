@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import time
 from typing import Any, Dict, Optional
 
@@ -21,6 +20,7 @@ from application.engine.dag.ipc_adapter import IPCAdapter
 from application.engine.dag.models import DAGDefinition, DAGRunResult
 from application.engine.dag.validator import DAGValidator
 from application.engine.dag.version_manager import DAGVersionManager
+from infrastructure.engine.dag_environment import DAGEnvironmentSettings
 
 logger = logging.getLogger(__name__)
 
@@ -206,10 +206,10 @@ class DAGDaemonRunner:
 class EngineSelector:
     """引擎选择器 -- 根据 Feature Flag 决定使用旧守护进程或 DAG 引擎"""
 
-    def __init__(self):
-        self.dag_enabled = os.getenv(
-            "ENABLE_DAG_ENGINE", "false"
-        ).lower() in ("1", "true", "yes")
+    def __init__(self, dag_enabled: Optional[bool] = None):
+        if dag_enabled is None:
+            dag_enabled = DAGEnvironmentSettings.from_env().enabled
+        self.dag_enabled = dag_enabled
         self._novel_flags: Dict[str, bool] = {}
 
     def should_use_dag(self, novel_id: str) -> bool:

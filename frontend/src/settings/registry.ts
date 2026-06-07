@@ -31,7 +31,7 @@ const registry: AppSettingsSectionMeta[] = [
   {
     id: 'autopilot-writing',
     label: '全托管控制',
-    description: '节拍硬帽、审阅闸门与指挥器相位阈值（按书目保存）',
+    description: '审阅闸门与指挥器相位阈值（按书目保存）',
     order: 30,
     component: () => import('@/components/settings/sections/AutopilotWritingPrefsSection.vue'),
   },
@@ -41,6 +41,13 @@ const registry: AppSettingsSectionMeta[] = [
     description: '多角色端点配置；统一或独立 API Key',
     order: 40,
     component: () => import('@/components/settings/sections/EngineMatrixSection.vue'),
+  },
+  {
+    id: 'about',
+    label: '关于墨枢',
+    description: '产品署名、团队信息与直播入口',
+    order: 90,
+    component: () => import('@/components/settings/sections/AboutBrandSection.vue'),
   },
 ]
 

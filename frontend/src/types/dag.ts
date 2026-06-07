@@ -43,7 +43,7 @@ export interface NodeMeta {
   can_disable: boolean
   default_timeout_seconds: number
   default_max_retries: number
-  // ★ CPMS 关联字段
+  // CPMS 关联字段
   cpms_node_key: string
   description: string
   default_edges: string[]
@@ -224,10 +224,10 @@ export const CATEGORY_COLORS: Record<NodeCategory, string> = {
 }
 
 export const CATEGORY_LABELS: Record<NodeCategory, string> = {
-  context: '📦 上下文注入',
-  execution: '⚙️ 执行与生成',
-  validation: '🔍 校验与监控',
-  gateway: '🚦 网关与熔断',
+  context: '上下文注入',
+  execution: '执行与生成',
+  validation: '校验与监控',
+  gateway: '网关与熔断',
 }
 
 // ─── 节点状态 → CSS 变量名映射 ───

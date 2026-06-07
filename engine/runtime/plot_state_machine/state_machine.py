@@ -83,7 +83,7 @@ class PlotStateMachine:
             "reason": reason,
         })
 
-        logger.info(f"🔄 故事阶段转换: {old_phase.value} → {target.value} ({reason})")
+        logger.info(f"故事阶段转换: {old_phase.value} → {target.value} ({reason})")
         return True
 
     def is_new_foreshadow_allowed(self) -> bool:

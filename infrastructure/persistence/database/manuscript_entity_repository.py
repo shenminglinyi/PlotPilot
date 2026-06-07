@@ -23,7 +23,7 @@ class ManuscriptEntityRepository:
         rows = self.db.fetch_all(
             """
             SELECT id, novel_id, name, description, aliases_json, holder_character_id, first_chapter,
-                   created_at, updated_at
+                   COALESCE(is_key, 0) AS is_key, created_at, updated_at
             FROM bible_props
             WHERE novel_id = ?
             ORDER BY name COLLATE NOCASE
@@ -68,7 +68,9 @@ class ManuscriptEntityRepository:
 
     def get_prop(self, novel_id: str, prop_id: str) -> Optional[Dict[str, Any]]:
         row = self.db.fetch_one(
-            "SELECT * FROM bible_props WHERE novel_id = ? AND id = ?",
+            """SELECT id, novel_id, name, description, aliases_json, holder_character_id, first_chapter,
+                      COALESCE(is_key, 0) AS is_key, created_at, updated_at
+               FROM bible_props WHERE novel_id = ? AND id = ?""",
             (novel_id, prop_id),
         )
         return dict(row) if row else None
@@ -83,6 +85,7 @@ class ManuscriptEntityRepository:
         aliases: Optional[List[str]] = None,
         holder_character_id: Optional[str] = None,
         first_chapter: Optional[int] = None,
+        is_key: Optional[bool] = None,
     ) -> None:
         cur = self.get_prop(novel_id, prop_id)
         if not cur:
@@ -93,13 +96,15 @@ class ManuscriptEntityRepository:
         aj = json.dumps(aliases, ensure_ascii=False) if aliases is not None else cur["aliases_json"]
         hc = holder_character_id if holder_character_id is not None else cur.get("holder_character_id")
         fc = first_chapter if first_chapter is not None else cur.get("first_chapter")
+        ik = int(is_key) if is_key is not None else cur.get("is_key", 0)
         self.db.execute(
             """
             UPDATE bible_props
-            SET name = ?, description = ?, aliases_json = ?, holder_character_id = ?, first_chapter = ?, updated_at = ?
+            SET name = ?, description = ?, aliases_json = ?, holder_character_id = ?, first_chapter = ?,
+                is_key = ?, updated_at = ?
             WHERE novel_id = ? AND id = ?
             """,
-            (nm, desc, aj, hc, fc, now, novel_id, prop_id),
+            (nm, desc, aj, hc, fc, ik, now, novel_id, prop_id),
         )
         self.db.get_connection().commit()
 

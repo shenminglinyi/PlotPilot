@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "sync:taxonomy": "node scripts/sync-builtin-taxonomy.mjs",
+    "check:shared-config": "node scripts/sync-builtin-taxonomy.mjs --check",
     "predev": "npm run sync:taxonomy",
     "prebuild": "npm run sync:taxonomy",
     "dev": "vite",

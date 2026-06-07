@@ -40,6 +40,7 @@ class UpdateSubtextEntryRequest(BaseModel):
     question: Optional[str] = Field(None, min_length=1, max_length=4000)
     status: Optional[str] = Field(None, description="pending | consumed")
     consumed_at_chapter: Optional[int] = Field(None, ge=1)
+    is_priority_for_chapter: Optional[bool] = None
 
 
 class SubtextEntryResponse(BaseModel):
@@ -52,6 +53,7 @@ class SubtextEntryResponse(BaseModel):
     suggested_resolve_chapter: Optional[int] = None
     resolve_chapter_window: Optional[int] = None
     importance: str = "medium"
+    is_priority_for_chapter: bool = False
     created_at: str
 
 
@@ -66,6 +68,7 @@ def _entry_to_response(entry: SubtextLedgerEntry) -> SubtextEntryResponse:
         suggested_resolve_chapter=getattr(entry, "suggested_resolve_chapter", None),
         resolve_chapter_window=getattr(entry, "resolve_chapter_window", None),
         importance=getattr(entry, "importance", "medium"),
+        is_priority_for_chapter=getattr(entry, "is_priority_for_chapter", False),
         created_at=entry.created_at.isoformat(),
     )
 
@@ -254,6 +257,11 @@ async def update_subtext_entry(
                     request.consumed_at_chapter
                     if request.consumed_at_chapter is not None
                     else entry.consumed_at_chapter
+                ),
+                is_priority_for_chapter=(
+                    request.is_priority_for_chapter
+                    if request.is_priority_for_chapter is not None
+                    else getattr(entry, "is_priority_for_chapter", False)
                 ),
             )
 

@@ -17,6 +17,8 @@
               :chapters="chapters"
               :current-chapter-id="currentChapterId"
               :generation-prefs="generationPrefs"
+              :writing-chapter-number="writingChapterNumber"
+              :writing-pipeline-step="writingPipelineStep"
               @select="onSidebarChapterSelect"
               @back="goHome"
               @refresh="handleChapterUpdated"
@@ -25,36 +27,44 @@
           </template>
 
           <template #2>
-            <n-split
-              direction="horizontal"
-              :min="WORKBENCH_SPLIT.mainMin"
-              :max="WORKBENCH_SPLIT.mainMax"
-              :default-size="WORKBENCH_SPLIT.mainDefault"
-            >
-              <template #1>
-                <WorkArea
-                  ref="workAreaRef"
-                  :slug="slug"
-                  :book-title="bookTitle"
-                  :chapters="chapters"
-                  :current-chapter-id="currentChapterId"
-                  :chapter-content="chapterContent"
-                  :chapter-loading="chapterLoading"
-                  :generation-prefs="generationPrefs"
-                  @chapter-updated="handleChapterUpdated"
-                />
-              </template>
+            <div class="wb-main-split" :class="{ 'wb-right-collapsed': rightCollapsed }">
+              <n-split
+                direction="horizontal"
+                :min="WORKBENCH_SPLIT.mainMin"
+                :max="WORKBENCH_SPLIT.mainMax"
+                :default-size="WORKBENCH_SPLIT.mainDefault"
+              >
+                <template #1>
+                  <WorkArea
+                    ref="workAreaRef"
+                    :slug="slug"
+                    :book-title="bookTitle"
+                    :chapters="chapters"
+                    :current-chapter-id="currentChapterId"
+                    :chapter-content="chapterContent"
+                    :chapter-loading="chapterLoading"
+                    :generation-prefs="generationPrefs"
+                    @chapter-updated="handleChapterUpdated"
+                    @select-chapter="handleChapterSelect"
+                  />
+                </template>
 
-              <template #2>
-                <SettingsPanel
-                  :slug="slug"
-                  :current-panel="rightPanel"
-                  :current-chapter="currentChapter"
-                  :generation-prefs="generationPrefs"
-                  @update:current-panel="onSettingsPanelChange"
-                />
-              </template>
-            </n-split>
+                <template #2>
+                  <div v-if="rightCollapsed" class="wb-right-strip" @click="toggleRight">
+                    <span class="wb-strip-icon">◀</span>
+                  </div>
+                  <SettingsPanel
+                    v-else
+                    :slug="slug"
+                    :current-panel="rightPanel"
+                    :current-chapter="currentChapter"
+                    :generation-prefs="generationPrefs"
+                    @update:current-panel="onSettingsPanelChange"
+                    @collapse="toggleRight"
+                  />
+                </template>
+              </n-split>
+            </div>
           </template>
         </n-split>
       </div>
@@ -90,6 +100,8 @@ import {
   isWorkbenchSettingsPanelName,
 } from '../workbench/deskEvents'
 import { WORKBENCH_SPLIT } from '../design/layoutDensity'
+import { storageKeys } from '@/config/storageKeys'
+import { readStorageBoolean, writeStorageBoolean } from '@/utils/storage'
 
 const route = useRoute()
 const message = useMessage()
@@ -100,7 +112,14 @@ const appSettingsShell = useAppSettingsShellStore()
 const slug = computed(() => String(route.params.slug ?? ''))
 
 const chapterListRef = ref<ComponentPublicInstance<{ refreshStoryTree: () => void }> | null>(null)
-const workAreaRef = ref<ComponentPublicInstance<{ ensureAssistedMode: () => void }> | null>(null)
+const workAreaRef = ref<ComponentPublicInstance<{
+  ensureAssistedMode: () => void
+  streamingChapterNumber: import('vue').Ref<number | null>
+  writingPipelineStep: import('vue').ComputedRef<number | null>
+}> | null>(null)
+
+const writingChapterNumber = computed(() => workAreaRef.value?.streamingChapterNumber?.value ?? null)
+const writingPipelineStep = computed(() => workAreaRef.value?.writingPipelineStep?.value ?? null)
 
 async function onSidebarChapterSelect(chapterId: number, title = '') {
   await handleChapterSelect(chapterId, title)
@@ -147,6 +166,13 @@ const handlePlanAct = (actId: string, actTitle: string) => {
   actPlanningId.value = actId
   actPlanningTitle.value = actTitle
   showActPlanning.value = true
+}
+
+const rightCollapsed = ref(readStorageBoolean(storageKeys.workbenchRightPanelCollapsed))
+
+function toggleRight() {
+  rightCollapsed.value = !rightCollapsed.value
+  writeStorageBoolean(storageKeys.workbenchRightPanelCollapsed, rightCollapsed.value)
 }
 
 const {
@@ -292,5 +318,52 @@ watch(
 .workbench-inner :deep(.n-split-pane-2) {
   min-height: 0;
   overflow: hidden;
+}
+
+/* ── Right sidebar collapse ─────────────────────────── */
+
+.wb-main-split {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+.wb-right-collapsed :deep(.n-split-pane-1) {
+  flex: 1 1 0 !important;
+  width: 0 !important;
+  max-width: none !important;
+}
+
+.wb-right-collapsed :deep(.n-split-pane-2) {
+  flex: 0 0 32px !important;
+  width: 32px !important;
+  min-width: 0 !important;
+  max-width: 32px !important;
+  overflow: hidden;
+}
+
+.wb-right-collapsed :deep(.n-split__gutter) {
+  display: none !important;
+}
+
+.wb-right-strip {
+  height: 100%;
+  width: 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  background: var(--app-surface);
+  border-left: 1px solid var(--plotpilot-split-border);
+  color: var(--app-text-muted);
+  font-size: 12px;
+  transition: background 0.15s, color 0.15s;
+  user-select: none;
+}
+
+.wb-right-strip:hover {
+  background: var(--plotpilot-panel-muted);
+  color: var(--app-text-primary);
 }
 </style>

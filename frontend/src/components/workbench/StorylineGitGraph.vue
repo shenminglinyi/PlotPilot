@@ -3,10 +3,10 @@
     <!-- ======== 顶部工具栏 ======== -->
     <header class="gg-header">
       <div class="gg-header-left">
-        <span class="gg-logo">⌥</span>
-        <h3 class="gg-title">Git Graph · 叙事版本控制</h3>
+        <span class="gg-logo" aria-hidden="true" />
+        <h3 class="gg-title">故事线分支图</h3>
         <n-tag size="tiny" round :bordered="false" type="info">
-          {{ tracks.length }} tracks · {{ commits.length }} commits
+          {{ tracks.length }} 线 · {{ commits.length }} 节点
         </n-tag>
       </div>
       <div class="gg-header-right">
@@ -17,7 +17,7 @@
         <n-tooltip trigger="hover">
           <template #trigger>
             <n-button size="tiny" quaternary @click="toggleZoom">
-              {{ zoomed ? '⊖ 收起' : '⊕ 放大' }}
+              {{ zoomed ? '收起' : '放大' }}
             </n-button>
           </template>
           切换视图密度
@@ -433,6 +433,12 @@ import { chroniclesApi } from '../../api/chronicles'
 import { storeToRefs } from 'pinia'
 import { useWorkbenchRefreshStore } from '../../stores/workbenchRefreshStore'
 import type { StorylineDTO, StorylineGraphDataDTO, StorylineMergePointDTO } from '../../api/workflow'
+import { formatApiError } from '../../utils/apiError'
+import {
+  getStorylineGraphColor,
+  getStorylineTypeLabel,
+  isMainStoryline,
+} from '../../domain/storyline'
 
 // ==================== Props & Emits ====================
 interface Props {
@@ -497,21 +503,7 @@ const paddingB = 45           // 底部留白（X轴标签）
 const paddingR = 40           // 右侧留白
 
 // ==================== 颜色系统 ====================
-const LINE_COLORS: Record<string, string> = {
-  main_plot: '#6366f1',   // indigo - 主线 master
-  romance: '#ec4899',     // pink
-  revenge: '#ef4444',     // red
-  mystery: '#8b5cf6',     // violet
-  growth: '#10b981',      // emerald
-  political: '#f59e0b',   // amber
-  adventure: '#06b6d4',   // cyan
-  family: '#f97316',      // orange
-  friendship: '#84cc16',  // lime
-}
-
-function getLineColor(type: string): string {
-  return LINE_COLORS[type] || '#94a3b8'
-}
+const getLineColor = getStorylineGraphColor
 
 function adjustColor(hex: string, amount: number): string {
   const num = parseInt(hex.replace('#', ''), 16)
@@ -521,12 +513,7 @@ function adjustColor(hex: string, amount: number): string {
   return '#' + ((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)
 }
 
-const TYPE_LABELS: Record<string, string> = {
-  main_plot: '主线', romance: '爱情线', revenge: '复仇线',
-  mystery: '悬疑线', growth: '成长线', political: '政治线',
-  adventure: '冒险线', family: '家庭线', friendship: '友情线',
-}
-function getTypeLabel(t: string): string { return TYPE_LABELS[t] || t }
+const getTypeLabel = getStorylineTypeLabel
 
 // ==================== 核心数据转换：原始 Storylines → Tracks + Commits ====================
 /** 轨道列表 */
@@ -535,7 +522,7 @@ const tracks = computed<TrackDef[]>(() => {
     id: sl.id,
     color: getLineColor(sl.storyline_type),
     label: (sl.name || getTypeLabel(sl.storyline_type)).slice(0, 14),
-    isMain: sl.storyline_type === 'main_plot',
+    isMain: isMainStoryline(sl),
     storylineType: sl.storyline_type,
   }))
 })
@@ -584,12 +571,12 @@ function buildCommitLabel(ch: number, sl: StorylineDTO): string {
 
 /** 检测 Branch 关系 */
 function detectBranches(commits: CommitDef[], lines: StorylineDTO[]) {
-  const mainLine = lines.find(l => l.storyline_type === 'main_plot')
+  const mainLine = lines.find(isMainStoryline)
   if (!mainLine) return
 
   for (const commit of commits) {
     const sl = lines.find(l => l.id === commit.trackId)
-    if (!sl || sl.storyline_type === 'main_plot') continue
+    if (!sl || isMainStoryline(sl)) continue
 
     // 如果这条支线的起始章节正好在主线的活跃范围内，视为从主线 branch 出来
     if (commit.chapterIndex === sl.estimated_chapter_start &&
@@ -605,7 +592,7 @@ function detectBranches(commits: CommitDef[], lines: StorylineDTO[]) {
     }
 
     // 也检测从其他非主线 branch 出的情况
-    if (!commit.branchFrom && sl.storyline_type !== 'main_plot') {
+    if (!commit.branchFrom && !isMainStoryline(sl)) {
       for (const other of lines) {
         if (other.id === sl.id) continue
         if (commit.chapterIndex === sl.estimated_chapter_start &&
@@ -875,8 +862,8 @@ async function confirmRollback(cm: CommitDef) {
         activeCommitData.value = null
         activeId.value = null
         await loadData()
-      } catch (e: any) {
-        message.error(e?.response?.data?.detail || '回滚失败')
+      } catch (e: unknown) {
+        message.error(formatApiError(e, '回滚失败'))
         return false
       } finally {
         rollbacking.value = false
@@ -900,8 +887,8 @@ async function loadData() {
     try {
       rawStorylines.value = await workflowApi.getStorylines(props.slug)
       rawMergePoints.value = []
-    } catch (e2: any) {
-      message.error(e2?.response?.data?.detail || '加载失败')
+    } catch (e2: unknown) {
+      message.error(formatApiError(e2, '加载失败'))
     }
   } finally {
     loading.value = false

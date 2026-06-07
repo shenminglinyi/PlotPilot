@@ -96,7 +96,7 @@ class ProjectPacker:
                     self._log(f"保存位置：{default_zip}", "ok")
                     self._log("═══ 收件人使用步骤 ═══", "title")
                     self._log("  ① 解压 ZIP 文件到任意目录", "info")
-                    self._log("  ② 安装 Python 3.10+（勾选 Add to PATH）", "info")
+                    self._log("  ② 安装 Python 3.14.5（勾选 Add to PATH）", "info")
                     self._log("  ③ 双击 tools\\plotpilot.bat 启动 PlotPilot（墨枢）", "info")
                     return True, default_zip
                 else:

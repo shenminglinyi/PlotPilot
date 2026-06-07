@@ -1,130 +1,37 @@
 """事件总线 — 领域事件驱动
 
-核心事件：
-- ChapterCompletedEvent：章节完成
-- CharacterTraumaEvent：角色创伤
-- ForeshadowStatusChangedEvent：伏笔状态变更
-- PhaseTransitionEvent：故事阶段转换
-
-设计原则：
-- 解耦领域服务间通信
-- 支持同步和异步处理
-- 事件不可变
-- 不使用继承（避免frozen dataclass的默认参数顺序问题）
+事件类型定义见 domain.shared.story_events（单一来源）。
+此模块提供 EventBus 运行时实现。
 """
 from __future__ import annotations
 
-import logging
-from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional
 import asyncio
+import logging
+from typing import Any, Callable, Dict, List, Optional
+
+from domain.shared.story_events import (
+    ChapterCompletedEvent,
+    CharacterTraumaEvent,
+    DomainEvent,
+    ForeshadowStatusChangedEvent,
+    PhaseTransitionEvent,
+    StoryDomainEvent,
+)
 
 logger = logging.getLogger(__name__)
 
-
-@dataclass(frozen=True)
-class DomainEvent:
-    """领域事件基类（不可变）"""
-    event_type: str
-    story_id: str
-    timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
-    data: Dict[str, Any] = field(default_factory=dict)
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "event_type": self.event_type,
-            "story_id": self.story_id,
-            "timestamp": self.timestamp,
-            "data": self.data,
-        }
-
-
-@dataclass(frozen=True)
-class ChapterCompletedEvent:
-    """章节完成事件"""
-    event_type: str = "chapter_completed"
-    story_id: str = ""
-    chapter_number: int = 0
-    chapter_title: str = ""
-    word_count: int = 0
-    timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "event_type": self.event_type,
-            "story_id": self.story_id,
-            "chapter_number": self.chapter_number,
-            "chapter_title": self.chapter_title,
-            "word_count": self.word_count,
-            "timestamp": self.timestamp,
-        }
-
-
-@dataclass(frozen=True)
-class CharacterTraumaEvent:
-    """角色创伤事件"""
-    event_type: str = "character_trauma"
-    story_id: str = ""
-    character_id: str = ""
-    character_name: str = ""
-    trigger_event: str = ""
-    changes: Dict[str, Any] = field(default_factory=dict)
-    timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "event_type": self.event_type,
-            "story_id": self.story_id,
-            "character_id": self.character_id,
-            "character_name": self.character_name,
-            "trigger_event": self.trigger_event,
-            "changes": self.changes,
-            "timestamp": self.timestamp,
-        }
-
-
-@dataclass(frozen=True)
-class ForeshadowStatusChangedEvent:
-    """伏笔状态变更事件"""
-    event_type: str = "foreshadow_status_changed"
-    story_id: str = ""
-    foreshadow_id: str = ""
-    old_status: str = ""
-    new_status: str = ""
-    timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "event_type": self.event_type,
-            "story_id": self.story_id,
-            "foreshadow_id": self.foreshadow_id,
-            "old_status": self.old_status,
-            "new_status": self.new_status,
-            "timestamp": self.timestamp,
-        }
-
-
-@dataclass(frozen=True)
-class PhaseTransitionEvent:
-    """故事阶段转换事件"""
-    event_type: str = "phase_transition"
-    story_id: str = ""
-    from_phase: str = ""
-    to_phase: str = ""
-    reason: str = ""
-    timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "event_type": self.event_type,
-            "story_id": self.story_id,
-            "from_phase": self.from_phase,
-            "to_phase": self.to_phase,
-            "reason": self.reason,
-            "timestamp": self.timestamp,
-        }
-
+# 重导出 — 保持旧 import 路径可用
+__all__ = [
+    "DomainEvent",
+    "StoryDomainEvent",
+    "ChapterCompletedEvent",
+    "CharacterTraumaEvent",
+    "ForeshadowStatusChangedEvent",
+    "PhaseTransitionEvent",
+    "EventHandler",
+    "EventBus",
+    "get_event_bus",
+]
 
 # 事件处理器类型
 EventHandler = Callable[[Any], Any]

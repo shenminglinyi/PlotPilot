@@ -29,6 +29,9 @@ CREATE TABLE IF NOT EXISTS worldbuilding (
     language_slang TEXT DEFAULT '',         -- 俚语口音
     entertainment TEXT DEFAULT '',          -- 娱乐方式
 
+    schema_version INTEGER NOT NULL DEFAULT 1,
+    dimensions TEXT NOT NULL DEFAULT '{}',
+
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 

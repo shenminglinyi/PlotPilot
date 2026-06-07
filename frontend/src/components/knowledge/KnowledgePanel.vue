@@ -116,14 +116,14 @@
           <div v-if="knowledgeView === 'triples'" class="kp-triples-container">
             <!-- 统计 + 操作 -->
             <n-space justify="space-between" align="center" class="kp-triples-toolbar">
-              <n-space :size="6" align="center" wrap>
+              <div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">
                 <template v-if="kgStats">
-                  <n-tag type="info" size="small" round>共 {{ kgStats.total_triples }} 条</n-tag>
-                  <n-tag size="small" round>高置信 {{ kgStats.confidence_distribution.high }}</n-tag>
-                  <n-tag type="warning" size="small" round>中 {{ kgStats.confidence_distribution.medium }}</n-tag>
-                  <n-tag type="error" size="small" round>低 {{ kgStats.confidence_distribution.low }}</n-tag>
+                  <span class="pp-chip pp-chip--brand" style="font-size:10px">共 {{ kgStats.total_triples }} 条</span>
+                  <span class="pp-chip pp-chip--success" style="font-size:10px">高 {{ kgStats.confidence_distribution.high }}</span>
+                  <span class="pp-chip pp-chip--warning" style="font-size:10px">中 {{ kgStats.confidence_distribution.medium }}</span>
+                  <span class="pp-chip pp-chip--danger" style="font-size:10px">低 {{ kgStats.confidence_distribution.low }}</span>
                 </template>
-              </n-space>
+              </div>
               <n-space :size="6">
                 <n-button size="tiny" secondary :loading="inferring" @click="inferAll">全书推断</n-button>
                 <n-select
@@ -142,6 +142,8 @@
                   v-for="t in triples"
                   :key="t.id"
                   class="triple-row"
+                  :data-source="t.source_type"
+                  :data-starred="t.is_starred ? 'true' : 'false'"
                 >
                   <div class="triple-body">
                     <n-tag size="tiny" round :type="t.source_type === 'manual' ? 'success' : t.source_type === 'chapter_inferred' ? 'info' : 'default'">
@@ -157,6 +159,14 @@
                     </n-text>
                   </div>
                   <n-space :size="4" class="triple-actions">
+                    <n-button
+                      size="tiny"
+                      text
+                      :type="t.is_starred ? 'warning' : 'default'"
+                      :title="t.is_starred ? '取消星标（移出 AI 优先位置）' : '星标（保证进入 AI 上下文）'"
+                      :loading="starringId === t.id"
+                      @click="doStarTriple(t)"
+                    >{{ t.is_starred ? '★' : '☆' }}</n-button>
                     <n-button
                       v-if="t.source_type !== 'manual'"
                       size="tiny"
@@ -412,6 +422,7 @@ import { narrativeStateApi } from '../../api/tools'
 import type { EntityState } from '../../api/tools'
 import { knowledgeGraphApi } from '../../api/knowledgeGraph'
 import type { TripleDTO, KGStatistics } from '../../api/knowledgeGraph'
+import { formatApiError, getHttpStatus } from '../../utils/apiError'
 import CastGraphCompact from '../graphs/CastGraphCompact.vue'
 import LocationGraphCompact from '../graphs/LocationGraphCompact.vue'
 import KnowledgeGraphView from './KnowledgeGraphView.vue'
@@ -467,6 +478,9 @@ const triples = ref<TripleDTO[]>([])
 const kgStats = ref<KGStatistics | null>(null)
 const triplesLoading = ref(false)
 const inferring = ref(false)
+
+let triplesLoadSeq = 0
+let knowledgeLoadSeq = 0
 const confirmingId = ref<string | null>(null)
 const deletingId = ref<string | null>(null)
 const tripleFilter = ref<string | undefined>(undefined)
@@ -478,18 +492,22 @@ const tripleFilterOptions = [
 ]
 
 const loadTriples = async () => {
+  const seq = ++triplesLoadSeq
+  const slug = props.slug
   triplesLoading.value = true
   try {
     const [tripleRes, statsRes] = await Promise.all([
-      knowledgeGraphApi.getTriples(props.slug, tripleFilter.value),
-      knowledgeGraphApi.getStatistics(props.slug),
+      knowledgeGraphApi.getTriples(slug, tripleFilter.value),
+      knowledgeGraphApi.getStatistics(slug),
     ])
+    if (seq !== triplesLoadSeq || props.slug !== slug) return
     triples.value = tripleRes.data.triples
     kgStats.value = statsRes.data
   } catch {
+    if (seq !== triplesLoadSeq || props.slug !== slug) return
     message.error('加载三元组失败')
   } finally {
-    triplesLoading.value = false
+    if (seq === triplesLoadSeq) triplesLoading.value = false
   }
 }
 
@@ -517,6 +535,21 @@ const doConfirmTriple = async (t: TripleDTO) => {
     message.error('确认失败')
   } finally {
     confirmingId.value = null
+  }
+}
+
+const starringId = ref<string | null>(null)
+
+const doStarTriple = async (t: TripleDTO) => {
+  starringId.value = t.id
+  try {
+    const newStarred = !t.is_starred
+    await knowledgeGraphApi.starTriple(props.slug, t.id, newStarred)
+    t.is_starred = newStarred
+  } catch {
+    message.error('星标操作失败')
+  } finally {
+    starringId.value = null
   }
 }
 
@@ -559,8 +592,7 @@ const fetchEntityState = async () => {
       entityStateChapter.value
     )
   } catch (e: unknown) {
-    const err = e as { response?: { status?: number } }
-    entityStateError.value = err.response?.status === 404
+    entityStateError.value = getHttpStatus(e) === 404
       ? `未找到实体「${entityStateId.value}」`
       : '查询失败，请确认实体 ID 是否正确'
   } finally {
@@ -581,8 +613,8 @@ const doSearch = async () => {
   try {
     const r = await knowledgeApi.searchKnowledge(props.slug, q, 8)
     searchHits.value = r.hits || []
-  } catch (e: any) {
-    message.error(e?.response?.data?.detail || '检索失败')
+  } catch (e: unknown) {
+    message.error(formatApiError(e, '检索失败'))
   } finally {
     searching.value = false
   }
@@ -623,8 +655,11 @@ const loadOutlineTitles = async () => {
 }
 
 const load = async () => {
+  const seq = ++knowledgeLoadSeq
+  const slug = props.slug
   try {
-    const k = await knowledgeApi.getKnowledge(props.slug)
+    const k = await knowledgeApi.getKnowledge(slug)
+    if (seq !== knowledgeLoadSeq || props.slug !== slug) return
     data.value = {
       version: k.version ?? 1,
       premise_lock: k.premise_lock || '',
@@ -650,9 +685,10 @@ const load = async () => {
       })),
     }
     await loadOutlineTitles()
-  } catch (e: any) {
+  } catch (e: unknown) {
+    if (seq !== knowledgeLoadSeq || props.slug !== slug) return
     console.error('加载叙事知识失败:', e)
-    message.error(e?.response?.data?.detail || '加载叙事知识失败')
+    message.error(formatApiError(e, '加载叙事知识失败'))
   }
 }
 
@@ -673,8 +709,8 @@ const save = async () => {
     })
     data.value.premise_lock = server.premise_lock
     message.success('已保存并进入全书上下文')
-  } catch (e: any) {
-    message.error(e?.response?.data?.detail || '保存失败')
+  } catch (e: unknown) {
+    message.error(formatApiError(e, '保存失败'))
   } finally {
     saving.value = false
   }
@@ -687,8 +723,8 @@ const generateKnowledge = async () => {
     message.success(res.message || 'Knowledge 生成成功')
     await load()
     subTab.value = 'chapters'
-  } catch (e: any) {
-    message.error(e?.response?.data?.detail || 'AI 生成失败，请确认 API Key 已配置')
+  } catch (e: unknown) {
+    message.error(formatApiError(e, 'AI 生成失败，请确认 API Key 已配置'))
   } finally {
     generating.value = false
   }
@@ -902,9 +938,11 @@ onUnmounted(() => {
 }
 
 .kp-section-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--app-text-primary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--app-text-muted);
 }
 
 .kp-tag-tool {
@@ -1049,11 +1087,20 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 5px 8px;
+  padding: 5px 8px 5px 12px;
   border-radius: 8px;
   background: var(--app-surface-subtle);
   border: 1px solid var(--app-divider);
+  border-left: 4px solid var(--triple-accent, var(--app-border));
   font-size: 12px;
+}
+
+.triple-row[data-source="manual"] { --triple-accent: var(--color-success); }
+.triple-row[data-source="ai_generated"] { --triple-accent: #7c3aed; }
+.triple-row[data-source="chapter_inferred"] { --triple-accent: var(--color-warning); }
+.triple-row[data-starred="true"] {
+  --triple-accent: var(--color-gold, #d97706);
+  background: var(--color-gold-dim, rgba(217, 119, 6, 0.06));
 }
 .triple-body {
   display: flex;
@@ -1078,7 +1125,7 @@ onUnmounted(() => {
   font-size: 12px;
 }
 .estate-key {
-  color: var(--text-color-3);
+  color: var(--app-text-muted);
   word-break: break-all;
 }
 .estate-val {

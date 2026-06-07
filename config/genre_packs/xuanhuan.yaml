@@ -1,0 +1,9 @@
+﻿name: 玄幻题材包
+extends: base
+motifs:
+  - 境界压迫
+  - 宗门资源
+  - 血脉与传承
+anti_guidelines:
+  - 不要机械堆砌境界名词。
+  - 每次升级必须对应具体代价或选择。

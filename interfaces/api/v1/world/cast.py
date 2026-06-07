@@ -1,11 +1,19 @@
 """Cast API routes"""
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel, Field
 from typing import List, Optional
+import logging
 
 from application.world.services.cast_service import CastService
 from application.world.dtos.cast_dto import CastGraphDTO, CastSearchResultDTO, CastCoverageDTO
-from interfaces.api.dependencies import get_cast_service
+from interfaces.api.dependencies import (
+    get_cast_service,
+    get_character_narrative_kernel,
+    get_character_projection_service,
+    get_narrative_memory_service,
+)
+
+logger = logging.getLogger(__name__)
 router = APIRouter(tags=["cast"])
 
 
@@ -126,3 +134,207 @@ async def get_cast_coverage(
 
     """
     return service.get_cast_coverage(novel_id)
+
+
+# ── /cast/schedule ─────────────────────────────────────────────────────────
+
+class CastScheduleRequest(BaseModel):
+    """章节选角调度请求"""
+    chapter_number: int = Field(..., ge=1, description="章节号")
+    outline: str = Field("", description="章节大纲（用于名字匹配和优先级提升）")
+    mode: str = Field("suggest", description="suggest=仅建议，不写库；apply=建议并写入 chapter_elements")
+
+
+class ScheduledCharacterItem(BaseModel):
+    character_id: str
+    name: str
+    importance: str = Field(description="planned importance: major / normal / minor")
+    is_new_suggestion: bool = Field(description="True 表示由算法建议（非作者手动设定）")
+    scene_function: str = ""
+    needs_review: bool = False
+
+
+class CastScheduleResponse(BaseModel):
+    chapter_number: int
+    cast: List[ScheduledCharacterItem]
+    new_character_hints: List[str] = Field(
+        default_factory=list,
+        description="大纲中出现但不在 Bible 的名字（潜在新角色提示）",
+    )
+    new_character_candidates: List[dict] = Field(default_factory=list)
+    generated_context: str = ""
+    scheduling_log: List[str] = Field(default_factory=list)
+
+
+# 重要性文字 → chapter_elements importance 值
+@router.post("/novels/{novel_id}/cast/schedule", response_model=CastScheduleResponse)
+async def schedule_cast(
+    novel_id: str,
+    request: CastScheduleRequest,
+    kernel = Depends(get_character_narrative_kernel),
+):
+    """章节选角调度
+
+    - mode='suggest'：运行 AppearanceScheduler，返回建议，不写库
+    - mode='apply'：同上 + 将建议写入 chapter_elements（仅插入，不覆盖已有作者设定）
+
+    返回字段说明：
+    - cast: 建议出场角色列表，importance 已按 Bible 角色重要性映射
+    - new_character_hints: 大纲中出现但不在 Bible 的名字（提示作者添加新角色）
+    """
+    try:
+        plan = kernel.plan_cast(
+            novel_id=novel_id,
+            chapter_number=request.chapter_number,
+            outline=request.outline,
+        )
+        if request.mode == "apply":
+            plan = kernel.apply_cast_plan(plan)
+
+        cast_items = [
+            ScheduledCharacterItem(
+                character_id=slot.character_id,
+                name=slot.name,
+                importance=slot.importance,
+                is_new_suggestion=slot.is_new_suggestion,
+                scene_function=slot.notes.scene_function,
+                needs_review=slot.notes.needs_review,
+            )
+            for slot in plan.slots
+        ]
+
+        return CastScheduleResponse(
+            chapter_number=request.chapter_number,
+            cast=cast_items,
+            new_character_hints=[
+                c.name for c in plan.new_character_candidates
+                if c.recommendation in ("ephemeral", "create_bible_character")
+            ][:10],
+            new_character_candidates=[c.to_dict() for c in plan.new_character_candidates],
+            generated_context=plan.generated_context,
+            scheduling_log=plan.scheduling_log,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"cast/schedule 失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/novels/{novel_id}/characters/{character_id}/narrative-profile")
+async def get_character_narrative_profile(
+    novel_id: str,
+    character_id: str,
+    kernel = Depends(get_character_narrative_kernel),
+):
+    """角色聚合 read model：角色档案 / 状态 / 知识库 / 出场史 / 风险。"""
+    try:
+        return kernel.get_character_narrative_profile(novel_id, character_id).to_dict()
+    except Exception as e:
+        logger.error("character narrative profile failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/novels/{novel_id}/entities/{entity_id}/memory")
+async def get_entity_memory(
+    novel_id: str,
+    entity_id: str,
+    memory = Depends(get_narrative_memory_service),
+):
+    """Unified memory atom ledger for an entity."""
+    try:
+        return {"entity_id": entity_id, "atoms": memory.atoms_for_entity(novel_id, entity_id)}
+    except Exception as e:
+        logger.error("entity memory failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/novels/{novel_id}/characters/{character_id}/projection")
+async def get_character_projection(
+    novel_id: str,
+    character_id: str,
+    projection = Depends(get_character_projection_service),
+):
+    """Character memory projection read model for frontend and context compiler."""
+    try:
+        return projection.get_projection(novel_id, character_id)
+    except Exception as e:
+        logger.error("character projection failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/novels/{novel_id}/chapters/{chapter_number}/memory-candidates")
+async def get_chapter_memory_candidates(
+    novel_id: str,
+    chapter_number: int,
+    memory = Depends(get_narrative_memory_service),
+):
+    """Candidate MemoryAtoms extracted from a chapter and awaiting calibration."""
+    try:
+        return {"chapter_number": chapter_number, "candidates": memory.candidates_for_chapter(novel_id, chapter_number)}
+    except Exception as e:
+        logger.error("chapter memory candidates failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class MemoryCalibrationRequest(BaseModel):
+    note: str = ""
+
+
+@router.post("/novels/{novel_id}/memory-atoms/{atom_id}/confirm")
+async def confirm_memory_atom(
+    novel_id: str,
+    atom_id: str,
+    body: MemoryCalibrationRequest = Body(default_factory=MemoryCalibrationRequest),
+    memory = Depends(get_narrative_memory_service),
+):
+    try:
+        atom = memory.update_status(novel_id, atom_id, "confirmed", action="confirm", note=body.note)
+        if not atom:
+            raise HTTPException(status_code=404, detail="memory atom not found")
+        return {"ok": True, "atom": atom.to_dict()}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("confirm memory atom failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/novels/{novel_id}/memory-atoms/{atom_id}/reject")
+async def reject_memory_atom(
+    novel_id: str,
+    atom_id: str,
+    body: MemoryCalibrationRequest = Body(default_factory=MemoryCalibrationRequest),
+    memory = Depends(get_narrative_memory_service),
+):
+    try:
+        atom = memory.update_status(novel_id, atom_id, "rejected", action="reject", note=body.note)
+        if not atom:
+            raise HTTPException(status_code=404, detail="memory atom not found")
+        return {"ok": True, "atom": atom.to_dict()}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("reject memory atom failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/novels/{novel_id}/memory-atoms/{atom_id}/promote")
+async def promote_memory_atom(
+    novel_id: str,
+    atom_id: str,
+    body: MemoryCalibrationRequest = Body(default_factory=MemoryCalibrationRequest),
+    memory = Depends(get_narrative_memory_service),
+):
+    """Promote a candidate to confirmed memory; Bible mutation is intentionally deferred."""
+    try:
+        atom = memory.update_status(novel_id, atom_id, "confirmed", action="promote", note=body.note)
+        if not atom:
+            raise HTTPException(status_code=404, detail="memory atom not found")
+        return {"ok": True, "atom": atom.to_dict()}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("promote memory atom failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))

@@ -1,0 +1,33 @@
+name: 连续规划 · 下一幕生成
+category: planning
+source: application/blueprint/services/continuous_planning_service.py::_build_next_act_prompt_with_dual_track
+description: 结合宏观摘要、当前卷进度、待回收伏笔和角色状态，生成下一幕规划。
+builtin: true
+tags:
+- 连续规划
+- 下一幕
+- 双轨上下文
+output_format: json
+variables:
+- name: context_block
+  desc: 双轨上下文块
+  type: string
+  default: 暂无前文上下文
+- name: current_act_title
+  desc: 当前幕标题
+  type: string
+  default: 未命名幕
+- name: current_act_description
+  desc: 当前幕描述
+  type: string
+  default: 无
+- name: current_act_number
+  desc: 当前幕序号
+  type: integer
+  required: true
+- name: next_act_number
+  desc: 下一幕序号
+  type: integer
+  required: true
+id: continuous-planning-next-act
+sort_order: 25

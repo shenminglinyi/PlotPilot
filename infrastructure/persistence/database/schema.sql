@@ -298,6 +298,53 @@ CREATE TABLE IF NOT EXISTS bible_character_relationships (
 
 CREATE INDEX IF NOT EXISTS idx_bible_char_rels_character ON bible_character_relationships(character_id);
 
+-- Unified character model (canonical; bible_characters kept for backward compat)
+CREATE TABLE IF NOT EXISTS unified_characters (
+    id                    TEXT PRIMARY KEY,
+    novel_id              TEXT NOT NULL,
+    name                  TEXT NOT NULL,
+    description           TEXT NOT NULL DEFAULT '',
+    public_profile        TEXT NOT NULL DEFAULT '',
+    hidden_profile        TEXT NOT NULL DEFAULT '',
+    reveal_chapter        INTEGER,
+    gender                TEXT NOT NULL DEFAULT '',
+    age                   TEXT NOT NULL DEFAULT '',
+    appearance            TEXT NOT NULL DEFAULT '',
+    personality           TEXT NOT NULL DEFAULT '',
+    background            TEXT NOT NULL DEFAULT '',
+    core_motivation       TEXT NOT NULL DEFAULT '',
+    inner_lack            TEXT NOT NULL DEFAULT '',
+    role                  TEXT NOT NULL DEFAULT '',
+    faction_id            TEXT,
+    verbal_tic            TEXT NOT NULL DEFAULT '',
+    idle_behavior         TEXT NOT NULL DEFAULT '',
+    voice_style           TEXT NOT NULL DEFAULT '',
+    sentence_pattern      TEXT NOT NULL DEFAULT '',
+    speech_tempo          TEXT NOT NULL DEFAULT '',
+    core_belief           TEXT NOT NULL DEFAULT '',
+    moral_taboos_json     TEXT NOT NULL DEFAULT '[]',
+    active_wounds_json    TEXT NOT NULL DEFAULT '[]',
+    mental_state          TEXT NOT NULL DEFAULT 'NORMAL',
+    mental_state_reason   TEXT NOT NULL DEFAULT '',
+    emotional_arc_json    TEXT NOT NULL DEFAULT '[]',
+    current_state_summary TEXT NOT NULL DEFAULT '',
+    last_updated_chapter  INTEGER NOT NULL DEFAULT 0,
+    created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at            TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (novel_id) REFERENCES novels(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_unified_characters_novel ON unified_characters(novel_id);
+
+CREATE TABLE IF NOT EXISTS unified_character_relationships (
+    id           TEXT PRIMARY KEY,
+    character_id TEXT NOT NULL,
+    target_id    TEXT,
+    target_name  TEXT NOT NULL,
+    relation     TEXT NOT NULL DEFAULT '',
+    description  TEXT NOT NULL DEFAULT '',
+    FOREIGN KEY (character_id) REFERENCES unified_characters(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS bible_world_settings (
     id TEXT PRIMARY KEY,
     novel_id TEXT NOT NULL,
@@ -482,6 +529,24 @@ CREATE TABLE IF NOT EXISTS novel_foreshadow_registry (
     FOREIGN KEY (novel_id) REFERENCES novels(id) ON DELETE CASCADE
 );
 
+-- ========== 伏笔关系表（正规化，支持 SQL 查询；novel_foreshadow_registry 保留只读）==========
+CREATE TABLE IF NOT EXISTS foreshadows (
+    id               TEXT PRIMARY KEY,
+    novel_id         TEXT NOT NULL,
+    description      TEXT NOT NULL,
+    planted_chapter  INTEGER NOT NULL,
+    due_chapter      INTEGER,
+    resolved_chapter INTEGER,
+    status           TEXT NOT NULL DEFAULT 'planted',
+    importance       INTEGER NOT NULL DEFAULT 2,
+    subtext_type     TEXT,
+    created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at       TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (novel_id) REFERENCES novels(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_foreshadows_novel_status ON foreshadows(novel_id, status);
+CREATE INDEX IF NOT EXISTS idx_foreshadows_due ON foreshadows(novel_id, due_chapter);
+
 -- ========== 文风漂移监控（Phase 5 Task 6）==========
 -- 每章生成后与作者指纹的相似度评分（0~1），用于连续漂移告警
 CREATE TABLE IF NOT EXISTS chapter_style_scores (
@@ -529,6 +594,109 @@ CREATE TABLE IF NOT EXISTS novel_snapshots (
 CREATE INDEX IF NOT EXISTS idx_novel_snapshots_novel ON novel_snapshots(novel_id);
 CREATE INDEX IF NOT EXISTS idx_novel_snapshots_branch ON novel_snapshots(novel_id, branch_name);
 
+
+-- ========== 世界线 Checkpoint 系统（unified_checkpoint_service canonical 版本控制）==========
+CREATE TABLE IF NOT EXISTS novel_checkpoints (
+    id                 TEXT PRIMARY KEY,
+    novel_id           TEXT NOT NULL,
+    parent_id          TEXT,
+    branch_name        TEXT NOT NULL DEFAULT 'main',
+    trigger_type       TEXT NOT NULL,
+    name               TEXT NOT NULL,
+    description        TEXT,
+    chapter_pointers   TEXT NOT NULL DEFAULT '[]',
+    anchor_chapter     INTEGER,
+    story_state        TEXT NOT NULL DEFAULT '{}',
+    character_masks    TEXT NOT NULL DEFAULT '{}',
+    emotion_ledger     TEXT NOT NULL DEFAULT '{}',
+    active_foreshadows TEXT NOT NULL DEFAULT '[]',
+    outline            TEXT NOT NULL DEFAULT '',
+    recent_summary     TEXT NOT NULL DEFAULT '',
+    bible_state        TEXT NOT NULL DEFAULT '{}',
+    foreshadow_state   TEXT NOT NULL DEFAULT '{}',
+    is_active          INTEGER NOT NULL DEFAULT 1,
+    created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (novel_id) REFERENCES novels(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_novel_checkpoints_novel_id ON novel_checkpoints(novel_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_novel_checkpoints_parent_id ON novel_checkpoints(parent_id);
+
+CREATE TABLE IF NOT EXISTS novel_branches (
+    id           TEXT PRIMARY KEY,
+    novel_id     TEXT NOT NULL,
+    name         TEXT NOT NULL,
+    head_id      TEXT NOT NULL,
+    is_default   INTEGER NOT NULL DEFAULT 0,
+    storyline_id TEXT,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(novel_id, name),
+    FOREIGN KEY (novel_id) REFERENCES novels(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_novel_branches_novel_id ON novel_branches(novel_id);
+
+-- chapter_evolution_snapshots：故事演进硬状态快照（Schema-first / reducer-owned）
+CREATE TABLE IF NOT EXISTS chapter_evolution_snapshots (
+    snapshot_id TEXT PRIMARY KEY,
+    novel_id TEXT NOT NULL,
+    branch_id TEXT NOT NULL DEFAULT 'main',
+    chapter_number INTEGER NOT NULL,
+    schema_version TEXT NOT NULL DEFAULT 'v2.0',
+    status TEXT NOT NULL DEFAULT 'active',
+    opening_state_json TEXT NOT NULL DEFAULT '{}',
+    delta_actions_json TEXT NOT NULL DEFAULT '[]',
+    machine_state_json TEXT NOT NULL DEFAULT '{}',
+    override_patches_json TEXT NOT NULL DEFAULT '[]',
+    ending_state_json TEXT NOT NULL DEFAULT '{}',
+    source_refs_json TEXT NOT NULL DEFAULT '[]',
+    conflicts_json TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_chapter_evolution_snapshots_active
+    ON chapter_evolution_snapshots(novel_id, branch_id, status, chapter_number);
+
+CREATE INDEX IF NOT EXISTS idx_chapter_evolution_snapshots_chapter
+    ON chapter_evolution_snapshots(novel_id, branch_id, chapter_number, updated_at);
+
+-- chapter_evolution_action_log：标准 action 审计与幂等记录
+CREATE TABLE IF NOT EXISTS chapter_evolution_action_log (
+    action_id TEXT PRIMARY KEY,
+    snapshot_id TEXT NOT NULL,
+    novel_id TEXT NOT NULL,
+    branch_id TEXT NOT NULL DEFAULT 'main',
+    chapter_number INTEGER NOT NULL,
+    action_type TEXT NOT NULL,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    source_ref_json TEXT NOT NULL DEFAULT '[]',
+    confidence REAL NOT NULL DEFAULT 1.0,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_chapter_evolution_action_log_snapshot
+    ON chapter_evolution_action_log(snapshot_id);
+
+CREATE INDEX IF NOT EXISTS idx_chapter_evolution_action_log_novel_chapter
+    ON chapter_evolution_action_log(novel_id, branch_id, chapter_number);
+
+-- chapter_evolution_conflicts：演进冲突与人工解决队列
+CREATE TABLE IF NOT EXISTS chapter_evolution_conflicts (
+    conflict_id TEXT PRIMARY KEY,
+    snapshot_id TEXT NOT NULL,
+    novel_id TEXT NOT NULL,
+    branch_id TEXT NOT NULL DEFAULT 'main',
+    chapter_number INTEGER NOT NULL,
+    conflict_type TEXT NOT NULL,
+    level TEXT NOT NULL DEFAULT 'blocking',
+    message TEXT NOT NULL DEFAULT '',
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    resolution_status TEXT NOT NULL DEFAULT 'open',
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    resolved_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_chapter_evolution_conflicts_open
+    ON chapter_evolution_conflicts(novel_id, branch_id, resolution_status, chapter_number);
 
 -- ========== 提示词广场系统（Prompt Plaza）==========
 -- 模板包：一组相关提示词的集合（如"内置"、"自定义工作流"）
@@ -740,6 +908,5 @@ CREATE INDEX IF NOT EXISTS idx_dag_versions_novel ON dag_versions(novel_id);
 CREATE INDEX IF NOT EXISTS idx_dag_versions_novel_version ON dag_versions(novel_id, version);
 -- 索引：按更新时间排序（用于清理旧版本）
 CREATE INDEX IF NOT EXISTS idx_dag_versions_updated_at ON dag_versions(novel_id, updated_at DESC);
-
 
 

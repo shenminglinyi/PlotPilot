@@ -81,11 +81,8 @@ def test_build_dialogue_generation_prompt_includes_relationships_history_and_sce
         ],
     )
 
-    assert "角色关系" in prompt.user
     assert "柳月：师徒" in prompt.user
-    assert "历史对白样本" in prompt.user
     assert "第8章 / 山门争执：我说过，别替我做决定。" in prompt.user
-    assert "场景点名的相关角色" in prompt.user
     assert "柳月" in prompt.user
     assert "少废话" in prompt.user
 

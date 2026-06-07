@@ -24,6 +24,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import { knowledgeApi, type ChapterSummary } from '../../api/knowledge'
+import { formatApiError } from '@/utils/apiError'
 
 const props = defineProps<{ slug: string }>()
 const emit = defineEmits<{ reload: [] }>()
@@ -44,8 +45,8 @@ const reload = async () => {
     chaptersSnapshot.value = Array.isArray(data.chapters) ? [...data.chapters] : []
     jsonText.value = JSON.stringify(data.facts || [], null, 2)
     jsonError.value = ''
-  } catch (e: any) {
-    message.error(e?.response?.data?.detail || '加载失败')
+  } catch (e: unknown) {
+    message.error(formatApiError(e, '加载失败'))
   }
 }
 
@@ -78,11 +79,11 @@ const saveJson = async () => {
     message.success('已保存')
     emit('reload')
     await reload()
-  } catch (e: any) {
-    if (e.message) {
+  } catch (e: unknown) {
+    if (e instanceof Error && e.message) {
       jsonError.value = `JSON 格式错误: ${e.message}`
     } else {
-      message.error(e?.response?.data?.detail || '保存失败')
+      message.error(formatApiError(e, '保存失败'))
     }
   } finally {
     saving.value = false

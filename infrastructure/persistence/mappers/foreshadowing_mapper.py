@@ -58,6 +58,7 @@ class ForeshadowingMapper:
                     "suggested_resolve_chapter": getattr(e, "suggested_resolve_chapter", None),
                     "resolve_chapter_window": getattr(e, "resolve_chapter_window", None),
                     "importance": getattr(e, "importance", "medium"),
+                    "is_priority_for_chapter": getattr(e, "is_priority_for_chapter", False),
                 }
                 for e in registry.subtext_entries
             ],
@@ -123,6 +124,7 @@ class ForeshadowingMapper:
                             e_data.get("resolve_chapter_window"), "resolve_chapter_window"
                         ),
                         importance=e_data.get("importance", "medium"),
+                        is_priority_for_chapter=e_data.get("is_priority_for_chapter", False),
                         created_at=datetime.fromisoformat(e_data["created_at"]),
                     )
                     registry.add_subtext_entry(entry)

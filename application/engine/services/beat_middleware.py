@@ -6,9 +6,9 @@
   1. CoherenceMiddleware — 激活 BeatCoherenceEnhancer，注入连贯性指令
   2. TransitionMiddleware — 自动推断 transition_from_prev，注入过渡方式
   3. EnergyImmunityMiddleware — 高能节拍免疫 ChapterConductor 的字数压缩
-  4. StepTensionMiddleware — ★ 爽文引擎: STEP 阶跃张力注入
+  4. StepTensionMiddleware — 爽文引擎: STEP 阶跃张力注入
 
-★ 爽文引擎优化 — 内存优先 + Repository 仅持久化：
+爽文引擎优化 — 内存优先 + Repository 仅持久化：
 - 中间件的所有运行时状态（情绪趋势、前节拍上下文等）存储在 BeatMiddlewareContext 中
 - BeatMiddlewareContext 是纯内存对象，不直接读写 Repository
 - Repository 仅在章节生成完成后（post_process）进行持久化
@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 class BeatMiddlewareContext:
     """节拍中间件上下文 — 在中间件之间流转的共享状态
 
-    ★ 爽文引擎优化: 纯内存对象，不直接读写 Repository
+    爽文引擎优化: 纯内存对象，不直接读写 Repository
     所有运行时状态都存储在此对象中，避免每个节拍都进行 DB I/O。
     Repository 仅在章节生成完成后进行一次性持久化。
     """
@@ -68,18 +68,18 @@ class BeatMiddlewareContext:
     prev_beat_context: Optional[Any] = None  # BeatContext from CoherenceEnhancer
     # 情绪方向（post_beat 填充）
     emotion_trend: str = "stable"  # rising / peak / falling / stable
-    # ★ 爽文引擎: STEP 阶跃阶段名（由 StepTensionMiddleware 填充）
+    # 爽文引擎: STEP 阶跃阶段名（由 StepTensionMiddleware 填充）
     step_phase: str = "daily"  # daily / provocation / eruption / aftermath / settlement
     step_tension_pct: int = 10  # 当前 STEP 阶段对应的张力百分比
-    # ★ 爽文引擎: 内存缓存 — 待持久化的中间件提取结果
+    # 爽文引擎: 内存缓存 — 待持久化的中间件提取结果
     _pending_persist: dict = field(default_factory=dict)  # {key: value} 待持久化数据
 
     def queue_persist(self, key: str, value: Any) -> None:
-        """★ 爽文引擎: 将数据加入待持久化队列（内存操作，不触发 I/O）"""
+        """爽文引擎: 将数据加入待持久化队列（内存操作，不触发 I/O）"""
         self._pending_persist[key] = value
 
     def flush_to_repository(self, repository: Any) -> int:
-        """★ 爽文引擎: 一次性将内存缓存持久化到 Repository
+        """爽文引擎: 一次性将内存缓存持久化到 Repository
 
         仅在章节生成完成后调用，避免每个节拍都进行 DB I/O。
 
@@ -281,7 +281,7 @@ class TransitionMiddleware:
 
         if transition:
             transition_block = (
-                f"\n\n🔗【本节拍过渡方式】{transition}\n"
+                f"\n\n【本节拍过渡方式】{transition}\n"
                 f"→ 你的第一句话必须遵循此过渡方式与前节拍衔接"
             )
             beat_prompt = transition_block + beat_prompt
@@ -346,7 +346,7 @@ class EnergyImmunityMiddleware:
             original_target = ctx.beat.target_words if ctx.beat else adjusted_target
             if original_target > adjusted_target:
                 logger.info(
-                    f"[EnergyImmunity] 🛡️ 节拍 {ctx.beat_index + 1} ({curr_focus}) "
+                    f"[EnergyImmunity] 节拍 {ctx.beat_index + 1} ({curr_focus}) "
                     f"免疫压缩：{adjusted_target} → {original_target} 字 "
                     f"(phase={ctx.phase})"
                 )
@@ -354,7 +354,7 @@ class EnergyImmunityMiddleware:
 
                 # 在 prompt 中追加提示：这是被保护的爽点节拍
                 beat_prompt += (
-                    "\n\n🛡️【能量免疫】本节拍为高能爽点，已获得字数保护。"
+                    "\n\n【能量免疫】本节拍为高能爽点，已获得字数保护。"
                     "请全力展开，不要因为字数压力而压缩冲击力。"
                     "完整展现实力/身份/反转的每一个细节！"
                 )
@@ -366,7 +366,7 @@ class EnergyImmunityMiddleware:
         beat_content: str,
         ctx: BeatMiddlewareContext,
     ) -> BeatMiddlewareContext:
-        """推断情绪方向，供 soft_landing 和下一节拍使用"""
+        """推断情绪方向，供下一节拍衔接使用"""
         if not beat_content.strip():
             return ctx
 
@@ -389,10 +389,10 @@ class EnergyImmunityMiddleware:
         return ctx
 
 
-# ─── 4. StepTensionMiddleware — ★ 爽文引擎: STEP 阶跃张力注入 ───
+# ─── 4. StepTensionMiddleware — 爽文引擎: STEP 阶跃张力注入 ───
 
 class StepTensionMiddleware:
-    """★ 爽文引擎: STEP 阶跃张力中间件
+    """爽文引擎: STEP 阶跃张力中间件
 
     核心逻辑：
     - pre_beat: 根据当前节拍在章节中的位置，注入 STEP 阶跃张力指令
@@ -408,36 +408,36 @@ class StepTensionMiddleware:
     # STEP 阶段对应的写作指令
     STEP_INSTRUCTIONS = {
         "daily": (
-            "🏠【日常节奏】当前处于日常蓄力阶段。用轻快的笔触铺陈：\n"
+            "【日常节奏】当前处于日常蓄力阶段。用轻快的笔触铺陈：\n"
             "- 角色日常互动、轻幽默对话、生活细节\n"
             "- 暗埋冲突种子：一句不经意的话、一个意味深长的眼神\n"
             "- 节奏舒缓但有张力暗涌——不要让读者感到无聊\n"
             "- 禁止大段背景介绍，用动作和对话推进"
         ),
         "provocation": (
-            "⚡【挑衅升温】当前处于挑衅升温阶段。节奏开始收紧：\n"
+            "【挑衅升温】当前处于挑衅升温阶段。节奏开始收紧：\n"
             "- 主角遭受质疑/轻视/不公——但隐忍不发\n"
             "- 反派或对手嚣张跋扈，细节描写其傲慢\n"
             "- 周围人的态度：有人同情、有人冷眼、有人落井下石\n"
             "- 蓄力感越来越强——读者在等那个爆发的瞬间"
         ),
         "eruption": (
-            "🔥【爆发高潮】当前处于核心爽点爆发阶段！必须全力以赴：\n"
+            "【爆发高潮】当前处于核心爽点爆发阶段！必须全力以赴：\n"
             "- 主角展露底牌/实力/身份——用最震撼的方式！\n"
             "- 短句、快节奏、画面切换——制造视觉冲击\n"
             "- 旁观者的反应是爽感核心：从轻视到震惊，从不屑到敬畏\n"
             "- 反派的表情变化要具体——瞳孔骤缩、脸色煞白、冷汗直流\n"
-            "- 这是读者付费的核心体验，字数宁多勿少，充分展开！"
+            "- 每句话同时完成两件事：推进爽感 AND 揭示人物"
         ),
         "aftermath": (
-            "🌊【余韵回落】当前处于爆发后的余韵阶段：\n"
+            "【余韵回落】当前处于爆发后的余韵阶段：\n"
             "- 描写爆发后的场景变化——环境破坏、沉默的人群、震惊的余波\n"
             "- 关键角色的内心独白——对刚才发生之事的消化\n"
             "- 态度转变的具体表现：之前嘲讽者低头、之前轻视者弯腰\n"
             "- 不要急——让读者在爽感中慢慢回味"
         ),
         "settlement": (
-            "📝【收尾结算】当前处于章节收尾阶段：\n"
+            "【收尾结算】当前处于章节收尾阶段：\n"
             "- 新的格局/关系状态确认\n"
             "- 主角的态度：云淡风轻、不以为意（增加反差爽感）\n"
             "- 用一个画面或一句话作为结尾钩子——暗示更大的挑战即将到来\n"
@@ -485,7 +485,7 @@ class StepTensionMiddleware:
         instruction = self.STEP_INSTRUCTIONS.get(step_phase, "")
         if instruction:
             beat_prompt = (
-                f"\n🎯【STEP阶跃张力={tension_pct}% | 阶段={step_phase}】\n"
+                f"\n【STEP阶跃张力={tension_pct}% | 阶段={step_phase}】\n"
                 f"{instruction}\n\n"
                 f"{beat_prompt}"
             )
@@ -541,7 +541,7 @@ def init_beat_middlewares(
 ) -> List[BeatMiddleware]:
     """初始化节拍中间件链
 
-    ★ 爽文引擎优化: 内存优先架构
+    爽文引擎优化: 内存优先架构
     - 所有中间件操作在内存中完成
     - Repository 仅在章节生成完成后通过 ctx.flush_to_repository() 一次性持久化
 
@@ -561,29 +561,29 @@ def init_beat_middlewares(
     if enable_coherence:
         try:
             middlewares.append(CoherenceMiddleware())
-            logger.info("✓ CoherenceMiddleware 已挂载")
+            logger.info("CoherenceMiddleware 已挂载")
         except Exception as e:
             logger.warning(f"CoherenceMiddleware 挂载失败: {e}")
 
     if enable_transition:
         try:
             middlewares.append(TransitionMiddleware())
-            logger.info("✓ TransitionMiddleware 已挂载")
+            logger.info("TransitionMiddleware 已挂载")
         except Exception as e:
             logger.warning(f"TransitionMiddleware 挂载失败: {e}")
 
     if enable_energy_immunity:
         try:
             middlewares.append(EnergyImmunityMiddleware())
-            logger.info("✓ EnergyImmunityMiddleware 已挂载")
+            logger.info("EnergyImmunityMiddleware 已挂载")
         except Exception as e:
             logger.warning(f"EnergyImmunityMiddleware 挂载失败: {e}")
 
-    # ★ 爽文引擎: STEP 阶跃张力中间件
+    # 爽文引擎: STEP 阶跃张力中间件
     if enable_step_tension:
         try:
             middlewares.append(StepTensionMiddleware(plot_arc=plot_arc))
-            logger.info("✓ StepTensionMiddleware 已挂载（爽文引擎）")
+            logger.info("StepTensionMiddleware 已挂载（爽文引擎）")
         except Exception as e:
             logger.warning(f"StepTensionMiddleware 挂载失败: {e}")
 

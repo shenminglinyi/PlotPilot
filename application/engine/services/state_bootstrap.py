@@ -92,7 +92,7 @@ class StateBootstrap:
             logger.error(f"加载状态失败: {e}")
 
         stats["elapsed_ms"] = round((time.time() - start_time) * 1000, 2)
-        logger.info(f"✅ 状态加载完成: {stats}")
+        logger.info(f"状态加载完成: {stats}")
         return stats
 
     def load_novel(self, novel_id: str) -> bool:
@@ -137,7 +137,7 @@ class StateBootstrap:
             from infrastructure.persistence.database.connection import get_database
 
             db = get_database()
-            # 🔥 needs_review 是计算字段：paused_for_review 或兼容值 reviewing
+            # needs_review 是计算字段：paused_for_review 或兼容值 reviewing
             rows = db.fetch_all(
                 """SELECT id, title, autopilot_status, current_stage,
                           current_act, current_chapter_in_act, current_beat_index,
@@ -165,7 +165,7 @@ class StateBootstrap:
             from infrastructure.persistence.database.connection import get_database
 
             db = get_database()
-            # 🔥 needs_review 是计算字段，不存储在数据库中
+            # needs_review 是计算字段，不存储在数据库中
             row = db.fetch_one(
                 """SELECT id, title, autopilot_status, current_stage,
                           current_act, current_chapter_in_act, current_beat_index,
@@ -189,6 +189,7 @@ class StateBootstrap:
 
     def _load_novel_state(self, novel: Dict[str, Any]) -> None:
         """加载小说状态到共享内存"""
+        macro_structure_ready = self._macro_structure_ready(novel["id"])
         state = NovelState(
             novel_id=novel["id"],
             title=novel.get("title", ""),
@@ -207,6 +208,31 @@ class StateBootstrap:
         )
 
         self._shared.set_novel_state(novel["id"], state)
+        extra = {"macro_structure_ready": macro_structure_ready}
+        if macro_structure_ready and novel.get("current_stage") in ("paused_for_review", "reviewing"):
+            extra["writing_substep"] = "macro_planning"
+            extra["writing_substep_label"] = "宏观规划 · 结构已生成"
+        if not self._shared.merge_raw_state(novel["id"], **extra):
+            logger.debug(f"写入宏观结构运行态失败（可忽略）: {novel['id']}")
+
+    def _macro_structure_ready(self, novel_id: str) -> bool:
+        """从结构表推导宏观结构是否可审阅；仅 bootstrap/加载时访问 DB。"""
+        try:
+            from infrastructure.persistence.database.connection import get_database
+
+            db = get_database()
+            row = db.fetch_one(
+                """SELECT 1
+                   FROM story_nodes
+                   WHERE novel_id = ?
+                     AND lower(node_type) = 'volume'
+                   LIMIT 1""",
+                (novel_id,),
+            )
+            return row is not None
+        except Exception as e:
+            logger.debug(f"检查宏观结构失败（可忽略）: {novel_id}, {e}")
+            return False
 
     def _load_chapters(self, novel_id: str) -> List[ChapterSummary]:
         """加载章节列表到共享内存"""
@@ -454,7 +480,7 @@ class StateBootstrap:
                     "chapter_number": s.get("chapter_number"),
                     "title": s.get("title", ""),
                     "story_events": s.get("story_events", []),
-                    # 🔥 补全编年史聚合所需的字段
+                    # 补全编年史聚合所需的字段
                     "name": s.get("name", ""),
                     "trigger_type": s.get("trigger_type", "AUTO"),
                     "branch_name": s.get("branch_name", "main"),

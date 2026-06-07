@@ -1,13 +1,14 @@
-"""角色调度服务 API
+﻿"""角色调度服务 API
 
 提供角色智能调度接口，用于章节生成时的上下文构建。
 这是正式功能，被核心生成流程调用。
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from typing import List, Dict, Optional
 import logging
+from interfaces.api.dependencies import get_character_narrative_kernel
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,7 @@ class CharacterInput(BaseModel):
 
 class ScheduleRequest(BaseModel):
     """调度请求"""
+    novel_id: Optional[str] = Field(default=None, description="小说ID；提供后使用 CharacterNarrativeKernel")
     outline: str = Field(..., description="章节大纲")
     characters: List[CharacterInput] = Field(..., description="可用角色列表")
     max_characters: int = Field(default=7, ge=1, le=15, description="最大角色数")
@@ -143,7 +145,10 @@ def _generate_context(selected: List[tuple]) -> str:
 # ========== API 端点 ==========
 
 @router.post("/schedule", response_model=ScheduleResponse)
-async def schedule_characters(request: ScheduleRequest):
+async def schedule_characters(
+    request: ScheduleRequest,
+    kernel = Depends(get_character_narrative_kernel),
+):
     """智能角色调度
 
     根据章节大纲和角色信息，智能选择合适的角色用于上下文构建。
@@ -161,7 +166,39 @@ async def schedule_characters(request: ScheduleRequest):
             f"角色数={len(request.characters)}, 最大={request.max_characters}"
         )
 
-        # 执行调度
+        # 新路径：提供 novel_id 时统一走角色叙事内核。
+        if request.novel_id:
+            plan = kernel.plan_cast(
+                novel_id=request.novel_id,
+                chapter_number=request.current_chapter,
+                outline=request.outline,
+                max_characters=request.max_characters,
+            )
+            selected_outputs = [
+                CharacterOutput(
+                    id=s.character_id,
+                    name=s.name,
+                    importance=s.importance,
+                    activity_count=0,
+                    mental_state="",
+                    verbal_tic="",
+                    idle_behavior="",
+                    is_mentioned=s.name in request.outline or s.name in request.mentioned_names,
+                    is_selected=True,
+                    is_recently_appeared=s.is_new_suggestion,
+                )
+                for s in plan.slots
+            ]
+            estimated_tokens = len(plan.generated_context) // 4
+            return ScheduleResponse(
+                selected_characters=selected_outputs,
+                rejected_characters=[],
+                generated_context=plan.generated_context,
+                total_tokens=estimated_tokens,
+                scheduling_log=plan.scheduling_log + [f"kernel_route=character-scheduler"],
+            )
+
+        # 兼容旧调用：未提供 novel_id 时使用请求内角色列表。
         selected, rejected = _schedule_characters(
             outline=request.outline,
             characters=request.characters,
@@ -228,50 +265,3 @@ async def schedule_characters(request: ScheduleRequest):
     except Exception as e:
         logger.error(f"角色调度失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/quick-test", response_model=ScheduleResponse)
-async def quick_test():
-    """快速测试接口
-
-    使用预设数据进行快速验证，方便开发和测试。
-    """
-    preset_request = ScheduleRequest(
-        outline="艾达在黑市拍卖会上与林羽相遇，苏晴在一旁观察",
-        characters=[
-            CharacterInput(
-                id="char-001",
-                name="林羽",
-                importance="protagonist",
-                activity_count=50,
-                last_appearance_chapter=10,
-                mental_state="NORMAL",
-                idle_behavior="摸剑柄"
-            ),
-            CharacterInput(
-                id="char-002",
-                name="艾达",
-                importance="minor",
-                activity_count=1,
-                last_appearance_chapter=10,
-                mental_state="冷漠",
-                mental_state_reason="刚失去同伴",
-                idle_behavior="擦拭机械臂"
-            ),
-            CharacterInput(
-                id="char-003",
-                name="苏晴",
-                importance="major",
-                activity_count=30,
-                last_appearance_chapter=8,
-                mental_state="担忧",
-                idle_behavior="咬嘴唇"
-            ),
-        ],
-        max_characters=2,
-        current_chapter=11,
-        max_tokens=5000,
-        mentioned_names=["艾达"]
-    )
-
-    return await schedule_characters(preset_request)

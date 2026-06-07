@@ -52,15 +52,19 @@ class PipelineContext:
     context_tokens: int = 0                      # 上下文 token 数
     voice_anchors: str = ""                      # 声线锚点
     bundle: Optional[Dict[str, Any]] = None      # chapter_workflow.prepare_chapter_generation() 的完整 bundle
+    governance_budget: Optional[Dict[str, Any]] = None
+    governance_context_request: Optional[Dict[str, Any]] = None
+    evolution_continuity_report: Optional[Dict[str, Any]] = None
 
-    # ═══ 步骤3产出：节拍 ═══
-    beats: List[Any] = field(default_factory=list)  # Beat 列表
-    beat_sheet: Optional[Any] = None             # 规划阶段的 BeatSheet
+    # ═══ 步骤3产出：导演剧本 ═══
+    script: str = ""                               # 六模块导演剧本文本
+    beat_sheet: Optional[Any] = None             # 规划阶段的 BeatSheet（输入，保留兼容）
+    beats: List[Any] = field(default_factory=list)  # 微观节拍 / 写作包
 
     # ═══ 步骤4产出：生成内容 ═══
     chapter_content: str = ""                    # 章节正文（最终版）
     word_count: int = 0                          # 实际字数
-    raw_beat_contents: List[str] = field(default_factory=list)  # 各节拍原始输出
+    raw_beat_contents: List[str] = field(default_factory=list)
 
     # ═══ 步骤5产出：策略验证 ═══
     validation_passed: bool = True
@@ -88,6 +92,7 @@ class PipelineContext:
     causal_edges_stored: bool = False
     character_mutations_stored: bool = False
     debt_updated: bool = False
+    emotion_ledger_updated: bool = False
 
     # ═══ 步骤9产出：张力打分 ═══
     tension_composite: Optional[float] = None    # 多维张力 (0-100)
@@ -101,7 +106,7 @@ class PipelineContext:
 
     # ═══ 断点续写 ═══
     existing_content: str = ""                   # 已有内容（断点续写）
-    start_beat_index: int = 0                    # 从哪个节拍开始
+    start_beat_index: int = 0                    # 从哪个节拍继续
 
     # ═══ 依赖注入（通过 inject() 设置） ═══
     novel_repository: Any = None
@@ -114,11 +119,17 @@ class PipelineContext:
     foreshadowing_repository: Any = None
     story_node_repo: Any = None
     planning_service: Any = None
+    chapter_preplanning_service: Any = None
     chapter_workflow: Any = None                 # AutoNovelGenerationWorkflow
     background_task_service: Any = None
     circuit_breaker: Any = None
     volume_summary_service: Any = None
     policy_validator: Any = None                 # PolicyValidator（新增）
+    memory_orchestrator: Any = None              # MemoryOrchestratorImpl
+    prose_composer: Any = None                   # StoryPipeline prose composition strategy
+
+    # ═══ 全托管 UI：可选进度回调（substep, label, extra_dict）→ 写入共享内存 ═══
+    writing_progress_sink: Any = None
 
     # ═══ 杂项 ═══
     metadata: Dict[str, Any] = field(default_factory=dict)

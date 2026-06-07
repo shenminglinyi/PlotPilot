@@ -15,6 +15,7 @@
 </template>
 
 <script setup lang="ts">
+import '../../plugins/echarts'
 import VChart from 'vue-echarts'
 import type { EChartsOption } from 'echarts'
 

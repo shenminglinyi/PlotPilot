@@ -21,15 +21,15 @@ logger = logging.getLogger(__name__)
 
 class NodeCategory(str, Enum):
     """节点分类"""
-    CONTEXT = "context"        # 📦 上下文注入
-    EXECUTION = "execution"    # ⚙️ 执行与生成
-    VALIDATION = "validation"  # 🔍 校验与监控
-    GATEWAY = "gateway"        # 🚦 网关与熔断
-    WORLD = "world"            # 🏰 世界设定
-    REVIEW = "review"          # 🔬 审稿质检
-    ANTI_AI = "anti-ai"        # 🛡️ Anti-AI 防御
-    PLANNING = "planning"      # 📐 规划设计
-    PROP = "prop"              # 🎒 道具上下文
+    CONTEXT = "context"        # 上下文注入
+    EXECUTION = "execution"    # 执行与生成
+    VALIDATION = "validation"  # 校验与监控
+    GATEWAY = "gateway"        # 网关与熔断
+    WORLD = "world"            # 世界设定
+    REVIEW = "review"          # 审稿质检
+    ANTI_AI = "anti-ai"        # Anti-AI 防御
+    PLANNING = "planning"      # 规划设计
+    PROP = "prop"              # 道具上下文
 
 
 class NodeStatus(str, Enum):
@@ -105,6 +105,14 @@ class CPMSInjectionPoint(BaseModel):
     description: str = ""           # 注入说明
     required: bool = False          # 是否必须
 
+    @field_validator("cpms_node_key")
+    @classmethod
+    def validate_cpms_node_key(cls, v: str) -> str:
+        from infrastructure.ai.prompt_keys import validate_key
+
+        validate_key(v)
+        return v
+
 
 class DefaultDagSlot(BaseModel):
     """并入 ``get_default_dag()`` 时自动追加的画布实例与拓扑边。
@@ -148,7 +156,7 @@ class NodeMeta(BaseModel):
     node_type: str
     display_name: str
     category: NodeCategory
-    icon: str = "📦"
+    icon: str = ""
     color: str = "#6366f1"
     input_ports: List[NodePort] = Field(default_factory=list)
     output_ports: List[NodePort] = Field(default_factory=list)
@@ -158,15 +166,25 @@ class NodeMeta(BaseModel):
     can_disable: bool = True
     default_timeout_seconds: int = 60
     default_max_retries: int = 1
-    # ★ CPMS 主关联字段
+    # CPMS 主关联字段
     cpms_node_key: str = ""           # 对应提示词广场的 node_key
-    # ★ CPMS 子提示词注入（Anti-AI 层、行为协议等注入到生成节点变量槽）
+    # CPMS 子提示词注入（Anti-AI 层、行为协议等注入到生成节点变量槽）
     cpms_sub_keys: List[CPMSInjectionPoint] = Field(default_factory=list)
-    # ★ 提示词使用模式
+    # 提示词使用模式
     prompt_mode: PromptMode = PromptMode.CPMS_FIRST
     description: str = ""             # 节点功能描述（展示用）
     default_edges: List[str] = Field(default_factory=list)  # 默认下游节点类型
     default_dag_slot: Optional[DefaultDagSlot] = None  # 并入 get_default_dag() 画布
+
+    @field_validator("cpms_node_key")
+    @classmethod
+    def validate_cpms_node_key(cls, v: str) -> str:
+        if not v:
+            return v
+        from infrastructure.ai.prompt_keys import validate_key
+
+        validate_key(v)
+        return v
 
 
 # ─── 节点配置 ───
@@ -199,9 +217,11 @@ class NodeDefinition(BaseModel):
     @field_validator("type")
     @classmethod
     def validate_type(cls, v: str) -> str:
-        # ★ 动态校验：从注册表获取合法类型，消除硬编码白名单
+        # 动态校验：从注册表获取合法类型，消除硬编码白名单
         try:
             from application.engine.dag.registry import NodeRegistry
+            if not NodeRegistry.has(v):
+                NodeRegistry.ensure_builtins_loaded()
             registered = NodeRegistry.all_types()
             if registered and v not in registered:
                 raise ValueError(f"未知节点类型: {v}，已注册: {sorted(registered)}")
@@ -477,44 +497,41 @@ def get_default_dag() -> DAGDefinition:
         name="单幕全流程（默认）",
         version=2,
         nodes=[
-            NodeDefinition(id="ctx_blueprint", type="ctx_blueprint", label="📋 剧本基建", position={"x": 100, "y": 100}),
-            NodeDefinition(id="ctx_memory", type="ctx_memory", label="🧠 记忆引擎", position={"x": 100, "y": 250}),
-            NodeDefinition(id="ctx_foreshadow", type="ctx_foreshadow", label="🪝 伏笔注入器", position={"x": 100, "y": 400}),
-            NodeDefinition(id="ctx_voice", type="ctx_voice", label="🎭 角色声线注入", position={"x": 100, "y": 550}),
-            NodeDefinition(id="ctx_debt", type="ctx_debt", label="💰 叙事债务", position={"x": 100, "y": 700}),
-            NodeDefinition(id="exec_beat", type="exec_beat", label="🥁 节拍放大器", position={"x": 500, "y": 200}),
+            NodeDefinition(id="ctx_blueprint", type="ctx_blueprint", label="剧本基建", position={"x": 100, "y": 100}),
+            NodeDefinition(id="ctx_memory", type="ctx_memory", label="记忆引擎", position={"x": 100, "y": 250}),
+            NodeDefinition(id="ctx_foreshadow", type="ctx_foreshadow", label="伏笔注入器", position={"x": 100, "y": 400}),
+            NodeDefinition(id="ctx_voice", type="ctx_voice", label="角色声线注入", position={"x": 100, "y": 550}),
+            NodeDefinition(id="ctx_debt", type="ctx_debt", label="叙事债务", position={"x": 100, "y": 700}),
+            NodeDefinition(id="exec_beat", type="exec_beat", label="节拍放大器", position={"x": 500, "y": 200}),
             NodeDefinition(
-                id="exec_writer", type="exec_writer", label="✍️ 剧情引擎", position={"x": 800, "y": 300},
+                id="exec_writer", type="exec_writer", label="剧情引擎", position={"x": 800, "y": 300},
                 config=NodeConfig(
-                    prompt_template="写作姿态：回忆并讲述这段事；避免写成交差用的说明文。\n\n{{context}}\n{{outline}}\n{{voice_block}}",
                     prompt_variables={"context": "", "outline": "", "voice_block": ""},
                 ),
             ),
             NodeDefinition(
-                id="val_style", type="val_style", label="🎭 文风警报器", position={"x": 1200, "y": 100},
+                id="val_style", type="val_style", label="文风警报器", position={"x": 1200, "y": 100},
                 config=NodeConfig(
                     thresholds={"drift_warning": 0.5, "drift_critical": 0.75},
-                    prompt_template="评估以下文本是否符合角色声线...",
                 ),
             ),
             NodeDefinition(
-                id="val_tension", type="val_tension", label="📈 张力评估器", position={"x": 1200, "y": 300},
+                id="val_tension", type="val_tension", label="张力评估器", position={"x": 1200, "y": 300},
                 config=NodeConfig(thresholds={"tension_floor": 30, "tension_ceiling": 85}),
             ),
-            NodeDefinition(id="val_anti_ai", type="val_anti_ai", label="🛡️ Anti-AI 审计", position={"x": 1200, "y": 500}),
+            NodeDefinition(id="val_anti_ai", type="val_anti_ai", label="Anti-AI 审计", position={"x": 1200, "y": 500}),
             NodeDefinition(
-                id="gw_circuit", type="gw_circuit", label="🔌 熔断保护", position={"x": 1500, "y": 300},
+                id="gw_circuit", type="gw_circuit", label="熔断保护", position={"x": 1500, "y": 300},
                 config=NodeConfig(thresholds={"max_errors": 3}),
             ),
-            NodeDefinition(id="val_narrative", type="val_narrative", label="🧬 叙事同步", position={"x": 1800, "y": 200}),
-            NodeDefinition(id="val_foreshadow", type="val_foreshadow", label="📖 伏笔雷达", position={"x": 1800, "y": 400}),
-            NodeDefinition(id="val_kg_infer", type="val_kg_infer", label="🕸️ KG推断", position={"x": 1800, "y": 600}),
+            NodeDefinition(id="val_narrative", type="val_narrative", label="叙事同步", position={"x": 1800, "y": 200}),
+            NodeDefinition(id="val_foreshadow", type="val_foreshadow", label="伏笔雷达", position={"x": 1800, "y": 400}),
+            NodeDefinition(id="val_kg_infer", type="val_kg_infer", label="KG推断", position={"x": 1800, "y": 600}),
             NodeDefinition(id="gw_review", type="gw_review", label="⏸️ 审阅网关", position={"x": 2100, "y": 400}),
             NodeDefinition(
-                id="gw_retry", type="gw_retry", label="🔄 重写网关", position={"x": 1500, "y": 100},
+                id="gw_retry", type="gw_retry", label="重写网关", position={"x": 1500, "y": 100},
                 config=NodeConfig(
                     max_retries=2,
-                    prompt_template="以下章节文风偏离角色声线，请重写...",
                 ),
             ),
         ],

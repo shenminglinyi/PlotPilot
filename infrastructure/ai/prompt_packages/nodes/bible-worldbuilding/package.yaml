@@ -1,7 +1,7 @@
 name: 世界观与文风生成
 category: world
 source: infrastructure/ai/prompts/prompts_defaults.json
-description: 生成避免悬浮感、具有厚重社会生态的 5 维度世界观体系
+description: 沿用 Plotpilot_writer 五维基础字段契约生成世界观
 builtin: true
 tags:
 - 世界观
@@ -11,9 +11,46 @@ variables:
 - name: premise
   desc: 故事创意
   type: string
-- name: existing_settings
-  desc: 已有设定
+- name: novel_title
+  desc: 小说名称
   type: string
-  default: ''
+- name: genre_major
+  desc: 小说大类
+  type: string
+- name: genre_theme
+  desc: 小说主题
+  type: string
+- name: genre_label
+  desc: 小说类型字符串
+  type: string
+- name: world_preset
+  desc: 世界观基调
+  type: string
+- name: special_requirements
+  desc: 特殊要求
+  type: string
+- name: target_chapters
+  desc: 章节数量
+  type: integer
+  default: 100
+- name: target_words_per_chapter
+  desc: 每章字数
+  type: integer
+  default: 0
+- name: fields_desc
+  desc: 世界观五维字段 JSON 模板片段
+  type: string
+- name: genre_opening_profile
+  desc: 生成上下文与已完成维度
+  type: object
+  default: {}
+- name: genre_reader_contract
+  desc: 读者契约
+  type: object
+  default: {}
+- name: genre_rhythm_constraints
+  desc: 节奏约束
+  type: object
+  default: {}
 id: bible-worldbuilding
 sort_order: 27

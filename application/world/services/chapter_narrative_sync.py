@@ -11,10 +11,10 @@ import logging
 import re
 import uuid
 from datetime import datetime
+from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional, Tuple
 
 from domain.ai.services.llm_service import LLMService, GenerationConfig
-from domain.ai.value_objects.prompt import Prompt
 from domain.novel.value_objects.foreshadowing import (
     Foreshadowing,
     ForeshadowingStatus,
@@ -25,6 +25,9 @@ from domain.structure.story_node import NodeType
 from application.ai.structured_json_pipeline import (
     parse_and_repair_json,
     sanitize_llm_output,
+)
+from application.world.services.storyline_normalization import (
+    get_storyline_normalization_profile,
 )
 
 logger = logging.getLogger(__name__)
@@ -104,6 +107,46 @@ def _storyline_arc_label(progress_item: dict) -> str:
     return ""
 
 
+def _normalize_storyline_text(text: str) -> str:
+    """Normalize labels so LLM wording variants can map to one storyline."""
+    s = re.sub(r"\s+", "", text or "")
+    s = re.sub(r"[《》「」『』【】（）()，,。；;：:、!！?？\"']", "", s)
+    profile = get_storyline_normalization_profile()
+    for src, dst in profile.replacements.items():
+        s = s.replace(src, dst)
+    return s[:120]
+
+
+def _storyline_tokens(*texts: str) -> set[str]:
+    body = _normalize_storyline_text("".join(t for t in texts if t))
+    profile = get_storyline_normalization_profile()
+    tokens = {w for w in profile.alias_words if w and w in body}
+    tokens.update(re.findall(r"[\u4e00-\u9fff]{2,6}", body))
+    return {t for t in tokens if len(t) >= 2}
+
+
+def _storyline_similarity(
+    candidate_name: str,
+    candidate_desc: str,
+    arc_label: str,
+    description: str,
+) -> float:
+    left = _normalize_storyline_text(candidate_name or candidate_desc)
+    right = _normalize_storyline_text(arc_label or description)
+    if not left or not right:
+        return 0.0
+    if left == right or left in right or right in left:
+        return 1.0
+
+    l_tokens = _storyline_tokens(candidate_name, candidate_desc)
+    r_tokens = _storyline_tokens(arc_label, description)
+    overlap = 0.0
+    if l_tokens and r_tokens:
+        overlap = len(l_tokens & r_tokens) / max(1, min(len(l_tokens), len(r_tokens)))
+    ratio = SequenceMatcher(None, left, right).ratio()
+    return max(ratio, overlap)
+
+
 def _storyline_role_type_from_cn(line_type: str) -> Tuple[Any, Any]:
     """中文类型标签 → StorylineRole + StorylineType。"""
     from domain.novel.value_objects.storyline_role import StorylineRole
@@ -168,6 +211,33 @@ def _match_storyline_for_progress_item(
             if inner == nm or inner in nm or nm in inner:
                 return sl
 
+    scored: List[Tuple[float, Any]] = []
+    distinctive_tokens = get_storyline_normalization_profile().distinctive_tokens
+    for sl in storylines:
+        score = _storyline_similarity(
+            getattr(sl, "name", "") or "",
+            getattr(sl, "description", "") or "",
+            arc,
+            desc,
+        )
+        shared = (
+            _storyline_tokens(getattr(sl, "name", ""), getattr(sl, "description", ""))
+            & _storyline_tokens(arc, desc)
+            & distinctive_tokens
+        )
+        if score >= 0.66 or (score >= 0.50 and shared):
+            scored.append((score, sl))
+    if scored:
+        scored.sort(
+            key=lambda item: (
+                item[0],
+                getattr(item[1], "last_active_chapter", 0) or 0,
+                -(getattr(item[1], "estimated_chapter_start", 0) or 0),
+            ),
+            reverse=True,
+        )
+        return scored[0][1]
+
     return None
 
 
@@ -230,25 +300,14 @@ async def llm_chapter_extract_bundle(
 
 请判断本章是否呼应/回收了上述伏笔。如果章节内容明确揭示或回应了某个伏笔的悬念，则在 consumed_foreshadows 中列出该伏笔的原描述（需与清单中的描述高度匹配）。"""
 
-    # CPMS render
     from infrastructure.ai.prompt_keys import CHAPTER_NARRATIVE_SYNC
-    from infrastructure.ai.prompt_registry import get_prompt_registry
+    from infrastructure.ai.prompt_utils import render_required_prompt
 
     variables = {
         "content": body,
         "foreshadow_context": foreshadow_context,
     }
-    registry = get_prompt_registry()
-    prompt = registry.render_to_prompt(CHAPTER_NARRATIVE_SYNC, variables)
-
-    if not prompt:
-        # 降级：直接拼接
-        from infrastructure.ai.prompt_utils import get_prompt_system
-        system = get_prompt_system(CHAPTER_NARRATIVE_SYNC)
-        if not system:
-            system = f"你是网文叙事编辑与信息抽取。根据章节正文输出一个JSON对象。{foreshadow_context}"
-        user = f"第 {chapter_number} 章正文如下：\n\n{body}"
-        prompt = Prompt(system=system, user=user)
+    prompt = render_required_prompt(CHAPTER_NARRATIVE_SYNC, variables)
     config = GenerationConfig(max_tokens=4096, temperature=0.45)
 
     result = await llm.generate(prompt, config)
@@ -279,6 +338,9 @@ async def llm_chapter_extract_bundle(
     mutations_raw = data.get("character_mutations") or []
     if not isinstance(mutations_raw, list):
         mutations_raw = []
+    states_raw = data.get("character_states") or []
+    if not isinstance(states_raw, list):
+        states_raw = []
 
     return {
         "summary": str(data.get("summary", "")).strip(),
@@ -295,6 +357,7 @@ async def llm_chapter_extract_bundle(
         "timeline_events": timeline_raw[:5],
         "causal_edges": [{"data": c, "status": "pending"} for c in causal_raw[:3]],
         "character_mutations": [{"data": m, "status": "pending"} for m in mutations_raw[:3]],
+        "character_states": states_raw[:5],
         # V9: 新增提取元数据，记录提取时的元信息
         "_meta": {
             "extract_version": "v9",
@@ -876,6 +939,247 @@ def persist_character_mutations(
         logger.info("人物状态突变落库完成 novel=%s ch=%s processed=%d", novel_id, chapter_number, processed)
 
     return processed
+
+
+def persist_character_end_states(
+    novel_id: str,
+    chapter_number: int,
+    bundle: dict,
+    character_state_repository: Any,
+    bible_repository: Any = None,
+) -> int:
+    """将 bundle 中的 character_states（章末心理状态快照）写入 character_states 表。
+
+    每个角色更新 current_state_summary 并追加一个 EmotionalArcNode，
+    供 CurrentChapterContextPanel 读取显示「本章人物状态」。
+    """
+    if not character_state_repository:
+        return 0
+
+    states_raw = bundle.get("character_states") or []
+    if not states_raw:
+        return 0
+
+    from domain.novel.value_objects.character_state import (
+        CharacterState, EmotionalArcNode,
+    )
+
+    name_to_id: Dict[str, str] = {}
+    if bible_repository:
+        try:
+            from domain.novel.value_objects.novel_id import NovelId
+            bible = bible_repository.get_by_novel_id(NovelId(novel_id))
+            if bible and bible.characters:
+                for char in bible.characters:
+                    cid = char.character_id.value if hasattr(char.character_id, 'value') else str(char.character_id)
+                    name_to_id[char.name] = cid
+        except Exception as e:
+            logger.debug("Bible 加载失败，章末状态无法关联 character_id: %s", e)
+
+    saved = 0
+    for item in states_raw:
+        if not isinstance(item, dict):
+            continue
+        character_name = str(item.get("character_name", "")).strip()
+        mental_state = str(item.get("mental_state", "")).strip()
+        if not (character_name and mental_state):
+            continue
+
+        character_id = name_to_id.get(character_name, character_name)
+
+        state = character_state_repository.get(character_id, novel_id)
+        if not state:
+            state = CharacterState(
+                character_id=character_id,
+                novel_id=novel_id,
+                last_updated_chapter=chapter_number,
+            )
+
+        arc_node = EmotionalArcNode(
+            chapter=chapter_number,
+            emotion=mental_state,
+            trigger="章末状态快照",
+            intensity=5.0,
+            is_breakout=False,
+        )
+        state.add_emotional_arc_node(arc_node)
+        state.current_state_summary = mental_state
+        state.last_updated_chapter = chapter_number
+
+        try:
+            character_state_repository.save(state)
+            saved += 1
+            logger.debug(
+                "章末人物状态已落库 novel=%s ch=%s char=%s state=%s",
+                novel_id, chapter_number, character_name, mental_state[:30],
+            )
+        except Exception as e:
+            logger.debug("章末人物状态落库跳过: %s", e)
+
+    if saved > 0:
+        logger.info("章末人物状态落库完成 novel=%s ch=%s saved=%d", novel_id, chapter_number, saved)
+    return saved
+
+
+def persist_bundle_memory_atoms(
+    novel_id: str,
+    chapter_number: int,
+    bundle: dict,
+    bible_repository: Any = None,
+    memory_service: Any = None,
+) -> int:
+    """Mirror chapter extraction output into the unified MemoryAtom ledger.
+
+    This is additive and intentionally does not replace the legacy writes in this
+    module. LLM-extracted memories are candidates until the author calibrates them.
+    """
+    try:
+        from application.memory.services.legacy_memory_importer import LegacyMemoryImporter
+    except Exception as e:
+        logger.debug("memory substrate imports unavailable: %s", e)
+        return 0
+
+    name_to_id: Dict[str, str] = {}
+    if bible_repository:
+        try:
+            from domain.novel.value_objects.novel_id import NovelId
+
+            bible = bible_repository.get_by_novel_id(NovelId(novel_id))
+            for char in getattr(bible, "characters", []) or []:
+                cid = char.character_id.value if hasattr(char.character_id, "value") else str(char.character_id)
+                name_to_id[str(char.name)] = cid
+        except Exception as e:
+            logger.debug("Bible 加载失败，MemoryAtom 人物名将退化为名称ID: %s", e)
+
+    if memory_service is None:
+        try:
+            from application.memory.services.narrative_memory_service import NarrativeMemoryService
+            from infrastructure.persistence.database.connection import get_database
+            from infrastructure.persistence.database.sqlite_memory_repository import (
+                SqliteNarrativeMemoryRepository,
+            )
+
+            memory_service = NarrativeMemoryService(
+                SqliteNarrativeMemoryRepository(get_database())
+            )
+        except Exception as e:
+            logger.debug("memory substrate unavailable: %s", e)
+            return 0
+
+    importer = LegacyMemoryImporter(memory_service)
+    saved = 0
+
+    def _char_id(name: str) -> str:
+        return name_to_id.get(name, name)
+
+    for item in bundle.get("character_states") or []:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("character_name", "")).strip()
+        if not name:
+            continue
+        importer.remember_bundle_item(
+            novel_id,
+            _char_id(name),
+            "state",
+            dict(item),
+            chapter_number=chapter_number,
+            name=name,
+            source="chapter_extract",
+            status="candidate",
+            confidence=0.55,
+        )
+        saved += 1
+
+    for wrapper in bundle.get("character_mutations") or []:
+        item = wrapper.get("data") if isinstance(wrapper, dict) and "data" in wrapper else wrapper
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("character_name", "")).strip()
+        if not name:
+            continue
+        mutation_type = str(item.get("mutation_type", "")).strip().lower()
+        memory_type = "scar" if mutation_type == "scar" else ("motivation" if mutation_type == "motivation" else "emotion")
+        importer.remember_bundle_item(
+            novel_id,
+            _char_id(name),
+            memory_type,
+            dict(item),
+            chapter_number=chapter_number,
+            name=name,
+            source="chapter_extract",
+            status="candidate",
+            confidence=0.55,
+        )
+        saved += 1
+
+    for dialogue in bundle.get("dialogues") or []:
+        if not isinstance(dialogue, dict):
+            continue
+        name = str(dialogue.get("speaker", "")).strip()
+        content = str(dialogue.get("content", "")).strip()
+        if not (name and content):
+            continue
+        importer.remember_bundle_item(
+            novel_id,
+            _char_id(name),
+            "voice",
+            dict(dialogue),
+            chapter_number=chapter_number,
+            name=name,
+            source="dialogue_extract",
+            status="candidate",
+            confidence=0.5,
+        )
+        saved += 1
+
+    for wrapper in bundle.get("relation_triples") or []:
+        item = wrapper.get("data") if isinstance(wrapper, dict) and "data" in wrapper else wrapper
+        if not isinstance(item, dict):
+            continue
+        subject = str(item.get("subject", "")).strip()
+        if not subject:
+            continue
+        importer.remember_bundle_item(
+            novel_id,
+            _char_id(subject),
+            "relationship",
+            dict(item),
+            chapter_number=chapter_number,
+            name=subject,
+            source="triple_extract",
+            status="candidate",
+            confidence=0.5,
+        )
+        saved += 1
+
+    for wrapper in bundle.get("causal_edges") or []:
+        item = wrapper.get("data") if isinstance(wrapper, dict) and "data" in wrapper else wrapper
+        if not isinstance(item, dict):
+            continue
+        involved = item.get("involved_characters") or []
+        if isinstance(involved, str):
+            involved = [involved]
+        for name_raw in involved[:4]:
+            name = str(name_raw).strip()
+            if not name:
+                continue
+            importer.remember_bundle_item(
+                novel_id,
+                _char_id(name),
+                "debt",
+                dict(item),
+                chapter_number=chapter_number,
+                name=name,
+                source="causal_extract",
+                status="candidate",
+                confidence=0.5,
+            )
+            saved += 1
+
+    if saved:
+        logger.info("MemoryAtom 双写完成 novel=%s ch=%s saved=%d", novel_id, chapter_number, saved)
+    return saved
 
 
 def _build_state_summary(state: Any) -> str:
@@ -1730,6 +2034,7 @@ async def sync_chapter_narrative_after_save(
         "triples_extracted": False,
         "causal_edges_stored": False,
         "character_mutations_stored": False,
+        "memory_atoms_stored": False,
         "debt_updated": False,
     }
     if not content or not str(content).strip():
@@ -1742,6 +2047,7 @@ async def sync_chapter_narrative_after_save(
         "triples_extracted": False,
         "causal_edges_stored": False,
         "character_mutations_stored": False,
+        "memory_atoms_stored": False,
         "debt_updated": False,
     }
 
@@ -1947,6 +2253,25 @@ async def sync_chapter_narrative_after_save(
             logger.warning(
                 "人物状态突变落库失败 novel=%s ch=%s: %s", novel_id, chapter_number, e
             )
+        try:
+            persist_character_end_states(
+                novel_id, chapter_number, bundle, character_state_repository, bible_repository
+            )
+        except Exception as e:
+            logger.warning(
+                "章末人物状态落库失败 novel=%s ch=%s: %s", novel_id, chapter_number, e
+            )
+
+    try:
+        memory_saved = persist_bundle_memory_atoms(
+            novel_id, chapter_number, bundle, bible_repository
+        )
+        if memory_saved > 0:
+            flags["memory_atoms_stored"] = True
+    except Exception as e:
+        logger.warning(
+            "MemoryAtom 双写失败 novel=%s ch=%s: %s", novel_id, chapter_number, e
+        )
 
     if debt_repository is not None:
         try:

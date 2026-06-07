@@ -2,9 +2,24 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
+
+
+class PlanDecompositionMode(StrEnum):
+    """章前规划拆解来源。
+
+    统一枚举可以避免调用链散落字符串常量，后续新增拆解器时只需扩展这里。
+    """
+
+    BEAT_SHEET = "beat_sheet"
+    STRUCTURED_OUTLINE = "structured_outline"
+    LLM_OUTLINE_DECOMPOSE = "llm_outline_decompose"
+    RAW_OUTLINE_SINGLE = "raw_outline_single"
+    EMPTY_OUTLINE = "empty_outline"
+    ERROR_SINGLE_OUTLINE = "error_single_outline"
 
 
 class PlanningEnvelope(BaseModel):

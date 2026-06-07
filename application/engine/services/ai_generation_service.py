@@ -3,6 +3,7 @@ import logging
 from typing import Optional
 from domain.ai.services.llm_service import LLMService, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
+from application.ai.trace_context import ensure_trace
 from domain.novel.repositories.novel_repository import NovelRepository
 from domain.bible.repositories.bible_repository import BibleRepository
 from domain.novel.value_objects.novel_id import NovelId
@@ -78,6 +79,7 @@ class AIGenerationService:
 
         # 4. 调用 LLM
         try:
+            ensure_trace(novel_id=novel_id, stage="engine.scene.generate", stage_label="场景生成")
             config = GenerationConfig()
             result = await self.llm_service.generate(prompt, config)
             logger.info(f"Successfully generated chapter {chapter_number} for novel {novel_id}")

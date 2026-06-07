@@ -31,6 +31,11 @@ from application.engine.services.autopilot_log_ring import (
     shorten_log_message,
     snapshot_for_novel,
 )
+from application.ai_invocation.autopilot.review_gate import (
+    resume_block_reason_from_status,
+    stage_needs_human_review,
+    with_review_gate,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -167,13 +172,18 @@ def _persist_autopilot_running_sync(
             pq.wait_until_idle(timeout=3.0)
 
 
-def _stage_needs_human_review(stage: Optional[str]) -> bool:
-    """是否与人工审阅闸门对齐（须调用 /resume）。
-
-    「reviewing」为历史/兼容舞台值；闸门主路径使用 paused_for_review。两者均需展示确认按钮。
-    """
-    s = (stage or "").strip().lower()
-    return s in ("paused_for_review", "reviewing")
+def _macro_structure_exists(novel_id: str) -> bool:
+    """Macro planning is usable when it has at least a volume root for act planning."""
+    try:
+        repo = StoryNodeRepository(get_db_path())
+        nodes = repo.get_by_novel_sync(novel_id)
+    except Exception as exc:
+        logger.warning("检查宏观结构失败 novel=%s: %s", novel_id, exc)
+        return False
+    return any(
+        (n.node_type.value if hasattr(n.node_type, "value") else str(n.node_type)) == "volume"
+        for n in nodes
+    )
 
 
 router = APIRouter(prefix="/autopilot", tags=["autopilot"])
@@ -261,17 +271,21 @@ def _autopilot_status_zh(status: str) -> str:
 def _audit_event_message(event_type: str, data: Dict[str, Any]) -> str:
     """生成审计事件的消息文本"""
     messages = {
-        "audit_start": lambda d: f"🔍 开始审计第 {d.get('chapter_number', '?')} 章（{d.get('word_count', 0)} 字）",
-        "audit_voice_check": lambda d: f"📊 文风预检中...",
+        "audit_start": lambda d: f"开始审计第 {d.get('chapter_number', '?')} 章（{d.get('word_count', 0)} 字）",
+        "audit_voice_check": lambda d: "文风预检中...",
         "audit_voice_result": lambda d: (
-            f"📊 文风相似度: {d.get('similarity_score'):.1%}" + (" ⚠️ 偏离告警" if d.get('drift_alert') else "")
+            f"文风相似度: {d.get('similarity_score'):.1%}" + ("，偏离告警" if d.get('drift_alert') else "")
             if d.get('similarity_score') is not None
-            else "📊 文风相似度: 指纹样本不足（需 ≥10 个采血样本）"
+            else "文风相似度: 指纹样本不足（需 ≥10 个采血样本）"
         ),
-        "audit_aftermath": lambda d: f"🔄 章后管线处理中...",
-        "audit_tension": lambda d: f"⚡ 张力打分中...",
-        "audit_tension_result": lambda d: f"⚡ 张力值: {d.get('tension', 'N/A')}/10",
-        "audit_complete": lambda d: f"✅ 第 {d.get('chapter_number', '?')} 章审计完成" + (" 🎉全书完成！" if d.get('is_completed') else ""),
+        "audit_aftermath": lambda d: (
+            "复用写作管线章后结果"
+            if d.get("reused")
+            else ("正文改写后重建章后结果" if d.get("rebuilt") else "章后结果校准中...")
+        ),
+        "audit_tension": lambda d: "张力打分中...",
+        "audit_tension_result": lambda d: f"张力值: {d.get('tension', 'N/A')}/10",
+        "audit_complete": lambda d: f"第 {d.get('chapter_number', '?')} 章审计完成" + ("，全书完成" if d.get('is_completed') else ""),
     }
     return messages.get(event_type, lambda d: f"审计事件: {event_type}")(data)
 
@@ -301,7 +315,7 @@ def _build_fallback_status(novel) -> Dict[str, Any]:
             "quality_scores": getattr(novel, "last_audit_quality_scores", {}) or {},
             "issues": getattr(novel, "last_audit_issues", []) or [],
         }
-    return {
+    return with_review_gate({
         "autopilot_status": novel.autopilot_status.value if hasattr(novel.autopilot_status, "value") else novel.autopilot_status,
         "current_stage": novel.current_stage.value if hasattr(novel.current_stage, "value") else novel.current_stage,
         "current_act": getattr(novel, "current_act", 0),
@@ -320,14 +334,14 @@ def _build_fallback_status(novel) -> Dict[str, Any]:
         "manuscript_chapters": 0,  # 降级
         "progress_pct_manuscript": 0.0,  # 降级
         "current_chapter_number": None,
-        "needs_review": _stage_needs_human_review(
+        "needs_review": stage_needs_human_review(
             novel.current_stage.value if hasattr(novel.current_stage, "value") else str(novel.current_stage)
         ),
         "auto_approve_mode": getattr(novel, "auto_approve_mode", False),
         "last_chapter_audit": last_chapter_audit,
         "audit_progress": getattr(novel, "audit_progress", None),
         "_degraded": True,  # 前端可据此显示「数据同步中」提示
-    }
+    })
 
 
 # ── SSE / 高频接口：同步仓储与文件 IO 放入线程池，避免阻塞 asyncio 事件循环（否则会拖死全站 API）──
@@ -339,7 +353,7 @@ def _get_shared_state_for_novel(novel_id: str) -> Optional[Dict[str, Any]]:
     架构原则：状态走内存，数据走磁盘。守护进程写入共享字典，API 进程直接读取。
     """
     try:
-        from interfaces.main import get_shared_novel_state
+        from interfaces.runtime_state import get_shared_novel_state
         return get_shared_novel_state(novel_id)
     except Exception:
         return None
@@ -369,6 +383,7 @@ def _build_autopilot_status_sync(novel_id: str) -> Optional[Dict[str, Any]]:
     from infrastructure.persistence.database.connection import get_database
 
     novel: Any = None
+    macro_structure_ready: Optional[bool] = None
 
     try:
         db = get_database(get_db_path())
@@ -415,6 +430,12 @@ def _build_autopilot_status_sync(novel_id: str) -> Optional[Dict[str, Any]]:
                 else None
             )
 
+        macro_row = db.fetch_one(
+            "SELECT 1 AS ok FROM story_nodes WHERE novel_id = ? AND node_type = 'volume' LIMIT 1",
+            (novel_id,),
+        )
+        macro_structure_ready = bool(macro_row)
+
     except sqlite3.OperationalError as e:
         if "database is locked" in str(e).lower() or "busy" in str(e).lower():
             logger.debug("status DB 被锁，降级到共享内存 novel=%s", novel_id)
@@ -439,6 +460,20 @@ def _build_autopilot_status_sync(novel_id: str) -> Optional[Dict[str, Any]]:
         novel["last_chapter_tension"] = shared.get("last_chapter_tension", novel.get("last_chapter_tension"))
         novel["last_audit_similarity"] = shared.get("last_audit_similarity", novel.get("last_audit_similarity"))
         novel["last_audit_drift_alert"] = shared.get("last_audit_drift_alert", novel.get("last_audit_drift_alert"))
+        for key in (
+            "active_invocation_session_id",
+            "active_invocation_operation",
+            "active_invocation_node_key",
+            "active_invocation_status",
+            "active_invocation_policy",
+            "has_active_invocation",
+            "requires_ai_review",
+            "autopilot_pause_reason",
+            "writing_substep",
+            "writing_substep_label",
+        ):
+            if key in shared:
+                novel[key] = shared.get(key)
 
     target = (novel.get("target_chapters") if isinstance(novel, dict) else novel.target_chapters) or 1
     twpc = (novel.get("target_words_per_chapter") if isinstance(novel, dict) else getattr(novel, "target_words_per_chapter", None)) or 2500
@@ -470,7 +505,7 @@ def _build_autopilot_status_sync(novel_id: str) -> Optional[Dict[str, Any]]:
     daemon_heartbeat = None
     daemon_alive = False
     try:
-        from interfaces.main import _get_shared_state
+        from interfaces.runtime_state import _get_shared_state
         g_state = _get_shared_state()
         daemon_heartbeat = g_state.get("_daemon_heartbeat")
         if daemon_heartbeat:
@@ -478,7 +513,7 @@ def _build_autopilot_status_sync(novel_id: str) -> Optional[Dict[str, Any]]:
     except Exception:
         pass
 
-    return {
+    return with_review_gate({
         "autopilot_status": _ap_status_str,
         "current_stage": _stage_str,
         "current_act": novel.get("current_act") if isinstance(novel, dict) else novel.current_act,
@@ -497,13 +532,24 @@ def _build_autopilot_status_sync(novel_id: str) -> Optional[Dict[str, Any]]:
         "manuscript_chapters": in_manuscript_count,
         "progress_pct_manuscript": round(in_manuscript_count / target * 100, 1) if target else 0,
         "current_chapter_number": current_chapter_number,
-        "needs_review": _stage_needs_human_review(_stage_str),
+        "needs_review": stage_needs_human_review(_stage_str),
+        "macro_structure_ready": macro_structure_ready,
         "auto_approve_mode": novel.get("auto_approve_mode") if isinstance(novel, dict) else getattr(novel, "auto_approve_mode", False),
+        "active_invocation_session_id": novel.get("active_invocation_session_id", "") if isinstance(novel, dict) else "",
+        "active_invocation_operation": novel.get("active_invocation_operation", "") if isinstance(novel, dict) else "",
+        "active_invocation_node_key": novel.get("active_invocation_node_key", "") if isinstance(novel, dict) else "",
+        "active_invocation_status": novel.get("active_invocation_status", "") if isinstance(novel, dict) else "",
+        "active_invocation_policy": novel.get("active_invocation_policy", "") if isinstance(novel, dict) else "",
+        "has_active_invocation": bool(novel.get("has_active_invocation", False)) if isinstance(novel, dict) else False,
+        "requires_ai_review": bool(novel.get("requires_ai_review", False)) if isinstance(novel, dict) else False,
+        "autopilot_pause_reason": novel.get("autopilot_pause_reason", "") if isinstance(novel, dict) else "",
         "last_chapter_audit": last_chapter_audit,
         "audit_progress": novel.get("audit_progress") if isinstance(novel, dict) else getattr(novel, "audit_progress", None),
         "daemon_alive": daemon_alive,
         "daemon_heartbeat_at": daemon_heartbeat,
-    }
+        "writing_substep": novel.get("writing_substep", "") if isinstance(novel, dict) else "",
+        "writing_substep_label": novel.get("writing_substep_label", "") if isinstance(novel, dict) else "",
+    })
 
 
 def _build_fallback_from_shared(novel_id: str, shared: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -514,7 +560,7 @@ def _build_fallback_from_shared(novel_id: str, shared: Optional[Dict[str, Any]])
     """
     if not shared:
         # 完全没有共享内存数据：返回最小状态
-        return {
+        return with_review_gate({
             "autopilot_status": "running",
             "current_stage": "syncing",
             "current_act": None,
@@ -539,7 +585,7 @@ def _build_fallback_from_shared(novel_id: str, shared: Optional[Dict[str, Any]])
             "audit_progress": None,
             "_degraded": True,
             "_message": "数据同步中，请稍候...",
-        }
+        })
 
     # 有共享内存但可能不完整
     return _build_status_pure_memory(novel_id, shared)
@@ -557,7 +603,7 @@ def _build_status_pure_memory(novel_id: str, shared: Dict[str, Any]) -> Dict[str
     daemon_heartbeat = None
     daemon_alive = False
     try:
-        from interfaces.main import _get_shared_state
+        from interfaces.runtime_state import _get_shared_state
         g_state = _get_shared_state()
         daemon_heartbeat = g_state.get("_daemon_heartbeat")
         if daemon_heartbeat:
@@ -580,18 +626,23 @@ def _build_status_pure_memory(novel_id: str, shared: Dict[str, Any]) -> Dict[str
             "vector_stored": bool(shared.get("last_audit_vector_stored", False)),
             "foreshadow_stored": bool(shared.get("last_audit_foreshadow_stored", False)),
             "triples_extracted": bool(shared.get("last_audit_triples_extracted", False)),
+            "causal_edges_stored": bool(shared.get("last_audit_causal_edges_stored", False)),
+            "character_mutations_stored": bool(shared.get("last_audit_character_mutations_stored", False)),
+            "debt_updated": bool(shared.get("last_audit_debt_updated", False)),
             "quality_scores": shared.get("last_audit_quality_scores", {}) or {},
             "issues": shared.get("last_audit_issues", []) or [],
         }
 
-    completed_count = shared.get("_cached_completed_chapters", 0)
-    manuscript_count = shared.get("_cached_manuscript_chapters", 0)
+    completed_count = int(shared.get("_cached_completed_chapters", 0) or 0)
+    manuscript_count = int(shared.get("_cached_manuscript_chapters", 0) or 0)
+    current_auto_count = int(shared.get("current_auto_chapters", 0) or 0)
+    progress_count = max(completed_count, manuscript_count, current_auto_count)
     total_words = shared.get("_cached_total_words", 0)
     target = shared.get("target_chapters", 1) or 1
     twpc = shared.get("target_words_per_chapter", 2500) or 2500
     stage = shared.get("current_stage", "writing")
 
-    return {
+    return with_review_gate({
         "autopilot_status": shared.get("autopilot_status", "running"),
         "current_stage": stage,
         "current_act": shared.get("current_act"),
@@ -599,7 +650,7 @@ def _build_status_pure_memory(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         "current_act_description": shared.get("current_act_description"),
         "current_chapter_in_act": shared.get("current_chapter_in_act"),
         "current_beat_index": shared.get("current_beat_index", 0),
-        "current_auto_chapters": shared.get("current_auto_chapters", 0),
+        "current_auto_chapters": current_auto_count,
         "max_auto_chapters": shared.get("max_auto_chapters", 9999),
         "target_chapters": target,
         "target_words_per_chapter": twpc,
@@ -608,19 +659,39 @@ def _build_status_pure_memory(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         "consecutive_error_count": shared.get("consecutive_error_count", 0),
         "total_words": total_words,
         "completed_chapters": completed_count,
-        "progress_pct": round(completed_count / target * 100, 1) if target else 0,
+        "progress_pct": round(progress_count / target * 100, 1) if target else 0,
         "manuscript_chapters": manuscript_count,
-        "progress_pct_manuscript": round(manuscript_count / target * 100, 1) if target else 0,
+        "progress_pct_manuscript": round(max(manuscript_count, current_auto_count) / target * 100, 1) if target else 0,
         "current_chapter_number": shared.get("_cached_current_chapter_number"),
-        "needs_review": _stage_needs_human_review(stage),
+        "needs_review": stage_needs_human_review(stage),
+        "macro_structure_ready": shared.get("macro_structure_ready"),
         "auto_approve_mode": shared.get("auto_approve_mode", False),
+        "active_invocation_session_id": shared.get("active_invocation_session_id", ""),
+        "active_invocation_operation": shared.get("active_invocation_operation", ""),
+        "active_invocation_node_key": shared.get("active_invocation_node_key", ""),
+        "active_invocation_status": shared.get("active_invocation_status", ""),
+        "active_invocation_policy": shared.get("active_invocation_policy", ""),
+        "has_active_invocation": bool(shared.get("has_active_invocation", False)),
+        "requires_ai_review": bool(shared.get("requires_ai_review", False)),
+        "autopilot_pause_reason": shared.get("autopilot_pause_reason", ""),
         "last_chapter_audit": last_chapter_audit,
         "audit_progress": shared.get("audit_progress"),
+        "audit_aftermath_reused": bool(shared.get("audit_aftermath_reused", False)),
+        "audit_aftermath_rebuilt": bool(shared.get("audit_aftermath_rebuilt", False)),
         "_from_shared_memory": True,
         "daemon_alive": daemon_alive,
         "daemon_heartbeat_at": daemon_heartbeat,
         "writing_substep": shared.get("writing_substep", ""),
         "writing_substep_label": shared.get("writing_substep_label", ""),
+        "narrative_sync_ok": shared.get("narrative_sync_ok"),
+        "vector_stored": shared.get("vector_stored"),
+        "foreshadow_stored": shared.get("foreshadow_stored"),
+        "triples_extracted": shared.get("triples_extracted"),
+        "causal_edges_stored": shared.get("causal_edges_stored"),
+        "character_mutations_stored": shared.get("character_mutations_stored"),
+        "debt_updated": shared.get("debt_updated"),
+        "aftermath_live_status": shared.get("aftermath_live_status"),
+        "aftermath_live_chapter_number": shared.get("aftermath_live_chapter_number"),
         "total_beats": shared.get("total_beats", 0),
         "beat_focus": shared.get("beat_focus", ""),
         "beat_target_words": shared.get("beat_target_words", 0),
@@ -630,11 +701,20 @@ def _build_status_pure_memory(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         "beat_hard_cap": shared.get("beat_hard_cap", 0),
         "beat_phase": shared.get("beat_phase", ""),
         "beat_max_words_hint": shared.get("beat_max_words_hint", 0),
+        "beat_active_action": shared.get("beat_active_action", ""),
+        "beat_emotion_gap": shared.get("beat_emotion_gap", ""),
+        "beat_forbidden_drift": shared.get("beat_forbidden_drift", ""),
         "beat_remaining_budget": shared.get("beat_remaining_budget", 0),
         "last_smart_truncate": shared.get("last_smart_truncate"),
         "planned_micro_beats": shared.get("planned_micro_beats") or [],
         "outline_plan_mode": shared.get("outline_plan_mode", ""),
-    }
+        "story_pipeline_wave_index": shared.get("story_pipeline_wave_index"),
+        "story_pipeline_wave_total": shared.get("story_pipeline_wave_total"),
+        "story_pipeline_wave_id": shared.get("story_pipeline_wave_id", ""),
+        "story_pipeline_wave_label": shared.get("story_pipeline_wave_label", ""),
+        "story_pipeline_wave_entered_at": shared.get("story_pipeline_wave_entered_at"),
+        "story_pipeline_events": shared.get("story_pipeline_events") or [],
+    })
 
 
 def _build_status_with_shared(novel_id: str, shared: Dict[str, Any]) -> Dict[str, Any]:
@@ -653,6 +733,7 @@ def _build_status_with_shared(novel_id: str, shared: Dict[str, Any]) -> Dict[str
     current_chapter_number = None
     target = 1
     twpc = 2500
+    macro_structure_ready: Optional[bool] = None
 
     try:
         db = get_database(db_path)
@@ -688,6 +769,12 @@ def _build_status_with_shared(novel_id: str, shared: Dict[str, Any]) -> Dict[str
                 else None
             )
 
+        macro_row = db.fetch_one(
+            "SELECT 1 AS ok FROM story_nodes WHERE novel_id = ? AND node_type = 'volume' LIMIT 1",
+            (novel_id,),
+        )
+        macro_structure_ready = bool(macro_row)
+
         row = db.fetch_one(
             "SELECT target_chapters, target_words_per_chapter, autopilot_status, auto_approve_mode, consecutive_error_count FROM novels WHERE id = ?",
             (novel_id,),
@@ -712,8 +799,8 @@ def _build_status_with_shared(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         consecutive_error_count = shared.get("consecutive_error_count", 0)
         target = shared.get("target_chapters", 1) or 1
         twpc = shared.get("target_words_per_chapter", 2500) or 2500
-        completed_count = shared.get("_cached_completed_chapters", 0)
-        in_manuscript_count = shared.get("_cached_manuscript_chapters", 0)
+        completed_count = int(shared.get("_cached_completed_chapters", 0) or 0)
+        in_manuscript_count = int(shared.get("_cached_manuscript_chapters", 0) or 0)
         total_words = shared.get("_cached_total_words", 0)
         current_chapter_number = shared.get("_cached_current_chapter_number")
 
@@ -732,17 +819,22 @@ def _build_status_with_shared(novel_id: str, shared: Dict[str, Any]) -> Dict[str
             "vector_stored": bool(shared.get("last_audit_vector_stored", False)),
             "foreshadow_stored": bool(shared.get("last_audit_foreshadow_stored", False)),
             "triples_extracted": bool(shared.get("last_audit_triples_extracted", False)),
+            "causal_edges_stored": bool(shared.get("last_audit_causal_edges_stored", False)),
+            "character_mutations_stored": bool(shared.get("last_audit_character_mutations_stored", False)),
+            "debt_updated": bool(shared.get("last_audit_debt_updated", False)),
             "quality_scores": shared.get("last_audit_quality_scores", {}) or {},
             "issues": shared.get("last_audit_issues", []) or [],
         }
 
     stage = shared.get("current_stage", "writing")
+    current_auto_count = int(shared.get("current_auto_chapters", 0) or 0)
+    progress_count = max(completed_count, in_manuscript_count, current_auto_count)
 
     # 🔥 读取守护进程心跳
     daemon_heartbeat = None
     daemon_alive = False
     try:
-        from interfaces.main import _get_shared_state
+        from interfaces.runtime_state import _get_shared_state
         g_state = _get_shared_state()
         daemon_heartbeat = g_state.get("_daemon_heartbeat")
         if daemon_heartbeat:
@@ -750,7 +842,7 @@ def _build_status_with_shared(novel_id: str, shared: Dict[str, Any]) -> Dict[str
     except Exception:
         pass
 
-    return {
+    return with_review_gate({
         "autopilot_status": autopilot_status,
         "current_stage": stage,
         "current_act": shared.get("current_act"),
@@ -758,7 +850,7 @@ def _build_status_with_shared(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         "current_act_description": shared.get("current_act_description"),
         "current_chapter_in_act": shared.get("current_chapter_in_act"),
         "current_beat_index": shared.get("current_beat_index", 0),
-        "current_auto_chapters": shared.get("current_auto_chapters", 0),
+        "current_auto_chapters": current_auto_count,
         "max_auto_chapters": shared.get("max_auto_chapters", 9999),
         "target_chapters": target,
         "target_words_per_chapter": twpc,
@@ -767,20 +859,40 @@ def _build_status_with_shared(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         "consecutive_error_count": consecutive_error_count,
         "total_words": total_words,
         "completed_chapters": completed_count,
-        "progress_pct": round(completed_count / target * 100, 1) if target else 0,
+        "progress_pct": round(progress_count / target * 100, 1) if target else 0,
         "manuscript_chapters": in_manuscript_count,
-        "progress_pct_manuscript": round(in_manuscript_count / target * 100, 1) if target else 0,
+        "progress_pct_manuscript": round(max(in_manuscript_count, current_auto_count) / target * 100, 1) if target else 0,
         "current_chapter_number": current_chapter_number,
-        "needs_review": _stage_needs_human_review(stage),
+        "needs_review": stage_needs_human_review(stage),
+        "macro_structure_ready": macro_structure_ready,
         "auto_approve_mode": auto_approve_mode,
+        "active_invocation_session_id": shared.get("active_invocation_session_id", ""),
+        "active_invocation_operation": shared.get("active_invocation_operation", ""),
+        "active_invocation_node_key": shared.get("active_invocation_node_key", ""),
+        "active_invocation_status": shared.get("active_invocation_status", ""),
+        "active_invocation_policy": shared.get("active_invocation_policy", ""),
+        "has_active_invocation": bool(shared.get("has_active_invocation", False)),
+        "requires_ai_review": bool(shared.get("requires_ai_review", False)),
+        "autopilot_pause_reason": shared.get("autopilot_pause_reason", ""),
         "last_chapter_audit": last_chapter_audit,
         "audit_progress": shared.get("audit_progress"),
+        "audit_aftermath_reused": bool(shared.get("audit_aftermath_reused", False)),
+        "audit_aftermath_rebuilt": bool(shared.get("audit_aftermath_rebuilt", False)),
         "_from_shared_memory": True,  # 前端可据此显示「实时同步中」提示
         "daemon_alive": daemon_alive,
         "daemon_heartbeat_at": daemon_heartbeat,
         # ★ V9 细化字段
         "writing_substep": shared.get("writing_substep", ""),
         "writing_substep_label": shared.get("writing_substep_label", ""),
+        "narrative_sync_ok": shared.get("narrative_sync_ok"),
+        "vector_stored": shared.get("vector_stored"),
+        "foreshadow_stored": shared.get("foreshadow_stored"),
+        "triples_extracted": shared.get("triples_extracted"),
+        "causal_edges_stored": shared.get("causal_edges_stored"),
+        "character_mutations_stored": shared.get("character_mutations_stored"),
+        "debt_updated": shared.get("debt_updated"),
+        "aftermath_live_status": shared.get("aftermath_live_status"),
+        "aftermath_live_chapter_number": shared.get("aftermath_live_chapter_number"),
         "total_beats": shared.get("total_beats", 0),
         "beat_focus": shared.get("beat_focus", ""),
         "beat_target_words": shared.get("beat_target_words", 0),
@@ -790,11 +902,20 @@ def _build_status_with_shared(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         "beat_hard_cap": shared.get("beat_hard_cap", 0),
         "beat_phase": shared.get("beat_phase", ""),
         "beat_max_words_hint": shared.get("beat_max_words_hint", 0),
+        "beat_active_action": shared.get("beat_active_action", ""),
+        "beat_emotion_gap": shared.get("beat_emotion_gap", ""),
+        "beat_forbidden_drift": shared.get("beat_forbidden_drift", ""),
         "beat_remaining_budget": shared.get("beat_remaining_budget", 0),
         "last_smart_truncate": shared.get("last_smart_truncate"),
         "planned_micro_beats": shared.get("planned_micro_beats") or [],
         "outline_plan_mode": shared.get("outline_plan_mode", ""),
-    }
+        "story_pipeline_wave_index": shared.get("story_pipeline_wave_index"),
+        "story_pipeline_wave_total": shared.get("story_pipeline_wave_total"),
+        "story_pipeline_wave_id": shared.get("story_pipeline_wave_id", ""),
+        "story_pipeline_wave_label": shared.get("story_pipeline_wave_label", ""),
+        "story_pipeline_wave_entered_at": shared.get("story_pipeline_wave_entered_at"),
+        "story_pipeline_events": shared.get("story_pipeline_events") or [],
+    })
 
 
 def _chapter_stream_poll_sync(novel_repo, chapter_repo, novel_id: str):
@@ -834,17 +955,35 @@ def _chapter_stream_poll_sync(novel_repo, chapter_repo, novel_id: str):
     return novel, chapters
 
 
-def _chapter_stream_chunks_sync(novel_id: str, max_chunks: int) -> List[str]:
+def _chapter_stream_chunks_sync(novel_id: str, max_chunks: int) -> Dict[str, Any]:
     from application.engine.services.streaming_bus import streaming_bus
 
     return streaming_bus.get_chunks_batch(novel_id, max_chunks=max_chunks)
 
 
+def _chapter_chunk_sse_metadata(batch: Dict[str, Any], beat_idx: int) -> Optional[Dict[str, Any]]:
+    """将 StreamingBus 批次转为 chapter_chunk SSE metadata（快照优先于增量拼接）。"""
+    snapshot = batch.get("content")
+    if snapshot:
+        return {"content": str(snapshot), "beat_index": beat_idx}
+    deltas = batch.get("deltas") or []
+    if not deltas:
+        return None
+    combined = "".join(deltas)
+    if not combined:
+        return None
+    return {"chunk": combined, "beat_index": beat_idx}
+
+
 def _chapter_stream_tick_sync(novel_repo, chapter_repo, novel_id: str, max_chunks: int):
     """单次轮询：DB 读取 + chunks 获取合并在同一线程池任务中，减少 asyncio.to_thread 调用次数。"""
     novel, chapters = _chapter_stream_poll_sync(novel_repo, chapter_repo, novel_id)
-    chunks = _chapter_stream_chunks_sync(novel_id, max_chunks) if novel else []
-    return novel, chapters, chunks
+    chunk_batch = (
+        _chapter_stream_chunks_sync(novel_id, max_chunks)
+        if novel
+        else {"deltas": [], "content": None}
+    )
+    return novel, chapters, chunk_batch
 
 
 def _autopilot_events_tick_sync(novel_repo, chapter_repo, novel_id: str) -> Tuple[Optional[Dict[str, Any]], bool]:
@@ -878,7 +1017,17 @@ def _autopilot_events_tick_sync(novel_repo, chapter_repo, novel_id: str) -> Tupl
                 "total_words": shared.get("_cached_total_words", 0) or 0,
                 "completed_chapters": shared.get("_cached_completed_chapters", 0) or 0,
                 "current_chapter_number": shared.get("_cached_current_chapter_number"),
+                "active_invocation_session_id": shared.get("active_invocation_session_id", ""),
+                "active_invocation_operation": shared.get("active_invocation_operation", ""),
+                "active_invocation_node_key": shared.get("active_invocation_node_key", ""),
+                "active_invocation_status": shared.get("active_invocation_status", ""),
+                "active_invocation_policy": shared.get("active_invocation_policy", ""),
+                "has_active_invocation": bool(shared.get("has_active_invocation", False)),
+                "requires_ai_review": bool(shared.get("requires_ai_review", False)),
+                "autopilot_pause_reason": shared.get("autopilot_pause_reason", ""),
                 "audit_progress": shared.get("audit_progress"),
+                "audit_aftermath_reused": bool(shared.get("audit_aftermath_reused", False)),
+                "audit_aftermath_rebuilt": bool(shared.get("audit_aftermath_rebuilt", False)),
                 "last_chapter_tension": shared.get("last_chapter_tension", 0) or 0,
             }
             terminal_states = {"stopped", "error", "completed"}
@@ -948,13 +1097,13 @@ def _autopilot_events_tick_sync(novel_repo, chapter_repo, novel_id: str) -> Tupl
         "progress_pct_manuscript": round(ev_in_manuscript / tgt * 100, 1) if tgt else 0,
         "total_words": ev_total_words,
         "target_chapters": novel.target_chapters,
-        "needs_review": _stage_needs_human_review(novel.current_stage.value),
+        "needs_review": stage_needs_human_review(novel.current_stage.value),
         "consecutive_error_count": getattr(novel, "consecutive_error_count", 0),
     }
     terminal_states = {"stopped", "error", "completed"}
     should_break = (
         novel.autopilot_status.value in terminal_states
-        and not _stage_needs_human_review(novel.current_stage.value)
+        and not stage_needs_human_review(novel.current_stage.value)
     )
     return data, should_break
 
@@ -1226,7 +1375,7 @@ async def start_autopilot(novel_id: str, body: StartRequest = StartRequest()):
 
     # ── 第二步：立即写入共享内存（前端立即可见）──
     try:
-        from interfaces.main import update_shared_novel_state
+        from interfaces.runtime_state import update_shared_novel_state
         update_shared_novel_state(novel_id,
             autopilot_status="running",
             current_stage=next_stage,
@@ -1236,6 +1385,15 @@ async def start_autopilot(novel_id: str, body: StartRequest = StartRequest()):
             consecutive_error_count=0,
             target_chapters=resolved_tc,
             target_words_per_chapter=resolved_twpc,
+            needs_review=False,
+            requires_ai_review=False,
+            has_active_invocation=False,
+            active_invocation_session_id="",
+            active_invocation_operation="",
+            active_invocation_node_key="",
+            active_invocation_status="",
+            active_invocation_policy="",
+            autopilot_pause_reason="",
         )
         logger.debug("autopilot start: 已刷新共享内存状态 novel=%s", novel_id)
     except Exception as e:
@@ -1297,7 +1455,7 @@ async def stop_autopilot(novel_id: str):
     # 🔥 幂等保护：检查共享内存状态，已是 stopped 则直接返回
     # 防止前端因响应延迟重复调 /stop 导致日志刷屏和 DB 竞争
     try:
-        from interfaces.main import get_shared_novel_state
+        from interfaces.runtime_state import get_shared_novel_state
         shared = get_shared_novel_state(novel_id)
         if shared and shared.get("autopilot_status") == "stopped":
             logger.debug("autopilot stop: novel_id=%s 已是 stopped，跳过重复停止", novel_id)
@@ -1316,9 +1474,18 @@ async def stop_autopilot(novel_id: str):
     # 🔥 关键修复：立即更新共享内存状态，让 SSE 流能检测到状态变化
     # 否则 SSE 流从共享内存读取时仍看到 running，不会推送 autopilot_complete 事件
     try:
-        from interfaces.main import update_shared_novel_state
+        from interfaces.runtime_state import update_shared_novel_state
         update_shared_novel_state(novel_id,
             autopilot_status="stopped",
+            needs_review=False,
+            requires_ai_review=False,
+            has_active_invocation=False,
+            active_invocation_session_id="",
+            active_invocation_operation="",
+            active_invocation_node_key="",
+            active_invocation_status="",
+            active_invocation_policy="",
+            autopilot_pause_reason="",
         )
         logger.debug("autopilot stop: 已更新共享内存状态 novel=%s", novel_id)
     except Exception as e:
@@ -1383,8 +1550,32 @@ async def resume_from_review(novel_id: str):
         current_stage_str = shared.get("current_stage", "")
         current_act = shared.get("current_act", 0) or 0
 
-        if not _stage_needs_human_review(current_stage_str):
+        if not stage_needs_human_review(current_stage_str):
             raise HTTPException(400, f"当前不在审阅等待状态（当前：{current_stage_str}）")
+
+        shared_status = with_review_gate(
+            {
+                "current_stage": current_stage_str,
+                "needs_review": stage_needs_human_review(current_stage_str),
+                "current_act": current_act,
+                "current_auto_chapters": shared.get("current_auto_chapters", 0),
+                "current_chapter_number": shared.get("current_chapter_number") or shared.get("_cached_current_chapter_number"),
+                "autopilot_pending_macro_plan": shared.get("autopilot_pending_macro_plan"),
+                "macro_structure_ready": shared.get("macro_structure_ready"),
+                "active_invocation_session_id": shared.get("active_invocation_session_id", ""),
+                "active_invocation_operation": shared.get("active_invocation_operation", ""),
+                "active_invocation_node_key": shared.get("active_invocation_node_key", ""),
+                "active_invocation_status": shared.get("active_invocation_status", ""),
+                "active_invocation_policy": shared.get("active_invocation_policy", ""),
+                "has_active_invocation": bool(shared.get("has_active_invocation", False)),
+                "requires_ai_review": bool(shared.get("requires_ai_review", False)),
+                "autopilot_pause_reason": shared.get("autopilot_pause_reason", ""),
+                "writing_substep": shared.get("writing_substep", ""),
+            }
+        )
+        block_reason = resume_block_reason_from_status(shared_status)
+        if block_reason:
+            raise HTTPException(409, block_reason)
     else:
         # 降级路径：共享内存无数据，读 DB（在线程池中）
         def _resume_read_sync():
@@ -1411,7 +1602,7 @@ async def resume_from_review(novel_id: str):
         current_stage_str = novel_data["current_stage"]
         current_act = novel_data["current_act"]
 
-        if not _stage_needs_human_review(current_stage_str):
+        if not stage_needs_human_review(current_stage_str):
             raise HTTPException(400, f"当前不在审阅等待状态（当前：{current_stage_str}）")
 
     # 计算下一阶段
@@ -1419,12 +1610,14 @@ async def resume_from_review(novel_id: str):
         next_stage = NovelStage.WRITING.value
         msg = "已恢复：当前幕已有章节规划，进入正文撰写"
     else:
+        if not _macro_structure_exists(novel_id):
+            raise HTTPException(409, "宏观结构尚未生成，不能继续自动驾驶。请先重新生成并确认结构树。")
         next_stage = NovelStage.ACT_PLANNING.value
         msg = "已恢复：继续幕级规划"
 
     # ── 第二步：立即写入共享内存（前端立即可见）──
     try:
-        from interfaces.main import update_shared_novel_state
+        from interfaces.runtime_state import update_shared_novel_state
         update_shared_novel_state(novel_id,
             autopilot_status="running",
             current_stage=next_stage,
@@ -1592,7 +1785,9 @@ async def autopilot_log_stream(
         for line in replay_lines:
             yield line
 
-        log_file_path = os.getenv("LOG_FILE", "logs/plotpilot.log")
+        from interfaces.api.settings import get_backend_settings
+
+        log_file_path = get_backend_settings().log_file
         file_cursor = await loop.run_in_executor(
             _SSE_THREAD_POOL, _log_stream_file_cursor_init_sync, log_file_path, after_seq
         )
@@ -1763,7 +1958,6 @@ async def autopilot_log_stream(
 
                 current_stage = novel.current_stage.value
                 current_beat = getattr(novel, "current_beat_index", 0) or 0
-                # current_beat 为守护进程 0-based「下一节拍索引」；面向用户统一用 1-based 展示
 
                 # 检测阶段变更（去抖后推送）
                 if first_stage_poll:
@@ -1797,14 +1991,16 @@ async def autopilot_log_stream(
                         stage_pending = None
                         stage_pending_ticks = 0
 
-                # 检测 beat 变更（表示上一个 beat 完成）
+                # 兼容旧运行时：只有共享状态仍明确上报 total_beats 时才广播 beat 事件。
                 act_display = (novel.current_act or 0) + 1
-                if last_beat is not None and current_beat > last_beat:
+                _beat_shared = _get_shared_state_for_novel_cached(novel_id) or {}
+                _total_beats_live = int(_beat_shared.get("total_beats") or 0)
+                if _total_beats_live > 0 and last_beat is not None and current_beat > last_beat:
                     done_1based = int(last_beat) + 1
                     next_1based = int(current_beat) + 1
                     event = {
                         "type": "beat_complete",
-                        "message": f"{chapter_label}第 {act_display} 幕 · 节拍 {done_1based} 已生成完毕",
+                        "message": f"{chapter_label}第 {act_display} 幕 · 片段 {done_1based} 已生成完毕",
                         "timestamp": datetime.now().isoformat(),
                         "metadata": {
                             "beat_index": last_beat,
@@ -1819,7 +2015,7 @@ async def autopilot_log_stream(
                     # 新 beat 开始
                     event = {
                         "type": "beat_start",
-                        "message": f"{chapter_label}第 {act_display} 幕 · 正在生成节拍 {next_1based}",
+                        "message": f"{chapter_label}第 {act_display} 幕 · 正在生成片段 {next_1based}",
                         "timestamp": datetime.now().isoformat(),
                         "metadata": {
                             "beat_index": current_beat,
@@ -1827,6 +2023,9 @@ async def autopilot_log_stream(
                             "act": novel.current_act,
                             "act_display": act_display,
                             "chapter_number": current_chapter_number,
+                            "beat_active_action": _beat_shared.get("beat_active_action", ""),
+                            "beat_emotion_gap": _beat_shared.get("beat_emotion_gap", ""),
+                            "beat_forbidden_drift": _beat_shared.get("beat_forbidden_drift", ""),
                         },
                     }
                     yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
@@ -1907,7 +2106,7 @@ async def autopilot_log_stream(
 
                     # 构建细化的进度消息
                     substep_hint = f" · {writing_substep_label}" if writing_substep_label else ""
-                    beat_progress = f"节拍 {beat_1based}/{total_beats}" if total_beats else f"节拍 {beat_1based}"
+                    beat_progress = f"整章写作（{beat_1based}/{total_beats}）" if total_beats else "整章写作"
                     word_progress = ""
                     if accumulated_words and chapter_target_words:
                         word_pct = min(100, int(accumulated_words / chapter_target_words * 100))
@@ -1945,6 +2144,9 @@ async def autopilot_log_stream(
                             "accumulated_words": int(accumulated_words or 0),
                             "chapter_target_words": int(chapter_target_words or 0),
                             "context_tokens": int(context_tokens or 0),
+                            "beat_active_action": _shared_sub.get("beat_active_action", ""),
+                            "beat_emotion_gap": _shared_sub.get("beat_emotion_gap", ""),
+                            "beat_forbidden_drift": _shared_sub.get("beat_forbidden_drift", ""),
                         },
                     }
                     yield f"data: {json.dumps(progress_event, ensure_ascii=False)}\n\n"
@@ -1978,10 +2180,9 @@ async def autopilot_chapter_stream(novel_id: str):
     """SSE 实时推送正在写作的章节内容（优化版 v2）
 
     推送事件类型：
-    - outline_planning: 章前规划（CPMS 拆节拍）进行中
-    - beats_planned: 章前规划完成，指挥器节拍已就绪
+    - chapter_plan_ready: 章节执行剧本已就绪
     - chapter_chunk: 增量文字片段
-    - chapter_start: 开始撰写正文（首个节拍流式输出前）
+    - chapter_start: 开始整章撰写正文
     - autopilot_stopped: 自动驾驶停止
 
     优化点：
@@ -2005,18 +2206,15 @@ async def autopilot_chapter_stream(novel_id: str):
         yield f"data: {json.dumps(init_event, ensure_ascii=False)}\n\n"
 
         last_chapter_number = None
-        last_outline_planning_key: Optional[str] = None
-        last_beats_planned_key: Optional[str] = None
+        last_chapter_plan_key: Optional[str] = None
         heartbeat_counter = 0
         empty_poll_count = 0
         MAX_EMPTY_POLLS = 24  # 连续空轮询约 12 秒后检查状态
         _PROSE_SUBSTEPS = frozenset(
             {
                 "llm_calling",
-                "soft_landing",
                 "persisting",
                 "continuity_check",
-                "density_supplement",
                 "chapter_persist",
             }
         )
@@ -2034,7 +2232,7 @@ async def autopilot_chapter_stream(novel_id: str):
                     break
                 # 🔥 加超时保护：DB 被锁时 2 秒超时，避免线程池被阻塞线程耗尽
                 try:
-                    novel, chapters, chunks = await asyncio.wait_for(
+                    novel, chapters, chunk_batch = await asyncio.wait_for(
                         loop.run_in_executor(
                             _SSE_THREAD_POOL, _chapter_stream_tick_sync, novel_repo, chapter_repo, novel_id, 50
                         ),
@@ -2043,7 +2241,7 @@ async def autopilot_chapter_stream(novel_id: str):
                 except asyncio.TimeoutError:
                     # DB 被锁时只读 chunks（不碰 DB），前端不会卡死
                     logger.debug("SSE chapter stream tick 超时 novel=%s，跳过 DB", novel_id)
-                    chunks = _chapter_stream_chunks_sync(novel_id, 50)
+                    chunk_batch = _chapter_stream_chunks_sync(novel_id, 50)
                     novel = None
                     # 从共享内存判断是否仍在运行
                     shared = _get_shared_state_for_novel_cached(novel_id)
@@ -2056,20 +2254,16 @@ async def autopilot_chapter_stream(novel_id: str):
                         yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
                         break
                     # 仍然推送 chunks，让前端看到正文流
-                    if chunks:
-                        combined = "".join(chunks)
-                        if combined:
-                            beat_idx = (shared.get("current_beat_index", 0) or 0) if shared else 0
-                            event = {
-                                "type": "chapter_chunk",
-                                "message": "",
-                                "timestamp": datetime.now().isoformat(),
-                                "metadata": {
-                                    "chunk": combined,
-                                    "beat_index": beat_idx,
-                                },
-                            }
-                            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                    beat_idx = (shared.get("current_beat_index", 0) or 0) if shared else 0
+                    chunk_meta = _chapter_chunk_sse_metadata(chunk_batch, beat_idx)
+                    if chunk_meta:
+                        event = {
+                            "type": "chapter_chunk",
+                            "message": "",
+                            "timestamp": datetime.now().isoformat(),
+                            "metadata": chunk_meta,
+                        }
+                        yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
                     await asyncio.sleep(poll_interval if 'poll_interval' in dir() else 0.8)
                     continue
                 if not novel:
@@ -2096,7 +2290,7 @@ async def autopilot_chapter_stream(novel_id: str):
                     break
 
                 # 审阅状态时断开 SSE，避免卡界面
-                if _stage_needs_human_review(novel.current_stage.value):
+                if stage_needs_human_review(novel.current_stage.value):
                     event = {
                         "type": "paused_for_review",
                         "message": "等待审阅确认",
@@ -2111,43 +2305,25 @@ async def autopilot_chapter_stream(novel_id: str):
 
                 if ch_live is not None:
                     ch_n = int(ch_live)
-                    if sub_live == "outline_planning":
-                        op_key = f"op:{ch_n}"
-                        if op_key != last_outline_planning_key:
+                    if sub_live in {"chapter_plan_ready", "outline_planning"}:
+                        op_key = f"plan:{ch_n}:{sub_live}"
+                        if op_key != last_chapter_plan_key:
                             event = {
-                                "type": "outline_planning",
+                                "type": "chapter_plan_ready",
                                 "message": shared_live.get(
-                                    "writing_substep_label", "章前规划 · 划分节拍"
+                                    "writing_substep_label", "章节执行剧本已就绪"
                                 ),
                                 "timestamp": datetime.now().isoformat(),
                                 "metadata": {"chapter_number": ch_n},
                             }
                             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-                            logger.debug("[SSE] outline_planning: 第 %s 章", ch_n)
-                            last_outline_planning_key = op_key
-
-                    planned = shared_live.get("planned_micro_beats") or []
-                    tb = int(shared_live.get("total_beats") or 0)
-                    if planned and tb > 0:
-                        bp_key = f"bp:{ch_n}:{tb}"
-                        if bp_key != last_beats_planned_key:
-                            event = {
-                                "type": "beats_planned",
-                                "message": f"章前规划完成，{tb} 个节拍",
-                                "timestamp": datetime.now().isoformat(),
-                                "metadata": {
-                                    "chapter_number": ch_n,
-                                    "beats": planned,
-                                    "outline_plan_mode": shared_live.get("outline_plan_mode", ""),
-                                    "total_beats": tb,
-                                },
-                            }
-                            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-                            logger.debug("[SSE] beats_planned: 第 %s 章 ×%s", ch_n, tb)
-                            last_beats_planned_key = bp_key
+                            logger.debug("[SSE] chapter_plan_ready: 第 %s 章", ch_n)
+                            last_chapter_plan_key = op_key
 
                 # 正文撰写开始：进入 llm_calling 或已有流式 chunk（不再在 draft 创建时误报「开写」）
-                prose_started = bool(chunks) or sub_live in _PROSE_SUBSTEPS
+                prose_started = bool(
+                    (chunk_batch.get("content") or chunk_batch.get("deltas"))
+                ) or sub_live in _PROSE_SUBSTEPS
                 if novel.current_stage.value == "writing" and prose_started:
                     chapter_number = int(ch_live) if ch_live is not None else None
                     if chapter_number is None and chapters:
@@ -2172,22 +2348,17 @@ async def autopilot_chapter_stream(novel_id: str):
                     if chapter_number is not None:
                         last_chapter_number = chapter_number
 
-                if chunks:
+                if chunk_batch.get("content") or chunk_batch.get("deltas"):
                     empty_poll_count = 0
-                    # 合并小 chunks 为单个事件，减少 SSE 事件数量
-                    combined = "".join(chunks)
-                    if combined:
-                        # 🔥 优先从共享状态读取 beat_index（实时更新），而非 DB
-                        shared = _get_shared_state_for_novel_cached(novel_id)
-                        beat_idx = (shared.get("current_beat_index", 0) or 0) if shared else 0
+                    shared = _get_shared_state_for_novel_cached(novel_id)
+                    beat_idx = (shared.get("current_beat_index", 0) or 0) if shared else 0
+                    chunk_meta = _chapter_chunk_sse_metadata(chunk_batch, beat_idx)
+                    if chunk_meta:
                         event = {
                             "type": "chapter_chunk",
                             "message": "",
                             "timestamp": datetime.now().isoformat(),
-                            "metadata": {
-                                "chunk": combined,
-                                "beat_index": beat_idx,
-                            },
+                            "metadata": chunk_meta,
                         }
                         yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
                 else:
@@ -2369,7 +2540,7 @@ async def debug_thread_pool():
 @router.get("/debug/shared-state")
 async def debug_shared_state(novel_id: str = None):
     """调试：共享内存状态"""
-    from interfaces.main import _get_shared_state
+    from interfaces.runtime_state import _get_shared_state
     import multiprocessing as mp
 
     try:
@@ -2443,7 +2614,7 @@ async def debug_all(novel_id: str = None):
     """调试：综合诊断"""
     import threading
     import sqlite3
-    from interfaces.main import _get_shared_state
+    from interfaces.runtime_state import _get_shared_state
     from application.paths import get_db_path
     from pathlib import Path
 
@@ -2512,4 +2683,3 @@ async def debug_all(novel_id: str = None):
         "novel": novel_info,
         "cache_stats": _SHARED_STATE_CACHE.get_stats(),
     }
-

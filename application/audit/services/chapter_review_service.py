@@ -11,9 +11,7 @@
 
 from typing import List, Dict, Any, Optional, TYPE_CHECKING
 from datetime import datetime
-import json
 import logging
-import os
 
 from domain.novel.entities.chapter import Chapter
 from domain.novel.repositories.chapter_repository import ChapterRepository
@@ -22,8 +20,12 @@ from domain.novel.repositories.timeline_repository import TimelineRepository
 from domain.novel.repositories.storyline_repository import StorylineRepository
 from domain.novel.repositories.foreshadowing_repository import ForeshadowingRepository
 from application.ai.llm_json_extract import parse_llm_json_to_dict
-from domain.ai.services.llm_service import LLMService, GenerationConfig
-from domain.ai.value_objects.prompt import Prompt
+from domain.ai.services.llm_service import LLMService
+from application.ai.trace_context import ensure_trace
+from infrastructure.ai.generation_profiles import generation_config_from_profile
+from infrastructure.ai.llm_environment import LLMEnvironmentSettings
+from infrastructure.ai.prompt_contract import PromptContract
+from infrastructure.ai.prompt_gateway import get_prompt_gateway
 
 if TYPE_CHECKING:
     from infrastructure.ai.chromadb_vector_store import ChromaDBVectorStore
@@ -45,15 +47,6 @@ _REVIEW_PROMPT_KEYS = {
     "storyline": REVIEW_STORYLINE_CONSISTENCY,
     "foreshadowing": REVIEW_FORESHADOWING_USAGE,
     "improvement": REVIEW_IMPROVEMENT_SUGGESTIONS,
-}
-
-# 硬编码回退（仅在 PromptRegistry 不可用时使用）
-_FALLBACK_REVIEW_SYSTEMS = {
-    "character": "你是小说审稿助手，专门检查人物一致性。",
-    "timeline": "你是小说审稿助手，专门检查时间线一致性。",
-    "storyline": "你是小说审稿助手，专门检查故事线连贯性。",
-    "foreshadowing": "你是小说审稿助手，专门检查伏笔使用。",
-    "improvement": "你是小说审稿助手，专门提供改进建议。",
 }
 
 
@@ -114,9 +107,6 @@ class ChapterReviewResult:
 class ChapterReviewService:
     """章节审稿服务"""
 
-    _DEFAULT_MAX_TOKENS = 2048
-    _DEFAULT_TEMPERATURE = 0.3
-
     def __init__(
         self,
         chapter_repo: ChapterRepository,
@@ -135,34 +125,22 @@ class ChapterReviewService:
         self.foreshadowing_repo = foreshadowing_repo
         self.vector_store = vector_store
         self.llm_service = llm_service
-        self.model = model or os.getenv("SYSTEM_MODEL", "")
-
-    # ─── CPMS 提示词获取 ───
+        self.model = model or LLMEnvironmentSettings.from_env().system_model
 
     @staticmethod
-    def _get_review_system(review_type: str) -> str:
-        """获取审稿 system prompt。
-
-        CPMS: 优先从 PromptRegistry 获取（广场可编辑），
-        如果 Registry 不可用则回退到硬编码默认值。
-        """
+    def _render_review_prompt(review_type: str, variables: Dict[str, Any]):
+        """通过 PromptGateway 渲染审稿提示词。"""
         node_key = _REVIEW_PROMPT_KEYS.get(review_type, "")
-        fallback = _FALLBACK_REVIEW_SYSTEMS.get(review_type, "")
-
-        if node_key:
-            try:
-                from infrastructure.ai.prompt_registry import get_prompt_registry
-                registry = get_prompt_registry()
-                system = registry.get_system(node_key)
-                if system:
-                    return system
-            except Exception as exc:
-                logger.debug("PromptRegistry 不可用 (%s): %s", node_key, exc)
-
-        return fallback
+        if not node_key:
+            raise ValueError(f"未知审稿类型: {review_type}")
+        return get_prompt_gateway().render(
+            PromptContract(node_key=node_key, generation_profile="review_json"),
+            variables,
+        ).prompt
 
     async def review_chapter(self, novel_id: str, chapter_number: int) -> ChapterReviewResult:
         """审稿章节"""
+        ensure_trace(novel_id=novel_id, stage="audit.chapter.review", stage_label="章节审稿")
         chapter = self.chapter_repo.get_by_number(novel_id, chapter_number)
         if not chapter:
             raise ValueError(f"Chapter {chapter_number} not found")
@@ -215,8 +193,11 @@ class ChapterReviewService:
         if not cast:
             return issues
 
-        # 提取章节中出现的人物
-        characters_in_chapter = self._extract_characters_from_content(chapter.content)
+        # 从 CastGraph 的姓名/别名集合中识别本章涉及人物，避免空实现导致整个人物一致性检查失效。
+        characters_in_chapter = self._extract_characters_from_content(
+            chapter.content,
+            cast.characters,
+        )
 
         # 使用 LLM 检查人物一致性
         for char_name in characters_in_chapter:
@@ -224,17 +205,17 @@ class ChapterReviewService:
             if not character:
                 continue
 
-            prompt_text = self._build_character_consistency_prompt(
-                character_name=char_name,
-                character_profile=character.to_dict(),
-                chapter_content=chapter.content
+            prompt = self._render_review_prompt(
+                "character",
+                {
+                    "character_name": char_name,
+                    "character_profile": character.to_dict(),
+                    "chapter_content": chapter.content,
+                },
             )
-
-            prompt = Prompt(system=self._get_review_system("character"), user=prompt_text)
-            config = GenerationConfig(
+            config = generation_config_from_profile(
+                "review_json",
                 model=self.model,
-                max_tokens=self._DEFAULT_MAX_TOKENS,
-                temperature=self._DEFAULT_TEMPERATURE
             )
 
             result = await self.llm_service.generate(prompt, config)
@@ -276,17 +257,23 @@ class ChapterReviewService:
 
         # 使用 LLM 检查时间线冲突
         if current_events and previous_events:
-            prompt_text = self._build_timeline_consistency_prompt(
-                current_events=current_events,
-                previous_events=previous_events[-5:],  # 只检查最近5个事件
-                chapter_content=chapter.content
+            current_events_str = "\n".join(
+                f"- {e.description} ({e.time_type})" for e in current_events
             )
-
-            prompt = Prompt(system=self._get_review_system("timeline"), user=prompt_text)
-            config = GenerationConfig(
+            previous_events_str = "\n".join(
+                f"- {e.description} ({e.time_type})" for e in previous_events[-5:]
+            )
+            prompt = self._render_review_prompt(
+                "timeline",
+                {
+                    "current_events": current_events_str,
+                    "previous_events": previous_events_str,
+                    "chapter_content": chapter.content[:1000],
+                },
+            )
+            config = generation_config_from_profile(
+                "review_json",
                 model=self.model,
-                max_tokens=self._DEFAULT_MAX_TOKENS,
-                temperature=self._DEFAULT_TEMPERATURE
             )
 
             result = await self.llm_service.generate(prompt, config)
@@ -322,16 +309,20 @@ class ChapterReviewService:
             return issues
 
         # 使用 LLM 检查故事线连贯性
-        prompt_text = self._build_storyline_consistency_prompt(
-            active_storylines=active_storylines,
-            chapter_content=chapter.content
+        storylines_str = "\n".join(
+            f"- {s.name} ({s.storyline_type}): {s.progress_summary or '无进展摘要'}"
+            for s in active_storylines
         )
-
-        prompt = Prompt(system=self._get_review_system("storyline"), user=prompt_text)
-        config = GenerationConfig(
+        prompt = self._render_review_prompt(
+            "storyline",
+            {
+                "active_storylines": storylines_str,
+                "chapter_content": chapter.content[:1000],
+            },
+        )
+        config = generation_config_from_profile(
+            "review_json",
             model=self.model,
-            max_tokens=self._DEFAULT_MAX_TOKENS,
-            temperature=self._DEFAULT_TEMPERATURE
         )
 
         result = await self.llm_service.generate(prompt, config)
@@ -374,16 +365,20 @@ class ChapterReviewService:
 
         # 使用 LLM 检查伏笔是否被合理使用
         if relevant_foreshadowings:
-            prompt_text = self._build_foreshadowing_usage_prompt(
-                foreshadowings=relevant_foreshadowings,
-                chapter_content=chapter.content
+            foreshadowings_str = "\n".join(
+                f"- {f.get('metadata', {}).get('description', '无描述')}"
+                for f in relevant_foreshadowings
             )
-
-            prompt = Prompt(system=self._get_review_system("foreshadowing"), user=prompt_text)
-            config = GenerationConfig(
+            prompt = self._render_review_prompt(
+                "foreshadowing",
+                {
+                    "foreshadowings": foreshadowings_str,
+                    "chapter_content": chapter.content[:1000],
+                },
+            )
+            config = generation_config_from_profile(
+                "review_json",
                 model=self.model,
-                max_tokens=self._DEFAULT_MAX_TOKENS,
-                temperature=self._DEFAULT_TEMPERATURE
             )
 
             result = await self.llm_service.generate(prompt, config)
@@ -424,13 +419,21 @@ class ChapterReviewService:
 
         # 使用 LLM 生成综合改进建议
         if issues:
-            prompt_text = self._build_improvement_suggestions_prompt(chapter, issues)
-
-            prompt = Prompt(system=self._get_review_system("improvement"), user=prompt_text)
-            config = GenerationConfig(
+            issues_str = "\n".join(
+                f"- [{i.severity}] {i.issue_type}: {i.description}"
+                for i in issues
+            )
+            prompt = self._render_review_prompt(
+                "improvement",
+                {
+                    "chapter_number": chapter.chapter_number,
+                    "chapter_title": chapter.title,
+                    "issues_list": issues_str,
+                },
+            )
+            config = generation_config_from_profile(
+                "review_json",
                 model=self.model,
-                max_tokens=self._DEFAULT_MAX_TOKENS,
-                temperature=self._DEFAULT_TEMPERATURE
             )
 
             result = await self.llm_service.generate(prompt, config)
@@ -458,161 +461,27 @@ class ChapterReviewService:
 
         return max(0.0, base_score)
 
-    def _extract_characters_from_content(self, content: str) -> List[str]:
-        """从内容中提取人物名称（简化实现）"""
-        # TODO: 使用 NER 或 LLM 提取人物名称
-        # 这里先返回空列表，实际应该使用场记分析服务
-        return []
+    def _extract_characters_from_content(self, content: str, characters: List[Any]) -> List[str]:
+        """从已知角色表中识别本章出现的人物名。
 
-    def _build_character_consistency_prompt(
-        self,
-        character_name: str,
-        character_profile: Dict[str, Any],
-        chapter_content: str
-    ) -> str:
-        """构建人物一致性检查提示词"""
-        return f"""请检查以下章节内容中人物"{character_name}"的表现是否与人物设定一致。
-
-人物设定：
-{json.dumps(character_profile, ensure_ascii=False, indent=2)}
-
-章节内容：
-{chapter_content}
-
-请以 JSON 格式返回检查结果：
-{{
-  "inconsistencies": [
-    {{
-      "severity": "critical/warning/suggestion",
-      "description": "不一致的具体描述",
-      "suggestion": "修改建议"
-    }}
-  ]
-}}
-
-如果没有发现不一致，返回空数组。"""
-
-    def _build_timeline_consistency_prompt(
-        self,
-        current_events: List[Any],
-        previous_events: List[Any],
-        chapter_content: str
-    ) -> str:
-        """构建时间线一致性检查提示词"""
-        current_events_str = "\n".join([f"- {e.description} ({e.time_type})" for e in current_events])
-        previous_events_str = "\n".join([f"- {e.description} ({e.time_type})" for e in previous_events])
-
-        return f"""请检查以下章节的时间线是否与之前的事件一致。
-
-当前章节事件：
-{current_events_str}
-
-前置事件：
-{previous_events_str}
-
-章节内容：
-{chapter_content[:1000]}...
-
-请以 JSON 格式返回检查结果：
-{{
-  "conflicts": [
-    {{
-      "severity": "critical/warning",
-      "description": "时间线冲突的具体描述",
-      "suggestion": "修改建议"
-    }}
-  ]
-}}
-
-如果没有发现冲突，返回空数组。"""
-
-    def _build_storyline_consistency_prompt(
-        self,
-        active_storylines: List[Any],
-        chapter_content: str
-    ) -> str:
-        """构建故事线连贯性检查提示词"""
-        storylines_str = "\n".join([
-            f"- {s.name} ({s.storyline_type}): {s.progress_summary or '无进展摘要'}"
-            for s in active_storylines
-        ])
-
-        return f"""请检查以下章节内容是否推进了活跃的故事线，或者是否存在故事线断裂。
-
-活跃故事线：
-{storylines_str}
-
-章节内容：
-{chapter_content[:1000]}...
-
-请以 JSON 格式返回检查结果：
-{{
-  "gaps": [
-    {{
-      "severity": "warning/suggestion",
-      "description": "故事线断裂或未推进的描述",
-      "suggestion": "改进建议"
-    }}
-  ]
-}}
-
-如果故事线连贯，返回空数组。"""
-
-    def _build_foreshadowing_usage_prompt(
-        self,
-        foreshadowings: List[Any],
-        chapter_content: str
-    ) -> str:
-        """构建伏笔使用检查提示词"""
-        foreshadowings_str = "\n".join([
-            f"- {f.get('metadata', {}).get('description', 'No description')}"
-            for f in foreshadowings
-        ])
-
-        return f"""请检查以下章节内容是否错过了使用相关伏笔的机会。
-
-相关伏笔：
-{foreshadowings_str}
-
-章节内容：
-{chapter_content[:1000]}...
-
-请以 JSON 格式返回检查结果：
-{{
-  "missed_opportunities": [
-    {{
-      "description": "错过的伏笔使用机会",
-      "suggestion": "如何使用该伏笔的建议"
-    }}
-  ]
-}}
-
-如果没有错过机会，返回空数组。"""
-
-    def _build_improvement_suggestions_prompt(
-        self,
-        chapter: Chapter,
-        issues: List[ConsistencyIssue]
-    ) -> str:
-        """构建改进建议提示词"""
-        issues_str = "\n".join([
-            f"- [{i.severity}] {i.issue_type}: {i.description}"
-            for i in issues
-        ])
-
-        return f"""基于以下检测到的问题，请提供3-5条具体的改进建议。
-
-章节号：{chapter.chapter_number}
-章节标题：{chapter.title}
-
-检测到的问题：
-{issues_str}
-
-请以 JSON 格式返回：
-{{
-  "suggestions": [
-    "具体的改进建议1",
-    "具体的改进建议2",
-    "具体的改进建议3"
-  ]
-}}"""
+        这里只做确定性抽取：根据 CastGraph 中的 name / aliases 命中正文后返回规范名。
+        需要更复杂的 NER 或 LLM 抽取时，应作为独立 CharacterMentionExtractor 注入，
+        而不是在审稿服务里隐藏本地提示词。
+        """
+        if not content or not characters:
+            return []
+        found: List[str] = []
+        seen: set[str] = set()
+        for character in characters:
+            name = str(getattr(character, "name", "") or "").strip()
+            aliases = [
+                str(alias).strip()
+                for alias in (getattr(character, "aliases", None) or [])
+                if str(alias).strip()
+            ]
+            probes = [name, *aliases]
+            if name and any(probe and probe in content for probe in probes):
+                if name not in seen:
+                    found.append(name)
+                    seen.add(name)
+        return found

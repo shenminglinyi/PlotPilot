@@ -22,17 +22,14 @@
 import { computed } from 'vue'
 import GraphChart from '../charts/GraphChart.vue'
 import type { LocationDTO } from '../../api/bible'
+import { LOCATION_PREVIEW_TYPE_ORDER, getLocationPreviewTypeLabel } from '@/domain/knowledge'
 
 const props = defineProps<{
   locations: LocationDTO[]
 }>()
 
-const typeOrder = ['城市', '区域', '建筑', '势力', '秘境', '其他']
-
 function typeLabel(t: string | undefined): string {
-  if (!t) return '其他'
-  if (typeOrder.includes(t)) return t
-  return t
+  return getLocationPreviewTypeLabel(t)
 }
 
 const categoryLabels = computed(() => {
@@ -41,7 +38,7 @@ const categoryLabels = computed(() => {
     set.add(typeLabel(loc.location_type))
   }
   const arr = [...set]
-  arr.sort((a, b) => typeOrder.indexOf(a) - typeOrder.indexOf(b))
+  arr.sort((a, b) => LOCATION_PREVIEW_TYPE_ORDER.indexOf(a) - LOCATION_PREVIEW_TYPE_ORDER.indexOf(b))
   return arr.length ? arr : ['地点']
 })
 

@@ -26,6 +26,7 @@ from application.reader.schema import (
     ReaderSimulationLlmPayload,
     SingleReaderFeedbackPayload,
 )
+from application.ai.trace_context import ensure_trace
 from application.reader.dtos.reader_feedback_dto import (
     ChapterReaderReportDTO,
     ReaderDimensionScoresDTO,
@@ -120,6 +121,7 @@ class ReaderSimulationService:
         # LLM 调用隔离：网络错误/超时/认证失败等均转为降级报告，
         # 让上层 API 明确感知 LLM 失败而非被通用 500 掩盖。
         try:
+            ensure_trace(novel_id=novel_id, stage="reader.simulation.run", stage_label="读者模拟")
             response = await self._llm_client.generate(prompt)
         except Exception as e:
             logger.error(
@@ -348,10 +350,10 @@ class ReaderSimulationService:
         chapter_number: int,
         reason: str,
     ) -> ChapterReaderReportDTO:
-        """生成空报告（用于异常/降级分支）。
+        """生成空报告（用于异常/错误占位分支）。
 
-        所有降级分支（章节不存在、LLM 失败、JSON 解析失败、Schema 校验失败）
-        均走此入口，标记 is_fallback=True 让 API 层能精准识别并拒绝持久化
+        所有错误分支（章节不存在、LLM 失败、JSON 解析失败、Schema 校验失败）
+        均走此入口，标记 is_error_placeholder=True 让 API 层能精准识别并拒绝持久化
         假数据。
         """
         feedbacks = []
@@ -368,6 +370,6 @@ class ReaderSimulationService:
             feedbacks=feedbacks,
             pacing_verdict=reason,
             analyzed_at=datetime.utcnow(),
-            is_fallback=True,
+            is_error_placeholder=True,
             error_message=reason,
         )

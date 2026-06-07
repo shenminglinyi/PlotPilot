@@ -82,6 +82,10 @@ class NovelDTO:
     auto_approve_mode: bool = False
     locked_genre: str = ""
     locked_world_preset: str = ""
+    locked_story_structure: str = ""
+    locked_pacing_control: str = ""
+    locked_writing_style: str = ""
+    locked_special_requirements: str = ""
     target_words_per_chapter: int = 2500
     generation_prefs: Dict[str, Any] = field(default_factory=dict)
 
@@ -103,10 +107,17 @@ class NovelDTO:
         premise_text = getattr(novel, 'premise', '') or ''
         from application.core.premise_genre_world import parse_genre_world_from_premise
 
-        lg, lw = parse_genre_world_from_premise(premise_text)
-
         _gp = getattr(novel, "generation_prefs", None)
         gp_dict = _gp.to_dict() if _gp is not None and hasattr(_gp, "to_dict") else {}
+        gp_locked_genre = str(gp_dict.get("locked_genre") or "").strip()
+        gp_locked_world_preset = str(gp_dict.get("locked_world_preset") or "").strip()
+        gp_locked_story_structure = str(gp_dict.get("locked_story_structure") or "").strip()
+        gp_locked_pacing_control = str(gp_dict.get("locked_pacing_control") or "").strip()
+        gp_locked_writing_style = str(gp_dict.get("locked_writing_style") or "").strip()
+        gp_locked_special_requirements = str(gp_dict.get("locked_special_requirements") or "").strip()
+        parsed_genre, parsed_world_preset = parse_genre_world_from_premise(premise_text)
+        lg = gp_locked_genre or parsed_genre
+        lw = gp_locked_world_preset or parsed_world_preset
 
         return cls(
             id=novel.novel_id.value,
@@ -122,6 +133,10 @@ class NovelDTO:
             auto_approve_mode=getattr(novel, 'auto_approve_mode', False),
             locked_genre=lg,
             locked_world_preset=lw,
+            locked_story_structure=gp_locked_story_structure,
+            locked_pacing_control=gp_locked_pacing_control,
+            locked_writing_style=gp_locked_writing_style,
+            locked_special_requirements=gp_locked_special_requirements,
             target_words_per_chapter=int(getattr(novel, "target_words_per_chapter", 2500) or 2500),
             generation_prefs=gp_dict,
         )

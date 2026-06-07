@@ -69,13 +69,15 @@ class ChapterAftermathPipeline:
         chapter_repository: Any = None,
         plot_arc_repository: Any = None,
         narrative_event_repository: Any = None,
-        # ★ V8 Feed-forward: 新增仓储
+        # V8 Feed-forward: 新增仓储
         causal_edge_repository: Any = None,
         character_state_repository: Any = None,
         debt_repository: Any = None,
         bible_repository: Any = None,
         unified_checkpoint_service: Any = None,
         prop_lifecycle_syncer: Any = None,
+        evolution_snapshot_service: Any = None,
+        character_narrative_kernel: Any = None,
     ) -> None:
         self._knowledge = knowledge_service
         self._indexing = chapter_indexing_service
@@ -87,13 +89,15 @@ class ChapterAftermathPipeline:
         self._chapter_repository = chapter_repository
         self._plot_arc_repository = plot_arc_repository
         self._narrative_event_repository = narrative_event_repository
-        # ★ V8 Feed-forward: 因果图谱 / 人物状态机 / 叙事债务
+        # V8 Feed-forward: 因果图谱 / 人物状态机 / 叙事债务
         self._causal_edge_repository = causal_edge_repository
         self._character_state_repository = character_state_repository
         self._debt_repository = debt_repository
         self._bible_repository = bible_repository
         self._unified_checkpoint = unified_checkpoint_service
         self._prop_syncer = prop_lifecycle_syncer
+        self._evolution_snapshot_service = evolution_snapshot_service
+        self._character_kernel = character_narrative_kernel
 
     async def run_after_chapter_saved(
         self,
@@ -117,13 +121,26 @@ class ChapterAftermathPipeline:
             "causal_edges_stored": False,
             "character_mutations_stored": False,
             "debt_updated": False,
+            "bridge_extracted": False,
             "guardrail_passed": None,
             "guardrail_score": None,
+            "evolution_snapshot_ok": False,
+            "evolution_snapshot_id": None,
+            "character_reconcile_ok": False,
+            "character_reconcile": None,
         }
 
         if not content or not str(content).strip():
             logger.debug("aftermath 跳过：正文为空 novel=%s ch=%s", novel_id, chapter_number)
             return out
+
+        # 0) 章间衔接锚点。放在统一章后管线里，确保 HTTP 保存、托管连写、
+        # 自动驾驶最终都会产出同一种前章桥段资产。
+        try:
+            await self._extract_chapter_bridge(novel_id, chapter_number, content)
+            out["bridge_extracted"] = True
+        except Exception as e:
+            logger.warning("章节桥段提取失败 novel=%s ch=%s: %s", novel_id, chapter_number, e)
 
         # 1) 叙事 + 向量 + 故事线 + 张力 + 对话 + 因果边 + 人物状态 + 债务
         try:
@@ -157,11 +174,27 @@ class ChapterAftermathPipeline:
             out["causal_edges_stored"] = bool(sync_flags.get("causal_edges_stored"))
             out["character_mutations_stored"] = bool(sync_flags.get("character_mutations_stored"))
             out["debt_updated"] = bool(sync_flags.get("debt_updated"))
-            # 🔥 传递多维张力评分（0-100），供审计流程替代旧式 _score_tension
+            # 传递多维张力评分（0-100），供审计流程替代旧式 _score_tension
             out["tension_composite"] = sync_flags.get("tension_composite")
         except Exception as e:
             logger.warning(
                 "叙事同步/向量失败 novel=%s ch=%s: %s", novel_id, chapter_number, e
+            )
+
+        # 1b) 角色叙事内核对账：cast plan vs 正文，自动投影状态与风险。
+        try:
+            if self._character_kernel:
+                reconcile = self._character_kernel.reconcile_after_chapter(
+                    novel_id,
+                    chapter_number,
+                    content,
+                    None,
+                )
+                out["character_reconcile_ok"] = bool(reconcile.get("checked"))
+                out["character_reconcile"] = reconcile
+        except Exception as e:
+            logger.warning(
+                "角色叙事对账失败 novel=%s ch=%s: %s", novel_id, chapter_number, e
             )
 
         # 2) 文风（落库 chapter_style_scores）
@@ -254,7 +287,65 @@ class ChapterAftermathPipeline:
         except Exception as e:
             logger.warning("自动护栏/溯源失败 novel=%s ch=%s: %s", novel_id, chapter_number, e)
 
-        # 5) 世界线快照 — 章节完成后自动打 CHAPTER checkpoint
+        # 5) 叙事治理层：结构治理报告与严重问题暂停闸门（质量护栏之外的整书治理）
+        try:
+            import asyncio
+
+            from application.governance.service import NarrativeGovernanceService
+            from infrastructure.persistence.database.connection import get_database
+            from infrastructure.persistence.database.sqlite_governance_repository import (
+                SqliteGovernanceRepository,
+            )
+            from infrastructure.persistence.database.sqlite_storyline_repository import (
+                SqliteStorylineRepository,
+            )
+            from interfaces.api.dependencies import get_novel_repository
+
+            db = get_database()
+            governance = NarrativeGovernanceService(
+                SqliteGovernanceRepository(db),
+                get_novel_repository(),
+                SqliteStorylineRepository(db),
+                db,
+            )
+            report = await asyncio.to_thread(
+                governance.commit_chapter,
+                novel_id,
+                chapter_number,
+                content,
+                dict(out),
+            )
+            out["governance_report"] = report.to_dict()
+            out["governance_severity"] = report.severity
+            out["governance_should_pause"] = report.should_pause_autopilot
+        except Exception as e:
+            logger.warning("叙事治理评估失败 novel=%s ch=%s: %s", novel_id, chapter_number, e)
+
+        # 6) 故事演进硬状态快照 — 只消费 evidence，不把 read model 当真源
+        try:
+            if self._evolution_snapshot_service:
+                import asyncio
+                snapshot = await asyncio.to_thread(
+                    self._evolution_snapshot_service.build_after_chapter_saved,
+                    novel_id,
+                    chapter_number,
+                    content,
+                    "main",
+                    dict(out),
+                )
+                out["evolution_snapshot_ok"] = snapshot.status == "active"
+                out["evolution_snapshot_id"] = snapshot.snapshot_id
+                logger.debug(
+                    "[Evolution] snapshot novel=%s ch=%s id=%s status=%s",
+                    novel_id,
+                    chapter_number,
+                    snapshot.snapshot_id,
+                    snapshot.status,
+                )
+        except Exception as e:
+            logger.warning("[Evolution] 快照创建失败（非致命）novel=%s ch=%s: %s", novel_id, chapter_number, e)
+
+        # 7) 世界线快照 — 章节完成后自动打 CHAPTER checkpoint
         try:
             if self._unified_checkpoint:
                 import asyncio
@@ -273,7 +364,7 @@ class ChapterAftermathPipeline:
         except Exception as e:
             logger.warning("[Worldline] 自动 checkpoint 失败（非致命）novel=%s ch=%s: %s", novel_id, chapter_number, e)
 
-        # 6) 道具生命周期同步 — 事件提取、状态机转换、知识库三元组
+        # 8) 道具生命周期同步 — 事件提取、状态机转换、知识库三元组
         try:
             if self._prop_syncer:
                 import asyncio
@@ -306,3 +397,23 @@ class ChapterAftermathPipeline:
             logger.warning("汇流点检查失败（非致命）: %s", _cp_err)
 
         return out
+
+    async def _extract_chapter_bridge(
+        self,
+        novel_id: str,
+        chapter_number: int,
+        content: str,
+    ) -> None:
+        """统一章后桥段提取。
+
+        这是保存后管线的衔接端口，而不是某条写作路径的私有后处理。
+        ChapterBridgeService 的写入是 upsert，重复调用保持幂等。
+        """
+        from application.engine.services.chapter_bridge_service import ChapterBridgeService
+        from application.paths import get_db_path
+
+        svc = ChapterBridgeService(
+            llm_service=self._llm,
+            db_path=str(get_db_path()),
+        )
+        await svc.extract_bridge(novel_id, chapter_number, content)

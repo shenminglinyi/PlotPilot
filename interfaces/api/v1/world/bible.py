@@ -11,22 +11,136 @@ from application.world.services.bible_service import BibleService
 from application.world.services.auto_bible_generator import AutoBibleGenerator
 from application.world.services.auto_knowledge_generator import AutoKnowledgeGenerator
 from application.world.dtos.bible_dto import BibleDTO
+from application.ai_invocation.dtos import InvocationPolicy, InvocationRequest
+from application.ai_invocation.gateway import AIInvocationGateway
+from application.ai_invocation.services import AdoptionCommitService, AdoptionService, AttemptService, InvocationSessionService
+from application.ai_invocation.spec_service import InvocationSpecService
+from application.ai_invocation.variable_hub import VariableResolver, VariableWrite
+from application.world.services.bible_setup_continuation import register_bible_setup_continuations
+from application.world.services.bible_setup_invocation import (
+    BibleSetupPromptAssembler,
+)
+from application.onboarding.setup_stage_definitions import get_onboarding_stage_definition
+from application.core.v1_length_tiers import strip_v1_structure_black_box_hint
 from interfaces.api.dependencies import (
     get_bible_service,
     get_auto_bible_generator,
     get_auto_knowledge_generator
 )
+from interfaces.api.urls import bible_generation_status_url
 from domain.shared.exceptions import EntityNotFoundError
 from application.world.bible_generation_state import (
     clear_bible_generation_state,
     get_bible_generation_state,
     record_bible_generation_failure,
 )
+from application.world.worldbuilding_schema import WORLDBUILDING_DIMENSION_DEFS
 
 logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/bible", tags=["bible"])
+
+
+def _sync_bible_variable_hub(novel_id: str, dto: BibleDTO) -> None:
+    try:
+        from infrastructure.persistence.database.connection import get_database
+        from infrastructure.persistence.database.sqlite_ai_invocation_repository import SqliteVariableHubRepository
+    except Exception:
+        return
+
+    context_key = f"novel_id:{novel_id}"
+    repo = SqliteVariableHubRepository(get_database())
+    characters = [
+        {
+            "id": str(getattr(item, "id", "") or ""),
+            "name": str(getattr(item, "name", "") or ""),
+            "description": str(getattr(item, "description", "") or ""),
+            "gender": str(getattr(item, "gender", "") or ""),
+            "age": str(getattr(item, "age", "") or ""),
+            "appearance": str(getattr(item, "appearance", "") or ""),
+            "personality": str(getattr(item, "personality", "") or ""),
+            "background": str(getattr(item, "background", "") or ""),
+            "core_motivation": str(getattr(item, "core_motivation", "") or ""),
+            "inner_lack": str(getattr(item, "inner_lack", "") or ""),
+            "relationships": list(getattr(item, "relationships", []) or []),
+            "public_profile": str(getattr(item, "public_profile", "") or ""),
+            "hidden_profile": str(getattr(item, "hidden_profile", "") or ""),
+            "reveal_chapter": getattr(item, "reveal_chapter", None),
+            "mental_state": str(getattr(item, "mental_state", "") or "NORMAL"),
+            "mental_state_reason": str(getattr(item, "mental_state_reason", "") or ""),
+            "verbal_tic": str(getattr(item, "verbal_tic", "") or ""),
+            "idle_behavior": str(getattr(item, "idle_behavior", "") or ""),
+            "core_belief": str(getattr(item, "core_belief", "") or ""),
+            "moral_taboos": list(getattr(item, "moral_taboos", []) or []),
+            "voice_profile": dict(getattr(item, "voice_profile", {}) or {}),
+            "active_wounds": list(getattr(item, "active_wounds", []) or []),
+        }
+        for item in (dto.characters or [])
+        if getattr(item, "name", "")
+    ]
+    protagonist = characters[0] if characters else None
+    locations = [
+        {
+            "id": str(getattr(item, "id", "") or ""),
+            "name": str(getattr(item, "name", "") or ""),
+            "description": str(getattr(item, "description", "") or ""),
+            "type": str(getattr(item, "location_type", "") or ""),
+            "location_type": str(getattr(item, "location_type", "") or ""),
+            "parent_id": getattr(item, "parent_id", None),
+        }
+        for item in (dto.locations or [])
+        if getattr(item, "name", "")
+    ]
+    style = str(getattr(dto, "style", "") or "").strip()
+
+    writes = [
+        (
+            "characters.list",
+            characters,
+            "list",
+            "角色列表",
+            "characters",
+        ),
+        (
+            "characters.protagonist",
+            protagonist,
+            "object",
+            "主角",
+            "characters",
+        ),
+        (
+            "locations.list",
+            locations,
+            "list",
+            "地点列表",
+            "locations",
+        ),
+        (
+            "worldbuilding.style",
+            style,
+            "string",
+            "文风公约",
+            "setup",
+        ),
+    ]
+    for key, value, value_type, display_name, stage in writes:
+        if value in (None, "", [], {}):
+            continue
+        repo.set_value(
+            VariableWrite(
+                key=key,
+                value=value,
+                context_key=context_key,
+                source_trace_id="bible_manual_sync",
+                source_node_key="bible_api",
+                lineage={"source": "bible_api_manual_sync"},
+                value_type=value_type,
+                display_name=display_name,
+                scope="global",
+                stage=stage,
+            )
+        )
 
 
 # Request Models
@@ -94,6 +208,13 @@ class CharacterData(BaseModel):
         default_factory=list,
         description="关系列表：字符串或结构化对象",
     )
+    gender: Optional[str] = Field(default=None, description="性别/呈现；省略则保留库中旧值")
+    age: Optional[str] = Field(default=None, description="年龄/年龄段；省略则保留库中旧值")
+    appearance: Optional[str] = Field(default=None, description="外貌锚点；省略则保留库中旧值")
+    personality: Optional[str] = Field(default=None, description="性格底色；省略则保留库中旧值")
+    background: Optional[str] = Field(default=None, description="背景经历；省略则保留库中旧值")
+    core_motivation: Optional[str] = Field(default=None, description="核心驱动力；省略则保留库中旧值")
+    inner_lack: Optional[str] = Field(default=None, description="内在缺口；省略则保留库中旧值")
     mental_state: Optional[str] = Field(
         default=None,
         description="心理状态；省略则保留库中旧值（新角色默认 NORMAL）",
@@ -182,8 +303,15 @@ async def generate_bible(
         knowledge_generator: Knowledge 生成器
 
     Returns:
-        202 Accepted，表示生成任务已启动
+        202 Accepted，表示生成任务已启动；分阶段引导流会改为返回 AI Invocation 审阅会话
     """
+    if stage in _BIBLE_SETUP_NODE_BY_STAGE:
+        return await _create_bible_setup_invocation_response(
+            novel_id=novel_id,
+            stage=stage,
+            bible_generator=bible_generator,
+        )
+
     async def _generate_task():
         logger.info("Bible generation task started for %s, stage=%s", novel_id, stage)
         clear_bible_generation_state(novel_id)
@@ -198,7 +326,7 @@ async def generate_bible(
                 return
 
             # 使用 premise（故事梗概）生成 Bible，如果没有则使用 title
-            premise = novel.premise if novel.premise else novel.title
+            premise = strip_v1_structure_black_box_hint(novel.premise if novel.premise else novel.title)
 
             # 生成 Bible（支持分阶段）
             bible_data = await bible_generator.generate_and_save(
@@ -234,7 +362,7 @@ async def generate_bible(
     return {
         "message": "Bible generation started",
         "novel_id": novel_id,
-        "status_url": f"/api/v1/bible/novels/{novel_id}/bible/status"
+        "status_url": bible_generation_status_url(novel_id),
     }
 
 
@@ -247,56 +375,213 @@ def _sse_fmt(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-def _parse_dimension_json(raw_text: str, dim_key: str) -> dict:
-    """解析 LLM 流式输出的维度 JSON，返回 {field_key: field_value} 字典。"""
-    from application.world.services.auto_bible_generator import (
-        _sanitize_llm_json_output,
-        _repair_json_string,
+_BIBLE_SETUP_NODE_BY_STAGE = {
+    stage: get_onboarding_stage_definition(stage).node_key
+    for stage in ("worldbuilding", "characters", "locations")
+}
+
+
+def _write_variable_if_missing(variable_repo, *, key: str, value, context_key: str, value_type: str, display_name: str, stage: str) -> None:
+    if value in (None, "", [], {}):
+        return
+    if variable_repo.get_value(key, context_key) is not None:
+        return
+    variable_repo.set_value(
+        VariableWrite(
+            key=key,
+            value=value,
+            context_key=context_key,
+            source_trace_id="setup_guide_backfill",
+            source_node_key="novel_setup_guide",
+            lineage={"source": "novel_setup_guide_backfill"},
+            value_type=value_type,
+            display_name=display_name,
+            scope="global",
+            stage=stage,
+        )
     )
 
-    content = _sanitize_llm_json_output(raw_text)
-    if not content:
-        return {}
+def _backfill_bible_setup_variable_hub(*, variable_repo, novel_id: str, novel) -> None:
+    context_key = f"novel_id:{novel_id}"
+    _write_variable_if_missing(
+        variable_repo,
+        key="novel.title",
+        value=str(getattr(novel, "title", "") or "").strip(),
+        context_key=context_key,
+        value_type="string",
+        display_name="名称",
+        stage="setup",
+    )
+    _write_variable_if_missing(
+        variable_repo,
+        key="novel.premise",
+        value=strip_v1_structure_black_box_hint(
+            str(getattr(novel, "premise", "") or getattr(novel, "title", "") or "").strip()
+        ),
+        context_key=context_key,
+        value_type="string",
+        display_name="设定",
+        stage="setup",
+    )
+    _write_variable_if_missing(
+        variable_repo,
+        key="novel.target_chapters",
+        value=int(getattr(novel, "target_chapters", 0) or 0),
+        context_key=context_key,
+        value_type="integer",
+        display_name="章节数量",
+        stage="setup",
+    )
+    _write_variable_if_missing(
+        variable_repo,
+        key="novel.target_words_per_chapter",
+        value=int(getattr(novel, "target_words_per_chapter", 0) or 0),
+        context_key=context_key,
+        value_type="integer",
+        display_name="每章字数",
+        stage="setup",
+    )
+    for key, attr, label in (
+        ("novel.genre_label", "locked_genre", "类型"),
+        ("novel.world_preset", "locked_world_preset", "基调"),
+        ("novel.story_structure", "locked_story_structure", "剧情结构"),
+        ("novel.pacing_control", "locked_pacing_control", "节奏把控"),
+        ("novel.writing_style", "locked_writing_style", "写作风格"),
+        ("novel.special_requirements", "locked_special_requirements", "特殊要求"),
+    ):
+        _write_variable_if_missing(
+            variable_repo,
+            key=key,
+            value=str(getattr(novel, attr, "") or "").strip(),
+            context_key=context_key,
+            value_type="string",
+            display_name=label,
+            stage="setup",
+        )
+    genre_label = str(getattr(novel, "locked_genre", "") or "").strip()
+    if genre_label:
+        parts = [part.strip() for part in genre_label.split("/") if part.strip()]
+        _write_variable_if_missing(
+            variable_repo,
+            key="novel.genre_major",
+            value=parts[0] if parts else "",
+            context_key=context_key,
+            value_type="string",
+            display_name="大类",
+            stage="setup",
+        )
+        _write_variable_if_missing(
+            variable_repo,
+            key="novel.genre_theme",
+            value=" / ".join(parts[1:]) if len(parts) > 1 else "",
+            context_key=context_key,
+            value_type="string",
+            display_name="主题",
+            stage="setup",
+        )
 
-    # 尝试解析 JSON
-    parsed = None
-    for attempt in range(3):
-        try:
-            parsed = json.loads(content)
-            break
-        except (json.JSONDecodeError, ValueError):
-            if attempt == 0:
-                content = _repair_json_string(content)
-            elif attempt == 1:
-                # 尝试提取最外层 JSON 对象
-                start = content.find("{")
-                end = content.rfind("}")
-                if start != -1 and end > start:
-                    content = content[start:end + 1]
-                    content = _repair_json_string(content)
 
-    if not isinstance(parsed, dict):
-        return {}
+async def _create_bible_setup_invocation(
+    *,
+    novel_id: str,
+    stage: str,
+    novel,
+    bible_generator: AutoBibleGenerator,
+) -> dict:
+    """Create an AI Invocation session for a setup-guide Bible stage."""
+    if stage not in _BIBLE_SETUP_NODE_BY_STAGE:
+        raise ValueError(f"unsupported bible setup invocation stage: {stage}")
+    stage_definition = get_onboarding_stage_definition(stage)
+    register_bible_setup_continuations()
+    operation = stage_definition.operation
+    node_key = stage_definition.node_key
+    try:
+        from interfaces.api.v1.engine.ai_invocation_routes import _repositories
+        from infrastructure.persistence.database.connection import get_database
 
-    # LLM 可能多包一层：{"worldbuilding": {dim_key: {...}}} 或单键 {"dim_key": {...}}
-    wb_outer = parsed.get("worldbuilding")
-    if isinstance(wb_outer, dict):
-        wb_inner = wb_outer.get(dim_key)
-        if isinstance(wb_inner, dict):
-            parsed = wb_inner
-    if len(parsed) == 1:
-        lone_k, lone_v = next(iter(parsed.items()))
-        if lone_k == dim_key and isinstance(lone_v, dict):
-            parsed = lone_v
+        stage_definition.contract_ensurer(get_database())
+        repos = _repositories()
+        _backfill_bible_setup_variable_hub(
+            variable_repo=repos["variable_hub"],
+            novel_id=novel_id,
+            novel=novel,
+        )
+    except Exception:
+        logger.exception("Failed to prepare Bible setup Variable Hub contract: stage=%s", stage)
+        from interfaces.api.v1.engine.ai_invocation_routes import _repositories
 
-    # 标准化：只保留字符串字段
-    normalized = {}
-    for k, v in parsed.items():
-        if isinstance(v, str) and v.strip():
-            normalized[k] = v.strip()
-        elif isinstance(v, (list, dict)):
-            normalized[k] = str(v)
-    return normalized
+        repos = _repositories()
+    gateway = AIInvocationGateway(
+        spec_service=InvocationSpecService(repos["spec"]),
+        variable_resolver=VariableResolver(repos["variable_hub"]),
+        prompt_assembler=BibleSetupPromptAssembler(),
+        llm_service=bible_generator.llm_service,
+        session_service=InvocationSessionService(),
+        attempt_service=AttemptService(bible_generator.llm_service),
+        adoption_service=AdoptionService(),
+        commit_service=AdoptionCommitService(variable_hub_repository=repos["variable_hub"]),
+    )
+    result = await gateway.invoke(
+        InvocationRequest(
+            operation=operation,
+            node_key=node_key,
+            variables={},
+            context={"novel_id": novel_id, "stage": stage},
+            policy=InvocationPolicy.FULL_INTERACTIVE,
+            metadata={
+                "source": "novel_setup_guide",
+                "novel_id": novel_id,
+                "stage": stage,
+            },
+        )
+    )
+    from interfaces.api.v1.engine.ai_invocation_routes import (
+        _attempt_payload,
+        _commit_payload,
+        _decision_payload,
+        _next_action,
+        _save_invocation_result,
+        _session_payload,
+    )
+
+    _save_invocation_result(repos, result)
+    return {
+        "session": _session_payload(repos, result.session),
+        "attempt": _attempt_payload(result.attempt),
+        "decision": _decision_payload(result.decision),
+        "commit": _commit_payload(result.commit),
+        "next_action": _next_action(result.session.status),
+    }
+
+
+async def _create_bible_setup_invocation_response(
+    *,
+    novel_id: str,
+    stage: str,
+    bible_generator: AutoBibleGenerator,
+) -> dict:
+    from interfaces.api.dependencies import get_novel_service
+
+    novel_service = get_novel_service()
+    novel = novel_service.get_novel(novel_id)
+    if not novel:
+        raise HTTPException(status_code=404, detail="novel_not_found")
+    payload = await _create_bible_setup_invocation(
+        novel_id=novel_id,
+        stage=stage,
+        novel=novel,
+        bible_generator=bible_generator,
+    )
+    return {
+        "message": "Bible generation requires review",
+        "novel_id": novel_id,
+        "stage": stage,
+        "session": payload.get("session"),
+        "attempt": payload.get("attempt"),
+        "decision": payload.get("decision"),
+        "commit": payload.get("commit"),
+        "next_action": payload.get("next_action", ""),
+    }
 
 
 async def _sse_bible_generator(
@@ -321,7 +606,7 @@ async def _sse_bible_generator(
         if not novel:
             yield _sse_fmt("error", {"message": "小说不存在，无法生成 Bible"})
             return
-        premise = novel.premise if novel.premise else novel.title
+        premise = strip_v1_structure_black_box_hint(novel.premise if novel.premise else novel.title)
     except Exception as e:
         yield _sse_fmt("error", {"message": f"获取小说信息失败: {e}"})
         return
@@ -340,7 +625,7 @@ async def _sse_bible_generator(
 
     try:
         if stage in ("all", "worldbuilding"):
-            # ── 世界观生成（逐维度流式） ──
+            # ── 世界观生成（单次 LLM 流式，五维联动） ──
             yield _sse_fmt("phase", {"phase": "worldbuilding", "message": "AI 正在构建世界观（5维度框架）..."})
             await asyncio.sleep(0)
 
@@ -348,7 +633,23 @@ async def _sse_bible_generator(
             yield _sse_fmt("phase", {"phase": "worldbuilding_style", "message": "正在生成文风公约..."})
             await asyncio.sleep(0)
             try:
-                style_text = await bible_generator._generate_style(premise, novel.target_chapters)
+                style_chunks: list[str] = []
+                async for item in bible_generator._stream_style(premise, novel.target_chapters):
+                    if item.get("type") == "chunk":
+                        chunk_text = item.get("text") or ""
+                        if chunk_text:
+                            style_chunks.append(chunk_text)
+                            yield _sse_fmt("data", {
+                                "type": "style_chunk",
+                                "chunk": chunk_text,
+                            })
+                            await asyncio.sleep(0)
+                    elif item.get("type") == "done":
+                        done_style = item.get("style") or ""
+                        if done_style:
+                            style_chunks = [done_style]
+
+                style_text = "".join(style_chunks).strip()
                 if style_text:
                     yield _sse_fmt("data", {"type": "style", "content": style_text})
                     # 保存文风
@@ -362,10 +663,10 @@ async def _sse_bible_generator(
                     except Exception:
                         pass
             except Exception as e:
-                logger.warning("Style generation failed (non-fatal): %s", e)
+                logger.error("Style generation failed: %s", e)
+                raise RuntimeError(f"文风公约生成失败，已阻塞后续 Bible 流程: {e}") from e
 
-            # 2. 逐维度流式生成世界观（每维度一次 LLM 流式请求，边接收 token 边推送）
-            dim_keys = ["core_rules", "geography", "society", "culture", "daily_life"]
+            # 2. 单次 LLM 流式生成完整五维世界观（维度联动，增量解析各维）
             dim_labels = {
                 "core_rules": "核心法则",
                 "geography": "地理生态",
@@ -373,58 +674,142 @@ async def _sse_bible_generator(
                 "culture": "历史文化",
                 "daily_life": "沉浸感细节",
             }
-            accumulated_wb: dict = {}  # 已生成的维度数据，用于上下文传递
+            accumulated_wb: dict = {}
+            saved_dim_snapshots: dict[str, dict] = {}
+            announced_fields: set[tuple[str, str]] = set()
 
-            for dim_key in dim_keys:
-                dim_label = dim_labels[dim_key]
+            yield _sse_fmt("phase", {
+                "phase": "worldbuilding_streaming",
+                "message": "AI 正在一次性构建五维联动世界观（流式输出）...",
+            })
+            await asyncio.sleep(0)
 
-                # 通知前端"即将生成该维度"
-                yield _sse_fmt("phase", {"phase": f"worldbuilding_{dim_key}", "message": f"正在构建{dim_label}..."})
-                await asyncio.sleep(0)
-
-                # ── 维度级流式：一次 LLM 调用流式输出整个维度 JSON ──
-                # 逐 token 推送 worldbuilding_dim_chunk（前端可逐字看到内容）
-                # 维度完成后推送每个字段的 worldbuilding_field 事件
-                try:
-                    parts: list[str] = []
-                    async for chunk in bible_generator._stream_single_dimension(
-                        premise, novel.target_chapters, dim_key, accumulated_wb,
-                    ):
-                        parts.append(chunk)
-                        # 逐 token 推送 SSE（让前端看到逐字生成）
-                        yield _sse_fmt("data", {
-                            "type": "worldbuilding_dim_chunk",
-                            "dimension": dim_key,
-                            "chunk": chunk,
-                        })
+            try:
+                async for item in bible_generator._stream_worldbuilding_full(
+                    premise, novel.target_chapters,
+                ):
+                    if item["type"] == "chunk":
+                        chunk_text = item.get("text") or ""
+                        if chunk_text:
+                            yield _sse_fmt("data", {
+                                "type": "worldbuilding_chunk",
+                                "chunk": chunk_text,
+                            })
                         await asyncio.sleep(0)
 
-                    full_text = "".join(parts).strip()
-                    dim_data = _parse_dimension_json(full_text, dim_key)
-                except Exception as e:
-                    logger.error("Failed to stream dimension %s: %s", dim_key, e)
-                    dim_data = {}
+                    elif item["type"] == "dimension_start":
+                        dim_key = item.get("key")
+                        if dim_key:
+                            dim_label = dim_labels.get(dim_key, dim_key)
+                            yield _sse_fmt("phase", {
+                                "phase": f"worldbuilding_{dim_key}",
+                                "message": f"{dim_label} 生成中...",
+                            })
+                            await asyncio.sleep(0)
 
-                if dim_data:
-                    accumulated_wb[dim_key] = dim_data
-                    # 逐字段推送完整的字段值（前端更新最终状态）
-                    for field_key, field_value in dim_data.items():
-                        if field_value:
+                    elif item["type"] == "field":
+                        dim_key = item.get("key")
+                        field_key = item.get("field")
+                        field_value = item.get("value")
+                        if dim_key and field_key and field_value:
+                            marker = (dim_key, field_key)
+                            if marker not in announced_fields:
+                                announced_fields.add(marker)
+                                dim_label = dim_labels.get(dim_key, dim_key)
+                                field_label = (
+                                    WORLDBUILDING_DIMENSION_DEFS
+                                    .get(dim_key, {})
+                                    .get("fields", {})
+                                    .get(field_key, field_key)
+                                )
+                                yield _sse_fmt("phase", {
+                                    "phase": f"worldbuilding_{dim_key}",
+                                    "message": f"{dim_label} · {field_label} 已解析",
+                                })
+                            accumulated_wb.setdefault(dim_key, {})[field_key] = field_value
+                            logger.info(
+                                "SSE worldbuilding field send: novel=%s dim=%s field=%s len=%s",
+                                novel_id,
+                                dim_key,
+                                field_key,
+                                len(str(field_value)),
+                            )
                             yield _sse_fmt("data", {
                                 "type": "worldbuilding_field",
                                 "dimension": dim_key,
                                 "field": field_key,
                                 "value": field_value,
                             })
-                            await asyncio.sleep(0.05)
+                            await asyncio.sleep(0.02)
 
-                    # 即时保存该维度到数据库
-                    try:
-                        await bible_generator._save_worldbuilding(novel_id, {dim_key: dim_data})
-                    except Exception as e:
-                        logger.warning("Failed to save dimension %s via SSE: %s", dim_key, e)
+                    elif item["type"] == "dimension":
+                        dim_key = item["key"]
+                        dim_data = item.get("content") or {}
+                        if not dim_data:
+                            continue
+                        accumulated_wb.setdefault(dim_key, {}).update(dim_data)
+                        dim_data = accumulated_wb[dim_key]
+                        dim_label = dim_labels.get(dim_key, dim_key)
 
-                await asyncio.sleep(0.1)  # 给前端渲染数据的时间
+                        yield _sse_fmt("phase", {
+                            "phase": f"worldbuilding_{dim_key}",
+                            "message": f"{dim_label} 已就绪",
+                        })
+                        yield _sse_fmt("data", {
+                            "type": "worldbuilding_dimension",
+                            "dimension": dim_key,
+                            "label": dim_label,
+                            "content": dim_data,
+                        })
+                        logger.info(
+                            "SSE worldbuilding dimension send: novel=%s dim=%s fields=%s",
+                            novel_id,
+                            dim_key,
+                            sorted(dim_data.keys()),
+                        )
+                        if saved_dim_snapshots.get(dim_key) != dim_data:
+                            try:
+                                await bible_generator._save_worldbuilding(
+                                    novel_id, {dim_key: dim_data},
+                                )
+                                saved_dim_snapshots[dim_key] = dict(dim_data)
+                            except Exception as e:
+                                logger.warning(
+                                    "Failed to save dimension %s via SSE: %s", dim_key, e,
+                                )
+                        await asyncio.sleep(0.05)
+
+                    elif item["type"] == "done":
+                        full = item.get("worldbuilding") or {}
+                        for dk, dv in full.items():
+                            if dv:
+                                accumulated_wb.setdefault(dk, {}).update(dv)
+
+            except Exception as e:
+                logger.error("Failed to stream full worldbuilding: %s", e)
+                yield _sse_fmt("error", {
+                    "message": f"世界观生成未完成，已停止后续流程：{e}",
+                })
+                return
+
+            # Field-level streaming can succeed even when the final dimension object
+            # cannot be parsed as strict JSON (common when models emit raw newlines in
+            # long strings). Persist every accumulated dimension here so the UI does not
+            # show freshly generated fields that vanish after reload.
+            for dim_key, dim_data in accumulated_wb.items():
+                if not dim_data or saved_dim_snapshots.get(dim_key) == dim_data:
+                    continue
+                try:
+                    await bible_generator._save_worldbuilding(
+                        novel_id, {dim_key: dim_data},
+                    )
+                    saved_dim_snapshots[dim_key] = dict(dim_data)
+                except Exception as e:
+                    logger.warning(
+                        "Failed to save accumulated dimension %s via SSE finalizer: %s",
+                        dim_key,
+                        e,
+                    )
 
             yield _sse_fmt("phase", {"phase": "worldbuilding_done", "message": "世界观生成完成！"})
 
@@ -463,6 +848,24 @@ async def _sse_bible_generator(
                             name=char_data["name"],
                             description=f"{char_data.get('role', '')} - {char_data.get('description', '')}",
                             relationships=char_data.get("relationships", []),
+                            gender=char_data.get("gender") or "",
+                            age=char_data.get("age") or "",
+                            appearance=char_data.get("appearance") or "",
+                            personality=char_data.get("personality") or char_data.get("flaw") or "",
+                            background=char_data.get("background") or char_data.get("ghost") or "",
+                            core_motivation=char_data.get("core_motivation") or char_data.get("want") or "",
+                            inner_lack=char_data.get("inner_lack") or char_data.get("need") or "",
+                            public_profile=char_data.get("public_profile") or "",
+                            hidden_profile=char_data.get("hidden_profile") or "",
+                            reveal_chapter=char_data.get("reveal_chapter"),
+                            mental_state=char_data.get("mental_state") or "NORMAL",
+                            mental_state_reason=char_data.get("mental_state_reason") or "",
+                            verbal_tic=char_data.get("verbal_tic") or "",
+                            idle_behavior=char_data.get("idle_behavior") or "",
+                            core_belief=char_data.get("core_belief") or "",
+                            moral_taboos=char_data.get("moral_taboos") or [],
+                            voice_profile=char_data.get("voice_profile") or {},
+                            active_wounds=char_data.get("active_wounds") or [],
                         )
                         character_ids.append((character_id, char_data))
                     except Exception:
@@ -535,19 +938,16 @@ async def _sse_bible_generator(
         yield _sse_fmt("phase", {"phase": "knowledge", "message": "正在构建知识库..."})
         await asyncio.sleep(0)
 
-        try:
-            bible = bible_generator.bible_service.get_bible_by_novel(novel_id)
-            if bible:
-                chars = bible.characters or []
-                locs = bible.locations or []
-                char_desc = "、".join(f"{c.name}" for c in chars[:5])
-                loc_desc = "、".join(c.name for c in locs[:3])
-                style_notes = bible.style_notes or []
-                style_text = "；".join(n.content for n in style_notes if n.content)
-                bible_summary = f"主要角色：{char_desc}。重要地点：{loc_desc}。文风：{style_text}。"
-                await knowledge_generator.generate_and_save(novel_id, novel.title, bible_summary)
-        except Exception as e:
-            logger.warning("Knowledge generation failed (non-fatal): %s", e)
+        bible = bible_generator.bible_service.get_bible_by_novel(novel_id)
+        if bible:
+            chars = bible.characters or []
+            locs = bible.locations or []
+            char_desc = "、".join(f"{c.name}" for c in chars[:5])
+            loc_desc = "、".join(c.name for c in locs[:3])
+            style_notes = bible.style_notes or []
+            style_text = "；".join(n.content for n in style_notes if n.content)
+            bible_summary = f"主要角色：{char_desc}。重要地点：{loc_desc}。文风：{style_text}。"
+            await knowledge_generator.generate_and_save(novel_id, novel.title, bible_summary)
 
         clear_bible_generation_state(novel_id)
         yield _sse_fmt("done", {"message": "全部生成完成！", "novel_id": novel_id})
@@ -570,13 +970,13 @@ async def generate_bible_stream(
 ):
     """SSE 流式 Bible 生成接口。
 
-    逐维度逐字段推送生成进度和数据片段，每生成一个字段立即推送，前端可实时渲染。
+    世界观：单次 LLM 流式输出五维 JSON，后端增量解析后只推送
+    worldbuilding_dimension / worldbuilding_field。人物/地点仍为流式 JSON 数组解析。
 
     事件类型：
-    - phase: 阶段变更（init / worldbuilding / worldbuilding_{dim} / worldbuilding_{dim}_{field} / characters / locations / knowledge / *_done）
-    - data: 数据片段（style / worldbuilding_field / character / location）
-    - done: 全部完成
-    - error: 错误
+    - phase: init / worldbuilding_streaming / worldbuilding_{dim} / characters / locations / *_done
+    - data: style / worldbuilding_dimension / worldbuilding_field / character / location
+    - done / error
     """
     return StreamingResponse(
         _sse_bible_generator(novel_id, stage, bible_generator, knowledge_generator),
@@ -869,4 +1269,5 @@ async def bulk_update_bible(
         refresh_narrative_contract_in_shared_state(novel_id)
     except Exception:
         pass
+    _sync_bible_variable_hub(novel_id, dto)
     return dto

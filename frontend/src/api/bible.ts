@@ -13,6 +13,13 @@ export interface CharacterDTO {
   name: string
   description: string
   relationships: BibleRelationshipEntry[]
+  gender?: string
+  age?: string
+  appearance?: string
+  personality?: string
+  background?: string
+  core_motivation?: string
+  inner_lack?: string
   /** AI 生成时的角色定位（主角/配角等）— 后端不持久化此字段，仅从 description 解析 */
   role?: string
   mental_state?: string
@@ -66,6 +73,7 @@ export interface BibleDTO {
   locations: LocationDTO[]
   timeline_notes: TimelineNoteDTO[]
   style_notes: StyleNoteDTO[]
+  style?: string
 }
 
 export interface AddCharacterRequest {
@@ -206,6 +214,15 @@ export type BibleStreamDoneEvent = {
   type: 'done'
   message: string
   novel_id: string
+  invocation_session_id?: string
+}
+
+export type BibleStreamApprovalRequiredEvent = {
+  type: 'approval_required'
+  session_id: string
+  status?: string
+  next_action?: string
+  stage?: string
 }
 
 export type BibleStreamErrorEvent = {
@@ -216,6 +233,7 @@ export type BibleStreamErrorEvent = {
 export type BibleStreamEvent =
   | BibleStreamPhaseEvent
   | BibleStreamDataEvent
+  | BibleStreamApprovalRequiredEvent
   | BibleStreamDoneEvent
   | BibleStreamErrorEvent
 
@@ -229,21 +247,19 @@ export async function consumeBibleGenerateStream(
   handlers: {
     onPhase?: (phase: string, message: string) => void
     onStyle?: (content: string) => void
+    onStyleChunk?: (chunk: string) => void
     onWorldbuildingDimension?: (data: WorldbuildingDimensionData) => void
-    /** 字段级流式回调：每个世界观字段到达时触发 */
+    /** 字段到达时更新 UI（服务端 schema 归一化后的规范键） */
     onWorldbuildingField?: (dimension: string, field: string, value: string) => void
-    /** 字段级 chunk 回调：LLM 逐 token 输出时触发（真正的流式渲染） */
-    onWorldbuildingFieldChunk?: (dimension: string, field: string, chunk: string) => void
-    /** 字段级完成回调：该字段 LLM 流式输出结束 */
-    onWorldbuildingFieldDone?: (dimension: string, field: string, value: string) => void
-    /** 维度级 chunk 回调：LLM 逐 token 输出维度 JSON 时触发 */
-    onWorldbuildingDimChunk?: (dimension: string, chunk: string) => void
+    /** 整包世界观 JSON token（兼容旧服务端；UI 应依赖完整 field/dimension 事件） */
+    onWorldbuildingChunk?: (chunk: string) => void
     onCharacter?: (char: Record<string, unknown>, index: number) => void
     /** 人物生成时 LLM 逐 token chunk（打字效果/进度） */
     onCharacterChunk?: (chunk: string) => void
     onLocation?: (loc: Record<string, unknown>, index: number) => void
     /** 地点生成时 LLM 逐 token chunk（打字效果/进度） */
     onLocationChunk?: (chunk: string) => void
+    onApprovalRequired?: (sessionId: string, status?: string, nextAction?: string, stage?: string) => void
     onDone?: (novelId: string) => void
     onError?: (message: string) => void
     signal?: AbortSignal
@@ -305,28 +321,11 @@ export async function consumeBibleGenerateStream(
           const dataType = String(payload?.type ?? '')
           if (dataType === 'style') {
             handlers.onStyle?.(String(payload?.content ?? ''))
-          } else if (dataType === 'worldbuilding_field_chunk') {
-            // 逐 token 流式 chunk：追加到字段内容
-            handlers.onWorldbuildingFieldChunk?.(
-              String(payload?.dimension ?? ''),
-              String(payload?.field ?? ''),
-              String(payload?.chunk ?? ''),
-            )
-          } else if (dataType === 'worldbuilding_field_done') {
-            // 字段流式输出完成
-            handlers.onWorldbuildingFieldDone?.(
-              String(payload?.dimension ?? ''),
-              String(payload?.field ?? ''),
-              String(payload?.value ?? ''),
-            )
-          } else if (dataType === 'worldbuilding_dim_chunk') {
-            // 维度级流式 chunk：LLM 逐 token 输出维度 JSON
-            handlers.onWorldbuildingDimChunk?.(
-              String(payload?.dimension ?? ''),
-              String(payload?.chunk ?? ''),
-            )
+          } else if (dataType === 'style_chunk') {
+            handlers.onStyleChunk?.(String(payload?.chunk ?? ''))
+          } else if (dataType === 'worldbuilding_chunk') {
+            handlers.onWorldbuildingChunk?.(String(payload?.chunk ?? ''))
           } else if (dataType === 'worldbuilding_field') {
-            // 字段级流式推送：每个字段单独到达
             handlers.onWorldbuildingField?.(
               String(payload?.dimension ?? ''),
               String(payload?.field ?? ''),
@@ -346,6 +345,17 @@ export async function consumeBibleGenerateStream(
             handlers.onLocation?.((payload?.content ?? {}) as Record<string, unknown>, Number(payload?.index ?? 0))
           } else if (dataType === 'location_chunk') {
             handlers.onLocationChunk?.(String(payload?.chunk ?? ''))
+          } else if (dataType === 'approval_required') {
+            const sessionId = String(payload?.session_id ?? '')
+            if (sessionId) {
+              handlers.onApprovalRequired?.(
+                sessionId,
+                typeof payload?.status === 'string' ? payload.status : undefined,
+                typeof payload?.next_action === 'string' ? payload.next_action : undefined,
+                typeof payload?.stage === 'string' ? payload.stage : undefined,
+              )
+            }
+            return true
           }
         } else if (event === 'done') {
           handlers.onDone?.(String(payload?.novel_id ?? novelId))

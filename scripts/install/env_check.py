@@ -3,7 +3,7 @@
 PlotPilot 环境检测与自动修复
 ━━━━━━━━━━━━━━━━━━━━━━
 对小白用户友好的环境自检流程:
-  1. Python 版本检测（≥3.10）
+  1. Python 版本检测（Python 3.14.5 / 3.14 系列）
   2. 虚拟环境 .venv 创建/确认
   3. pip 升级
   4. Node.js / 前端 dist 检测
@@ -15,13 +15,13 @@ PlotPilot 环境检测与自动修复
 import os
 import shutil
 import subprocess
-import re
 
 from theme import OK_C, WARN_C, ERR_C
 from utils import (
     get_proj_dir, get_venv_python, get_log_dir,
     NO_WIN, find_python, check_uvicorn,
-    ensure_embedded_python,
+    ensure_embedded_python, is_preferred_python_version,
+    PREFERRED_PYTHON_LABEL,
 )
 
 
@@ -66,8 +66,8 @@ class EnvChecker:
         """检测 Python，返回 python_path 或 None
 
         优先级:
-          - 内嵌 Python (3.11) → 自动解压自 zip，无需安装
-          - 系统 Python → 需要 >= 3.10
+          - 内嵌 Python 3.14.5 → 自动解压自 zip，无需安装
+          - 系统 Python → 必须是 Python 3.14 系列
         """
         self._prog(8, "正在检测 Python 环境...", "🔍", 0)
         self._log("检测系统 Python 版本...", "title")
@@ -81,7 +81,7 @@ class EnvChecker:
         python_path, ver = find_python()
         if not python_path:
             self._log("未找到 Python！", "error")
-            self._log("请先安装 Python 3.10 或更高版本", "warn")
+            self._log(f"请先安装 {PREFERRED_PYTHON_LABEL}", "warn")
             self._log("安装时务必勾选 [Add to PATH]", "warn")
             self._log("下载地址: https://www.python.org/downloads/", "title")
             return None
@@ -89,23 +89,21 @@ class EnvChecker:
         # ═══ 检查是否为内嵌 Python ═══
         is_embedded = _is_embedded_python(python_path)
         if is_embedded:
-            # 内嵌 Python = 自带 3.11，100% 可信，直接通过！
-            self._log(f"✨ 使用内嵌 Python: {ver}（自带，免安装）", "ok")
-            self._prog(14, f"内嵌 Python 就绪 ({ver})", "✔", 0)
-            return python_path
+            # 内嵌 Python 也必须满足当前项目版本要求，不能再默认接受旧版 3.11。
+            if is_preferred_python_version(ver):
+                self._log(f"✅ 使用内嵌 Python: {ver}", "ok")
+                self._prog(14, f"内嵌 Python 就绪 ({ver})", "✅", 0)
+                return python_path
+            self._log(f"内嵌 Python 版本不是 {PREFERRED_PYTHON_LABEL}: {ver}", "warn")
 
         # ═══ 系统 Python：需要版本校验 ═══
-        major_minor = ver.split(".")[:2]
-        try:
-            maj, min_ = int(major_minor[0]), int(major_minor[1])
-        except (ValueError, IndexError):
-            maj, min_ = 3, 9  # 兜底：无法解析就当它太旧
-
-        MIN_PYTHON = (3, 10)
-        if (maj, min_) < MIN_PYTHON:
-            self._log(f"!!! Python 版本过低: {ver} (需要 >= 3.10)", "error")
+        if not is_preferred_python_version(ver):
+            self._log(
+                f"!!! Python 版本不符合要求: {ver} (需要 {PREFERRED_PYTHON_LABEL} / Python 3.14 系列)",
+                "error",
+            )
             self._show_version_warning(ver)
-            return None  # 拦截！
+            return None
 
         self._log(f"检测到 {ver}", "ok")
         self._prog(14, f"Python 就绪 ({ver})", "✔", 0)
@@ -120,9 +118,9 @@ class EnvChecker:
 
         msg = (
             f"检测到您的 Python 版本过低 ({current_ver})。\n\n"
-            "本项目依赖较新的底层库（PyTorch、Transformers 等），\n"
-            "需要 Python 3.10 或更高版本才能稳定运行。\n\n"
-            "推荐版本: Python 3.11 或 3.12 (64-bit)\n\n"
+            "本项目运行链路已统一到 Python 3.14 系列，\n"
+            f"需要 {PREFERRED_PYTHON_LABEL} 才能稳定运行。\n\n"
+            "推荐版本: Python 3.14.5 (64-bit)\n\n"
             "点击【确定】将为您打开 Python 官网下载页面。"
         )
 
@@ -153,7 +151,7 @@ class EnvChecker:
                 color=ERR_C,
                 content=msg,
                 buttons=[
-                    ("下载 Python 3.11+", _open_download, {"bg": "#e74c3c"}),
+                    ("下载 Python 3.14.5", _open_download, {"bg": "#e74c3c"}),
                     ("强行继续（不推荐）", _try_anyway, {"bg": "#666"}),
                 ],
                 width=420,
@@ -163,7 +161,7 @@ class EnvChecker:
             # tkinter 不可用时的降级方案
             print(f"\n{'='*52}")
             print(f"  [FATAL] Python 版本过低: {current_ver}")
-            print(f"  要求: Python >= 3.10")
+            print(f"  要求: {PREFERRED_PYTHON_LABEL} / Python 3.14 系列")
             print(f"{'='*52}")
             try:
                 webbrowser.open("https://www.python.org/downloads/")
@@ -187,8 +185,24 @@ class EnvChecker:
 
         venv_py = get_venv_python(self.proj_dir)
         if venv_py:
-            self._log("虚拟环境已存在 (.venv)", "ok")
-        else:
+            venv_ver = self._python_version(venv_py)
+            if is_preferred_python_version(venv_ver):
+                self._log(f"虚拟环境已存在 (.venv, {venv_ver})", "ok")
+            else:
+                self._log(
+                    f"虚拟环境版本不是 {PREFERRED_PYTHON_LABEL}: {venv_ver or '无法识别'}，将重新创建",
+                    "warn",
+                )
+                venv_dir = os.path.dirname(os.path.dirname(venv_py))
+                try:
+                    shutil.rmtree(venv_dir)
+                    self._log("旧虚拟环境已移除", "ok")
+                    venv_py = None
+                except Exception as e:
+                    self._log(f"旧虚拟环境移除失败: {e}", "error")
+                    return None
+
+        if not venv_py:
             self._log("正在创建虚拟环境 .venv ...", "title")
             r = subprocess.run(
                 [system_python, "-m", "venv", ".venv"],
@@ -217,6 +231,19 @@ class EnvChecker:
 
         self._prog(23, "虚拟环境就绪", "✔", 1)
         return venv_py
+
+    @staticmethod
+    def _python_version(python_path):
+        """读取指定解释器的版本文本，失败返回 None。"""
+        try:
+            r = subprocess.run(
+                [python_path, "--version"],
+                capture_output=True, text=True, timeout=5,
+                creationflags=NO_WIN,
+            )
+            return (r.stdout + r.stderr).strip() or None
+        except Exception:
+            return None
 
     # ── ③ 依赖检测（仅判断是否需要安装） ───────
     def check_deps(self, venv_py):

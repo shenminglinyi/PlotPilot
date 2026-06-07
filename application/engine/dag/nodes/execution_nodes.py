@@ -21,8 +21,18 @@ from application.engine.dag.models import (
     PromptMode,
 )
 from application.engine.dag.registry import BaseNode, NodeRegistry
+from infrastructure.ai.prompt_keys import (
+    ANTI_AI_ALLOWLIST_EXPLAIN,
+    ANTI_AI_BEHAVIOR_PROTOCOL,
+    ANTI_AI_CHARACTER_STATE_LOCK,
+    AUTOPILOT_STREAM_BEAT as _WORKFLOW_BEAT_NODE_KEY,
+    CHAPTER_GENERATION_MAIN as _WORKFLOW_CHAPTER_GEN_NODE_KEY,
+    MACRO_PLANNING,
+    SCENE_DIRECTOR,
+)
 
 from application.workflows.prose_discipline import build_prose_discipline_block
+from application.engine.services.beat_projection import planned_micro_beats_from_beats
 
 logger = logging.getLogger(__name__)
 
@@ -38,27 +48,6 @@ def _dag_context_builder():
         return None
 
 
-def _serialize_beats_for_state(beats: List[Any]) -> List[Dict[str, Any]]:
-    """Beat 数据类 / dict → 可写入 DAG state / JSON 的 dict 列表。"""
-    out: List[Dict[str, Any]] = []
-    for b in beats or []:
-        if isinstance(b, dict):
-            out.append(dict(b))
-            continue
-        out.append(
-            {
-                "description": getattr(b, "description", "") or "",
-                "target_words": int(getattr(b, "target_words", 0) or 0),
-                "focus": getattr(b, "focus", "") or "",
-                "expansion_hints": list(getattr(b, "expansion_hints", None) or []),
-                "scene_goal": getattr(b, "scene_goal", "") or "",
-                "transition_from_prev": getattr(b, "transition_from_prev", "") or "",
-                "location_id": getattr(b, "location_id", "") or "",
-            }
-        )
-    return out
-
-
 # ─── exec_planning: 规划引擎 ───
 
 
@@ -68,9 +57,9 @@ class PlanningNode(BaseNode):
 
     meta = NodeMeta(
         node_type="exec_planning",
-        display_name="📐 规划引擎",
+        display_name="规划引擎",
         category=NodeCategory.EXECUTION,
-        icon="📐",
+        icon="",
         color="#3b82f6",
         input_ports=[
             NodePort(name="novel_id", data_type=PortDataType.TEXT, required=True),
@@ -80,12 +69,11 @@ class PlanningNode(BaseNode):
             NodePort(name="macro_plan", data_type=PortDataType.TEXT),
             NodePort(name="act_plan", data_type=PortDataType.TEXT),
         ],
-        prompt_template="为以下小说生成宏观规划...",
         prompt_variables=["novel_id", "target_chapters"],
         is_configurable=True,
         can_disable=False,
         default_timeout_seconds=120,
-        cpms_node_key="macro-planning",
+        cpms_node_key=MACRO_PLANNING,
         description="PlanningService.generate_macro_plan",
         default_edges=["exec_beat"],
     )
@@ -124,13 +112,6 @@ class PlanningNode(BaseNode):
 
 # ─── exec_writer: 剧情引擎 ───
 
-# CPMS 提示词节点 key（统一从 prompt_keys 导入）
-from infrastructure.ai.prompt_keys import (
-    CHAPTER_GENERATION_MAIN as _WORKFLOW_CHAPTER_GEN_NODE_KEY,
-    AUTOPILOT_STREAM_BEAT as _WORKFLOW_BEAT_NODE_KEY,
-)
-
-
 @NodeRegistry.register("exec_writer")
 class WriterNode(BaseNode):
     """剧情引擎 — AutoNovelGenerationWorkflow.generate_chapter_stream
@@ -143,9 +124,9 @@ class WriterNode(BaseNode):
 
     meta = NodeMeta(
         node_type="exec_writer",
-        display_name="✍️ 剧情引擎",
+        display_name="剧情引擎",
         category=NodeCategory.EXECUTION,
-        icon="✍️",
+        icon="",
         color="#ef4444",
         input_ports=[
             NodePort(name="context", data_type=PortDataType.TEXT, required=False),
@@ -155,7 +136,7 @@ class WriterNode(BaseNode):
             NodePort(name="foreshadowing_block", data_type=PortDataType.TEXT, required=False),
             NodePort(name="debt_due_block", data_type=PortDataType.TEXT, required=False),
             NodePort(name="fact_lock", data_type=PortDataType.TEXT, required=False),
-            # ★ Anti-AI 子注入点变量槽
+            # Anti-AI 子注入点变量槽
             NodePort(name="behavior_protocol", data_type=PortDataType.TEXT, required=False),
             NodePort(name="character_state_lock", data_type=PortDataType.TEXT, required=False),
             NodePort(name="allowlist_block", data_type=PortDataType.TEXT, required=False),
@@ -165,20 +146,19 @@ class WriterNode(BaseNode):
             NodePort(name="content", data_type=PortDataType.TEXT),
             NodePort(name="word_count", data_type=PortDataType.SCORE),
         ],
-        prompt_template="写作姿态：回忆并讲述这段事；避免写成交差用的说明文。\n\n{{context}}\n{{outline}}\n{{voice_block}}",
         prompt_variables=["context", "outline", "voice_block", "fact_lock", "foreshadowing_block", "behavior_protocol", "character_state_lock", "allowlist_block", "nervous_habits"],
         is_configurable=True,
         can_disable=False,
         default_timeout_seconds=300,
         cpms_node_key=_WORKFLOW_CHAPTER_GEN_NODE_KEY,
-        # ★ CPMS 子提示词自动注入（Anti-AI 层）
+        # CPMS 子提示词自动注入（Anti-AI 层）
         cpms_sub_keys=[
-            CPMSInjectionPoint(cpms_node_key="anti-ai-behavior-protocol", target_variable="behavior_protocol", description="Anti-AI 行为协议 P1-P5+R1-R8"),
-            CPMSInjectionPoint(cpms_node_key="anti-ai-character-state-lock", target_variable="character_state_lock", description="角色状态锁 L4"),
-            CPMSInjectionPoint(cpms_node_key="anti-ai-allowlist-explain", target_variable="allowlist_block", description="场景化白名单 L3"),
+            CPMSInjectionPoint(cpms_node_key=ANTI_AI_BEHAVIOR_PROTOCOL, target_variable="behavior_protocol", description="Anti-AI 行为协议 P1-P5+R1-R8"),
+            CPMSInjectionPoint(cpms_node_key=ANTI_AI_CHARACTER_STATE_LOCK, target_variable="character_state_lock", description="角色状态锁 L4"),
+            CPMSInjectionPoint(cpms_node_key=ANTI_AI_ALLOWLIST_EXPLAIN, target_variable="allowlist_block", description="场景化白名单 L3"),
         ],
         prompt_mode=PromptMode.CPMS_FIRST,
-        description="AutoNovelGenerationWorkflow — Anti-AI 协议化章节生成；全托管时由 ChapterConductor（铺陈/收束/着陆）控节拍，超硬上限时按书目偏好 smart_truncate 或字符硬截断",
+        description="AutoNovelGenerationWorkflow — Anti-AI 协议化章节生成；全托管时由 ChapterConductor（铺陈/收束/着陆）控节拍，不做事后硬截断",
         default_edges=["val_style", "val_tension", "val_anti_ai"],
     )
 
@@ -201,7 +181,7 @@ class WriterNode(BaseNode):
                 "foreshadowing_block": inputs.get("foreshadowing_block", ""),
                 "debt_due_block": inputs.get("debt_due_block", ""),
                 "planning_section": "",
-                # ★ Anti-AI 子注入变量（优先使用上游传来的，缺失时由 cpms_sub_keys 自动拉取）
+                # Anti-AI 子注入变量（优先使用上游传来的，缺失时由 cpms_sub_keys 自动拉取）
                 "behavior_protocol": inputs.get("behavior_protocol", ""),
                 "character_state_lock": inputs.get("character_state_lock", ""),
                 "allowlist_block": inputs.get("allowlist_block", ""),
@@ -214,7 +194,7 @@ class WriterNode(BaseNode):
                 ),
             }
 
-            # ★ 使用 resolve_prompt 统一获取提示词（自动走 CPMS → Config → Meta + 子注入）
+            # 使用 resolve_prompt 统一获取提示词（自动走 CPMS → Config → Meta + 子注入）
             resolved = self.resolve_prompt(variables)
 
             # 调用 LLM 生成
@@ -273,13 +253,13 @@ class WriterNode(BaseNode):
 
 @NodeRegistry.register("exec_beat")
 class BeatNode(BaseNode):
-    """节拍放大器 — 优先消费上游 ``plan_outline`` 的 ``chapter_plan_json``，否则现场构建章前执行计划再投影为 beats。"""
+    """节拍放大器 — 始终先获得 ``ChapterExecutionPlan``，再由 ContextBuilder 投影为 runtime beats。"""
 
     meta = NodeMeta(
         node_type="exec_beat",
-        display_name="🥁 节拍放大器",
+        display_name="节拍放大器",
         category=NodeCategory.EXECUTION,
-        icon="🥁",
+        icon="",
         color="#14b8a6",
         input_ports=[
             NodePort(name="outline", data_type=PortDataType.TEXT, required=True),
@@ -301,19 +281,18 @@ class BeatNode(BaseNode):
                 data_type=PortDataType.JSON,
                 required=False,
                 default=None,
-                description="可选 BeatSheet JSON；无上游 plan 时传入 build_chapter_execution_plan_async",
+                description="可选 BeatSheet JSON；仅作为 ChapterExecutionPlan 构建输入，不直接投影为 runtime beats",
             ),
         ],
         output_ports=[
             NodePort(name="beats", data_type=PortDataType.LIST),
         ],
-        prompt_template="将以下大纲拆分为详细节拍...",
         prompt_variables=["outline"],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=60,
         cpms_node_key=_WORKFLOW_BEAT_NODE_KEY,
-        description="承接 plan_outline 的 chapter_plan_json → ContextBuilder 投影为 beats；缺失时再调用 build_chapter_execution_plan_async",
+        description="承接 plan_outline 的 chapter_plan_json；缺失时构建 ChapterExecutionPlan，再统一投影为 beats",
         default_edges=["exec_writer"],
     )
 
@@ -364,12 +343,12 @@ class BeatNode(BaseNode):
             try:
                 from application.engine.dag.plan.outline_beat_planner import (
                     build_chapter_execution_plan_async,
+                    build_chapter_execution_plan_sync,
                 )
 
                 builder = _dag_context_builder()
                 if builder:
-                    use_upstream = chapter_plan is not None and bool(chapter_plan.atoms)
-                    if not use_upstream:
+                    if not (chapter_plan is not None and bool(chapter_plan.atoms)):
                         try:
                             chapter_plan = await build_chapter_execution_plan_async(
                                 outline,
@@ -380,24 +359,28 @@ class BeatNode(BaseNode):
                                 use_llm=True,
                             )
                         except Exception as plan_err:
-                            logger.warning("章前执行计划（exec_beat）失败：%s", plan_err)
-                            chapter_plan = None
+                            logger.warning("章前执行计划（exec_beat）异步构建失败，转同步 ChapterExecutionPlan：%s", plan_err)
+                            chapter_plan = build_chapter_execution_plan_sync(
+                                outline,
+                                target_chapter_words=tw,
+                                novel_id=str(nid) if nid else None,
+                                chapter_number=chap,
+                                beat_sheet_json=beat_sheet_json,
+                                decomposition_label="dag_exec_beat_sync_fallback",
+                            )
 
-                    use_plan = chapter_plan is not None and bool(chapter_plan.atoms)
                     beats_raw = builder.magnify_outline_to_beats(
                         chap,
                         outline,
                         target_chapter_words=tw,
-                        chapter_execution_plan=chapter_plan if use_plan else None,
+                        chapter_execution_plan=chapter_plan,
                         beat_sheet=None,
                     )
-                    beats_out = _serialize_beats_for_state(beats_raw)
+                    beats_out = planned_micro_beats_from_beats(beats_raw)
                 elif outline:
-                    beats_out = [{"description": outline, "target_words": tw, "focus": "pacing"}]
+                    logger.warning("exec_beat: ContextBuilder 不可用，无法从 ChapterExecutionPlan 投影 beats")
             except Exception as e:
                 logger.warning(f"ContextBuilder.magnify_outline_to_beats 调用失败: {e}")
-                if outline:
-                    beats_out = [{"description": outline, "target_words": 800, "focus": "pacing"}]
 
             return NodeResult(
                 outputs={"beats": beats_out},
@@ -420,9 +403,9 @@ class SceneNode(BaseNode):
 
     meta = NodeMeta(
         node_type="exec_scene",
-        display_name="🎬 场景导演",
+        display_name="场景导演",
         category=NodeCategory.EXECUTION,
-        icon="🎬",
+        icon="",
         color="#a855f7",
         input_ports=[
             NodePort(name="content", data_type=PortDataType.TEXT, required=False),
@@ -431,12 +414,11 @@ class SceneNode(BaseNode):
         output_ports=[
             NodePort(name="scene_analysis", data_type=PortDataType.JSON),
         ],
-        prompt_template="分析以下章节大纲的场景信息...",
         prompt_variables=["outline"],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=60,
-        cpms_node_key="scene-director",
+        cpms_node_key=SCENE_DIRECTOR,
         description="SceneDirectorService 场景分析",
         default_edges=["exec_beat"],
     )

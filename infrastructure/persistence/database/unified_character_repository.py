@@ -16,6 +16,13 @@ def _row_to_character(row) -> Character:
         novel_id=d["novel_id"],
         name=d["name"],
         description=d.get("description", ""),
+        gender=d.get("gender", ""),
+        age=d.get("age", ""),
+        appearance=d.get("appearance", ""),
+        personality=d.get("personality", ""),
+        background=d.get("background", ""),
+        core_motivation=d.get("core_motivation", ""),
+        inner_lack=d.get("inner_lack", ""),
         public_profile=d.get("public_profile", ""),
         hidden_profile=d.get("hidden_profile", ""),
         reveal_chapter=d.get("reveal_chapter"),
@@ -61,17 +68,24 @@ class SqliteUnifiedCharacterRepository(CharacterRepository):
         self._db.execute(
             """INSERT INTO unified_characters (
                 id, novel_id, name, description, public_profile, hidden_profile,
-                reveal_chapter, role, faction_id,
+                reveal_chapter, gender, age, appearance, personality, background,
+                core_motivation, inner_lack, role, faction_id,
                 verbal_tic, idle_behavior, voice_style, sentence_pattern, speech_tempo,
                 core_belief, moral_taboos_json, active_wounds_json,
                 mental_state, mental_state_reason,
                 emotional_arc_json, current_state_summary, last_updated_chapter,
                 created_at, updated_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(id) DO UPDATE SET
                 name=excluded.name, description=excluded.description,
                 public_profile=excluded.public_profile, hidden_profile=excluded.hidden_profile,
-                reveal_chapter=excluded.reveal_chapter, role=excluded.role,
+                reveal_chapter=excluded.reveal_chapter,
+                gender=excluded.gender, age=excluded.age,
+                appearance=excluded.appearance, personality=excluded.personality,
+                background=excluded.background,
+                core_motivation=excluded.core_motivation,
+                inner_lack=excluded.inner_lack,
+                role=excluded.role,
                 faction_id=excluded.faction_id,
                 verbal_tic=excluded.verbal_tic, idle_behavior=excluded.idle_behavior,
                 voice_style=excluded.voice_style, sentence_pattern=excluded.sentence_pattern,
@@ -87,7 +101,10 @@ class SqliteUnifiedCharacterRepository(CharacterRepository):
             (
                 character.id.value, character.novel_id, character.name,
                 character.description, character.public_profile, character.hidden_profile,
-                character.reveal_chapter, character.role, character.faction_id,
+                character.reveal_chapter, character.gender, character.age,
+                character.appearance, character.personality, character.background,
+                character.core_motivation, character.inner_lack,
+                character.role, character.faction_id,
                 character.verbal_tic, character.idle_behavior, character.voice_style,
                 character.sentence_pattern, character.speech_tempo, character.core_belief,
                 json.dumps(character.moral_taboos, ensure_ascii=False),

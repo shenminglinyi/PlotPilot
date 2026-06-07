@@ -1,51 +1,75 @@
-"""prompt_packages / prompt_seed 加载与规范化单测。"""
 from __future__ import annotations
 
-from pathlib import Path
-
-import pytest
-
-from infrastructure.ai.prompt_seed.loader import PACKAGES_ROOT, load_seed_bundle, load_node_dir
-from infrastructure.ai.prompt_seed.normalize import normalize_prompt_record
+from infrastructure.ai.prompt_seed.loader import _minimal_yaml_load
 
 
-def test_normalize_merges_underscore_fields_into_variables():
-    raw = {
-        "id": "test-node",
-        "variables": [{"name": "x", "type": "string"}],
-        "_directives": {"OPENING": "hello"},
-    }
-    n = normalize_prompt_record(raw)
-    names = {v.get("name") for v in n["variables"]}
-    assert "_directives" in names
-    assert "x" in names
-
-
-def test_load_seed_bundle_non_empty():
-    meta, prompts = load_seed_bundle()
-    assert meta.get("version")
-    assert len(prompts) >= 1
-    ids = {p.get("id") for p in prompts}
-    assert "chapter-generation-main" in ids
-
-
-def test_load_node_dir_roundtrip(tmp_path: Path):
-    nd = tmp_path / "my-node"
-    nd.mkdir()
-    (nd / "package.yaml").write_text(
-        "id: my-node\nname: T\ncategory: generation\ntags: []\nvariables: []\n",
-        encoding="utf-8",
+def test_minimal_yaml_load_parses_bundle_meta_subset():
+    data = _minimal_yaml_load(
+        """
+version: 5.3.6-variable-center-final
+name: PlotPilot 内置
+author: PlotPilot Team
+engine: jinja2
+changelog: 'v5.3.6: sync prompt package'
+"""
     )
-    (nd / "system.md").write_text("SYS", encoding="utf-8")
-    (nd / "user.md").write_text("USR", encoding="utf-8")
-    rec = load_node_dir(nd)
-    assert rec["system"] == "SYS"
-    assert rec["user_template"] == "USR"
-    norm = normalize_prompt_record(rec)
-    assert norm["id"] == "my-node"
+
+    assert data == {
+        "version": "5.3.6-variable-center-final",
+        "name": "PlotPilot 内置",
+        "author": "PlotPilot Team",
+        "engine": "jinja2",
+        "changelog": "v5.3.6: sync prompt package",
+    }
 
 
-@pytest.mark.skipif(not (PACKAGES_ROOT / "nodes").is_dir(), reason="no prompt_packages")
-def test_lifecycle_extras_present():
-    ex = PACKAGES_ROOT / "nodes" / "lifecycle-phase-directives" / "extras.json"
-    assert ex.is_file(), "lifecycle 节点应含 extras.json（_directives）"
+def test_minimal_yaml_load_parses_package_yaml_subset():
+    data = _minimal_yaml_load(
+        """
+name: Plot outline planning
+category: planning
+builtin: true
+tags:
+- planning
+- plot-outline
+output_format: json
+variables:
+- name: novel.title
+  desc: Novel title
+  type: string
+- name: novel.target_chapters
+  desc: Target chapter count
+  type: integer
+id: planning-plot-outline
+sort_order: 24
+"""
+    )
+
+    assert data["name"] == "Plot outline planning"
+    assert data["builtin"] is True
+    assert data["tags"] == ["planning", "plot-outline"]
+    assert data["sort_order"] == 24
+    assert data["variables"] == [
+        {"name": "novel.title", "desc": "Novel title", "type": "string"},
+        {"name": "novel.target_chapters", "desc": "Target chapter count", "type": "integer"},
+    ]
+
+
+def test_minimal_yaml_load_parses_folded_multiline_scalar():
+    data = _minimal_yaml_load(
+        """
+variables:
+- name: fact_lock
+  desc: V6 记忆引擎：FACT_LOCK + COMPLETED_BEATS 组合文本块（由 MemoryEngine
+    动态生成）
+  type: string
+"""
+    )
+
+    assert data["variables"] == [
+        {
+            "name": "fact_lock",
+            "desc": "V6 记忆引擎：FACT_LOCK + COMPLETED_BEATS 组合文本块（由 MemoryEngine 动态生成）",
+            "type": "string",
+        }
+    ]

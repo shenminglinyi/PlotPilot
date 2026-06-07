@@ -257,6 +257,8 @@ import {
   type LLMRuntimeSummary,
   type ModelItem,
 } from '../../api/llmControl'
+import { readStorageJson, writeStorageJson } from '@/utils/storage'
+import { formatApiError } from '../../utils/apiError'
 
 interface Props {
   scrollStateKey?: string
@@ -347,18 +349,8 @@ async function handleFetchModels() {
     } else {
       message.warning('未获取到可用模型列表')
     }
-  } catch (error) {
-    const ax = error as { response?: { data?: { detail?: unknown } }; message?: string }
-    let detail = ''
-    const d = ax?.response?.data?.detail
-    if (typeof d === 'string' && d.trim()) {
-      detail = d.trim()
-    } else if (Array.isArray(d)) {
-      detail = d.map((x: { msg?: string }) => (typeof x?.msg === 'string' ? x.msg : JSON.stringify(x))).join('; ')
-    }
-    if (!detail && ax?.message) detail = ax.message
-    if (!detail) detail = '拉取失败'
-    message.error(`模型列表拉取失败：${detail}`)
+  } catch (error: unknown) {
+    message.error(`模型列表拉取失败：${formatApiError(error, '拉取失败')}`)
   } finally {
     fetchingModels.value = false
   }
@@ -371,12 +363,7 @@ function getUiStateStorageKey(): string {
 function readUiState(): PanelUiState {
   const key = getUiStateStorageKey()
   if (!key) return {}
-  try {
-    const raw = sessionStorage.getItem(key)
-    return raw ? (JSON.parse(raw) as PanelUiState) : {}
-  } catch {
-    return {}
-  }
+  return readStorageJson<PanelUiState>(key, {}, 'session')
 }
 
 function saveUiState() {
@@ -387,7 +374,7 @@ function saveUiState() {
     editorTop: editorRef.value?.scrollTop || 0,
     sidebarTop: sidebarListRef.value?.scrollTop || 0,
   }
-  sessionStorage.setItem(key, JSON.stringify(payload))
+  writeStorageJson(key, payload, 'session')
 }
 
 function restoreUiState() {

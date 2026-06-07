@@ -26,8 +26,8 @@ class SqliteChapterRepository(ChapterRepository):
         sql = """
             INSERT INTO chapters (id, novel_id, number, title, content, outline, status,
                                   tension_score, plot_tension, emotional_tension, pacing_tension,
-                                  created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                  generation_hint, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 title = excluded.title,
                 content = excluded.content,
@@ -37,6 +37,7 @@ class SqliteChapterRepository(ChapterRepository):
                 plot_tension = excluded.plot_tension,
                 emotional_tension = excluded.emotional_tension,
                 pacing_tension = excluded.pacing_tension,
+                generation_hint = excluded.generation_hint,
                 updated_at = excluded.updated_at
         """
         now = datetime.utcnow().isoformat()
@@ -49,12 +50,13 @@ class SqliteChapterRepository(ChapterRepository):
             chapter.number,
             chapter.title,
             chapter.content,
-            chapter.outline,  # 使用实体的 outline 字段
+            chapter.outline,
             status,
             chapter.tension_score,
             chapter.plot_tension,
             chapter.emotional_tension,
             chapter.pacing_tension,
+            getattr(chapter, 'generation_hint', ''),
             now,
             now
         ))
@@ -616,4 +618,5 @@ class SqliteChapterRepository(ChapterRepository):
             plot_tension=row.get('plot_tension', 50.0),
             emotional_tension=row.get('emotional_tension', 50.0),
             pacing_tension=row.get('pacing_tension', 50.0),
+            generation_hint=row.get('generation_hint', '') or '',
         )

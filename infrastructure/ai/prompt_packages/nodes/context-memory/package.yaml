@@ -1,0 +1,20 @@
+name: 记忆事实锁
+category: generation
+source: application/engine/dag/nodes/context_nodes.py::MemoryNode
+description: 整理跨章节事实锁、实体状态和不可违背的连续性约束
+builtin: true
+tags:
+- DAG
+- 记忆
+output_format: text
+variables:
+- name: novel_id
+  desc: 小说 ID
+  type: string
+  required: false
+- name: chapter_number
+  desc: 章节编号
+  type: integer
+  required: false
+id: context-memory
+sort_order: 103

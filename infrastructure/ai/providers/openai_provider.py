@@ -74,7 +74,7 @@ class OpenAIProvider(BaseProvider):
             if use_responses:
                 try:
                     return await self._generate_via_responses(prompt, config)
-                except (openai.NotFoundError, openai.BadRequestError, RuntimeError) as e:
+                except (openai.NotFoundError, openai.BadRequestError) as e:
                     logger.info(f"Responses API unsupported for {base_url}, falling back to chat completions: {str(e)}")
                     self.__class__._fallback_to_chat_cache.add(base_url)
                 except Exception as e:
@@ -88,6 +88,8 @@ class OpenAIProvider(BaseProvider):
             # 使用降级的 Chat Completions API
             return await self._generate_via_chat(prompt, config)
         except RuntimeError:
+            raise
+        except ValueError:
             raise
         except Exception as e:
             raise RuntimeError(f"Failed to generate text: {str(e)}") from e
@@ -291,10 +293,17 @@ class OpenAIProvider(BaseProvider):
         """原生 Responses stream 解析封装"""
         try:
             event_type = getattr(chunk, "type", "")
-            if event_type == "response.content_part.added":
+            if event_type == "response.output_text.delta":
+                delta = getattr(chunk, "delta", None)
+                if isinstance(delta, str):
+                    return delta
+            elif event_type in ("response.content_part.added", "response.content_part.delta"):
                 part = getattr(chunk, "part", None)
                 if part and getattr(part, "type", "") == "text":
                     return getattr(part, "text", "")
+                delta = getattr(chunk, "delta", None)
+                if isinstance(delta, str):
+                    return delta
             elif event_type == "message.delta":
                 delta = getattr(chunk, "delta", None)
                 if delta:

@@ -56,8 +56,8 @@
         </n-button>
       </p>
       <p v-if="status && planExpanded" class="ap-plan-detail">
-        写满目标章即停；节拍按每章字数拆分。流式字数可能暂时高于章目标，节拍末会收束再落稿。
-        进度条、幕/章/节拍与阶段标签可能短暂不同步，以守护进程状态为准。
+        写满目标章即停；导演剧本按章节大纲生成，正文按剧本一次撰写。流式字数可能暂时高于章目标。
+        进度条、幕/章与阶段标签可能短暂不同步，以守护进程状态为准。
       </p>
     </section>
 
@@ -85,17 +85,25 @@
         <span class="ap-kpi__label">总字数</span>
         <span class="ap-kpi__value">{{ formatWords(status.total_words) }}</span>
       </article>
-      <article class="ap-kpi">
+      <article class="ap-kpi ap-kpi--location">
         <span class="ap-kpi__label">当前位置</span>
-        <span class="ap-kpi__value ap-kpi__value--wrap">
-          第 {{ (status.current_act || 0) + 1 }} 幕
-          <template v-if="status.current_act_title">
-            <span class="ap-kpi__act">{{ status.current_act_title }}</span>
-          </template>
-          <template v-if="status.current_chapter_number != null && isWriting">
-            · 第 {{ status.current_chapter_number }} 章
-          </template>
-          <span v-if="isWriting" class="ap-kpi__muted">· {{ beatLabel }}</span>
+        <span class="ap-location">
+          <span class="ap-location__meta">第 {{ (status.current_act || 0) + 1 }} 幕</span>
+          <span class="ap-location__title">{{ status.current_act_title || '当前幕' }}</span>
+          <!-- 规划阶段：显示阶段标签 -->
+          <span class="ap-location__trail">
+            <span v-if="!isWriting && status.current_stage === 'act_planning'" class="ap-location__chip">
+              幕级规划
+            </span>
+            <span v-else-if="!isWriting && status.current_stage === 'macro_planning'" class="ap-location__chip">
+              宏观规划
+            </span>
+            <!-- 撰写阶段：只有 writing_substep 激活后才显示章/阶段，避免展示上一章的残留状态 -->
+            <span v-if="isWriting && status.current_chapter_number != null && status.writing_substep" class="ap-location__chip ap-location__chip--strong">
+              第 {{ status.current_chapter_number }} 章
+            </span>
+            <span v-if="isWriting && stageIndicator" class="ap-location__chip">{{ stageIndicator }}</span>
+          </span>
         </span>
       </article>
       <article class="ap-kpi">
@@ -118,7 +126,7 @@
     </section>
 
     <section
-      v-if="isRunning && writingSubstepDetail"
+      v-if="telemetryVisible"
       class="ap-telemetry"
       aria-label="实时子步骤"
     >
@@ -127,18 +135,6 @@
         <span class="substep-badge" :class="substepBadgeClass">{{ writingSubstepDetail.substepLabel }}</span>
       </header>
       <div class="ap-telemetry__grid">
-        <div v-if="writingSubstepDetail.totalBeats > 0" class="ap-telemetry__item">
-          <span class="ap-telemetry__key">节拍</span>
-          <span class="ap-telemetry__val">
-            {{ writingSubstepDetail.beatIndex }}/{{ writingSubstepDetail.totalBeats }}
-          </span>
-          <div class="ap-meter">
-            <div
-              class="ap-meter__fill ap-meter__fill--beat"
-              :style="{ width: writingSubstepDetail.beatPct + '%' }"
-            />
-          </div>
-        </div>
         <div v-if="writingSubstepDetail.accumulatedWords > 0" class="ap-telemetry__item">
           <span class="ap-telemetry__key">本章字数</span>
           <span class="ap-telemetry__val">
@@ -152,16 +148,24 @@
             />
           </div>
         </div>
-        <div v-if="writingSubstepDetail.beatFocus" class="ap-telemetry__item ap-telemetry__item--wide">
-          <span class="ap-telemetry__key">焦点</span>
-          <span class="ap-telemetry__val ap-telemetry__val--focus">{{ writingSubstepDetail.beatFocus }}</span>
-        </div>
         <div v-if="writingSubstepDetail.contextTokens > 0" class="ap-telemetry__item">
           <span class="ap-telemetry__key">上下文</span>
           <span class="ap-telemetry__val">{{ writingSubstepDetail.contextTokens }} tokens</span>
         </div>
       </div>
     </section>
+
+    <StoryPipelineObservability
+      v-if="storyPipelineObsVisible"
+      :status="status"
+      :aftermath-only="storyPipelineAftermathOnly"
+    />
+
+    <AuditPipelineObservability
+      v-if="auditPipelineObsVisible"
+      :status="status"
+    />
+
     <!-- 单本挂起 / 失败计数过高 -->
     <n-alert v-if="needsRecovery" type="error" :show-icon="true" class="ap-inline-alert">
       <div class="recovery-hint">
@@ -187,29 +191,41 @@
     </n-alert>
 
     <!-- 审阅等待 -->
-    <n-alert v-if="needsReview" type="warning" :show-icon="true" class="ap-inline-alert">
+    <n-alert v-if="showReviewGate" :type="reviewGateAlertType" :show-icon="true" class="ap-inline-alert">
       <div class="ap-review-alert">
         <span>
-          <strong>待审阅确认</strong>：请在侧栏查看刚生成的大纲或结构树，核对无误后点击按钮继续。
+          <strong>{{ reviewGateTitle }}</strong>：{{ reviewGateMessage }}
         </span>
-        <n-button type="warning" size="small" :loading="toggling" @click="resume">
-          确认大纲，继续写作
+        <n-button
+          v-if="reviewGateNeedsAIPanel && featureFlags.aiInvocationDebug"
+          type="warning"
+          size="small"
+          :loading="aiPanelOpening"
+          @click="() => openActiveInvocation()"
+        >
+          打开 AI 面板
+        </n-button>
+        <n-button
+          v-else-if="canResumeReview"
+          type="warning"
+          size="small"
+          :loading="toggling"
+          @click="resume"
+        >
+          {{ reviewGateActionLabel }}
         </n-button>
       </div>
     </n-alert>
 
     <!-- 仅写作阶段拉章节流；审计/规划时服务端会关流，避免无意义重连 -->
     <AutopilotWritingStream
-      v-if="isWriting"
+      v-if="isWriting && props.renderLivePreview !== false"
       :writing-content="writingContent"
       :writing-chapter-number="writingChapterNumber"
-      :writing-beat-index="writingBeatIndex"
       :writing-substep="status?.writing_substep"
       :writing-substep-label="status?.writing_substep_label"
-      :total-beats="status?.total_beats"
       :accumulated-words="status?.accumulated_words"
       :chapter-target-words="status?.chapter_target_words"
-      :beat-focus="status?.beat_focus"
       :context-tokens="status?.context_tokens"
       :runner-stage-label="stageLabel"
       :status-chapter-number="status?.current_chapter_number ?? null"
@@ -218,7 +234,7 @@
 
     <!-- 操作按钮 -->
     <n-space justify="end" size="small">
-      <n-button v-if="needsReview" type="warning" ghost size="small" :loading="toggling" @click="resume">
+      <n-button v-if="canResumeReview" type="warning" ghost size="small" :loading="toggling" @click="resume">
         再次确认 · 继续
       </n-button>
       <n-button v-if="!isRunning && !needsReview && !needsRecovery" type="primary" size="small" :loading="toggling" @click="openStartModal">
@@ -299,13 +315,27 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onUnmounted, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import AutopilotWritingStream from './AutopilotWritingStream.vue'
-import { resolveHttpUrl, subscribeChapterStream } from '../../api/config'
+import StoryPipelineObservability from './StoryPipelineObservability.vue'
+import AuditPipelineObservability from './AuditPipelineObservability.vue'
+import { chapterApi } from '../../api/chapter'
+import {
+  autopilotApi,
+  getAutopilotErrorDetail,
+  isAutopilotHttpError,
+  isAutopilotNotFoundError,
+} from '../../api/autopilot'
+import { novelApi } from '../../api/novel'
 import { buildAutopilotStagePresentation } from '../../constants/autopilotStagePresentation'
+import { useAIInvocationStore } from '../../stores/aiInvocationStore'
+import { featureFlags } from '../../config/features'
 
-const props = defineProps({ novelId: String })
+const props = defineProps({
+  novelId: String,
+  renderLivePreview: { type: Boolean, default: true },
+})
 const emit = defineEmits([
   'status-change',
   'chapter-content-update',
@@ -315,16 +345,18 @@ const emit = defineEmits([
   'beats-planned',
 ])
 const message = useMessage()
+const aiInvocationStore = useAIInvocationStore()
 
 const status = ref(null)
 const toggling = ref(false)
+const aiPanelOpening = ref(false)
 const planExpanded = ref(false)
 const showStartModal = ref(false)
 const startConfig = ref({
   target_chapters: 100,
   target_words_per_chapter: 2500,
   max_auto_chapters: 120,
-  auto_approve_mode: false
+  auto_approve_mode: true
 })
 
 // 🔧 新增：SSE 连接状态
@@ -343,6 +375,29 @@ const MIN_CHAPTER_STREAM_RESTART_MS = 3000
 const writingContent = ref('')
 const writingChapterNumber = ref(0)
 const writingBeatIndex = ref(0)
+let chapterChunkEmitTimer = null
+let pendingChapterChunk = null
+const CHAPTER_CHUNK_EMIT_INTERVAL_MS = 120
+
+function flushChapterChunkEmit() {
+  if (chapterChunkEmitTimer) {
+    clearTimeout(chapterChunkEmitTimer)
+    chapterChunkEmitTimer = null
+  }
+  if (!pendingChapterChunk) return
+  emit('chapter-chunk', pendingChapterChunk)
+  pendingChapterChunk = null
+}
+
+function emitChapterChunkThrottled(payload, immediate = false) {
+  pendingChapterChunk = payload
+  if (immediate) {
+    flushChapterChunkEmit()
+    return
+  }
+  if (chapterChunkEmitTimer) return
+  chapterChunkEmitTimer = setTimeout(flushChapterChunkEmit, CHAPTER_CHUNK_EMIT_INTERVAL_MS)
+}
 
 // 🔥 新增：操作节流保护——防止用户快速连续点击导致请求堆积
 // toggling 为 true 时按钮已禁用，但需要额外保护异步操作的竞态
@@ -370,20 +425,116 @@ let lastStatusPollIntervalMs = -1
 
 // 计算属性
 const isRunning = computed(() => status.value?.autopilot_status === 'running')
+const isTerminalStopped = computed(() =>
+  ['stopped', 'completed'].includes(String(status.value?.autopilot_status || ''))
+)
 // 是否与人工审阅闸门对齐（须点 resume）。
 // 「reviewing」为兼容舞台值；主路径 paused_for_review。避免仅展示「待审阅」却无按钮。
 function statusNeedsManualReview(s) {
   if (!s) return false
+  if (['stopped', 'completed'].includes(String(s.autopilot_status || ''))) return false
   if (s.needs_review === true) return true
   const stage = String(s.current_stage ?? '').trim().toLowerCase()
   return stage === 'paused_for_review' || stage === 'reviewing'
 }
 
 const needsReview = computed(() => statusNeedsManualReview(status.value))
+const requiresAIReview = computed(() => Boolean(
+  !isTerminalStopped.value && status.value?.requires_ai_review && status.value?.active_invocation_session_id
+))
+const reviewGate = computed(() => {
+  const gate = status.value?.review_gate
+  return gate && typeof gate === 'object' ? gate : null
+})
+const reviewGateType = computed(() => String(reviewGate.value?.type || 'manual_review'))
+const reviewGateStatus = computed(() => String(reviewGate.value?.status || 'ready'))
+const reviewGateNeedsAIPanel = computed(() =>
+  !isTerminalStopped.value && (reviewGate.value?.primary_action === 'open_ai_panel' || requiresAIReview.value)
+)
+const showReviewGate = computed(() => needsReview.value || reviewGateNeedsAIPanel.value)
+const canResumeReview = computed(() => (
+  needsReview.value &&
+  !requiresAIReview.value &&
+  (!reviewGate.value || reviewGateStatus.value === 'ready') &&
+  reviewGate.value?.can_resume !== false
+))
+const reviewGateAlertType = computed(() => (
+  reviewGateStatus.value === 'failed' ? 'error' : 'warning'
+))
+const reviewGateTitle = computed(() => {
+  if (reviewGateStatus.value === 'failed') {
+    if (reviewGateType.value === 'macro_plan') return '宏观结构生成失败'
+    if (reviewGateType.value === 'act_plan') return '章节规划生成失败'
+    return 'AI 请求处理失败'
+  }
+  if (reviewGateStatus.value === 'awaiting_ai_review') return '等待 AI 请求处理'
+  if (reviewGateStatus.value === 'persisting') return '正在生成大纲结构'
+  if (reviewGateType.value === 'macro_plan') return '待确认宏观结构'
+  if (reviewGateType.value === 'act_plan') return '待确认章节规划'
+  if (reviewGateType.value === 'chapter_review') return '待确认章节审阅'
+  return '待审阅确认'
+})
+const reviewGateMessage = computed(() => {
+  if (reviewGate.value?.message) return reviewGate.value.message
+  if (requiresAIReview.value) {
+    return `${activeInvocationLabel.value} 已发送到统一 AI 面板，请完成生成、采纳和提交。`
+  }
+  return '请在侧栏核对刚生成的结构或审阅结果，核对无误后继续。'
+})
+const reviewGateActionLabel = computed(() => (
+  reviewGate.value?.action_label || '确认后继续'
+))
+function statusHasActiveInvocation(s) {
+  return Boolean(s?.active_invocation_session_id && (s?.has_active_invocation || s?.requires_ai_review))
+}
+const activeInvocationLabel = computed(() => {
+  const op = status.value?.active_invocation_operation || 'AI 请求'
+  const node = status.value?.active_invocation_node_key || ''
+  return node ? `${op} / ${node}` : op
+})
 // 🔥 只有运行中且阶段为 writing 时才是真正的"撰写中"
 const isWriting = computed(() =>
   status.value?.autopilot_status === 'running' && status.value?.current_stage === 'writing'
 )
+
+const storyPipelineWaveIndex = computed(() => {
+  const ix = Number(status.value?.story_pipeline_wave_index)
+  return Number.isFinite(ix) ? ix : 0
+})
+
+const storyPipelineAftermathOnly = computed(() =>
+  isWriting.value && storyPipelineWaveIndex.value === 8
+)
+
+const telemetryVisible = computed(() =>
+  isRunning.value &&
+  Boolean(writingSubstepDetail.value) &&
+  !storyPipelineAftermathOnly.value &&
+  !auditPipelineObsVisible.value
+)
+
+/** StoryPipeline（新内核写作）有可观测字段时展示十步管线图 */
+const storyPipelineObsVisible = computed(() => {
+  if (auditPipelineObsVisible.value) return false
+  if (!isWriting.value || !status.value) return false
+  const ix = storyPipelineWaveIndex.value
+  return Number.isFinite(ix) && ix >= 1 && ix <= 10
+})
+
+const auditPipelineObsVisible = computed(() => {
+  if (!isRunning.value || !status.value) return false
+  const stage = String(status.value.current_stage || '')
+  const sub = String(status.value.writing_substep || '')
+  const audit = String(status.value.audit_progress || '')
+  return (
+    stage === 'auditing' ||
+    sub === 'pipeline_done' ||
+    sub.startsWith('audit_') ||
+    audit === 'voice_check' ||
+    audit === 'aftermath_pipeline' ||
+    audit === 'tension_scoring'
+  )
+})
 const needsRecovery = computed(
   () =>
     status.value?.autopilot_status === 'error' ||
@@ -430,11 +581,16 @@ const planTotalWordsHint = computed(() => {
 const progressPct = computed(() => {
   const s = status.value
   if (!s) return 0
-  const done = s.completed_chapters || 0
-  const ms = s.manuscript_chapters ?? 0
-  if (done > 0) return s.progress_pct ?? 0
-  if (ms > 0 && s.progress_pct_manuscript != null) return s.progress_pct_manuscript
-  return s.progress_pct ?? 0
+  const target = Number(s.target_chapters || 0)
+  const completed = Number(s.completed_chapters || 0)
+  const manuscript = Number(s.manuscript_chapters ?? completed)
+  const currentAuto = Number(s.current_auto_chapters || 0)
+  const bestCount = Math.max(completed, manuscript, currentAuto)
+  if (target > 0 && bestCount > 0) {
+    return Math.min(100, Math.round((bestCount / target) * 1000) / 10)
+  }
+  const serverPct = Number(s.progress_pct_manuscript ?? s.progress_pct ?? 0)
+  return Number.isFinite(serverPct) ? serverPct : 0
 })
 
 const progressPctDisplay = computed(() => {
@@ -467,6 +623,7 @@ const stagePresentation = computed(() =>
     audit_progress: status.value?.audit_progress,
     isRunning: isRunning.value,
     daemonAlive: daemonAlive.value,
+    current_act: status.value?.current_act ?? null,
   })
 )
 
@@ -509,10 +666,12 @@ const stageTagClass = computed(() => {
   }
 })
 
-const beatLabel = computed(() => {
-if (!isWriting.value) return ''
-const b = status.value?.current_beat_index ?? 0
-return `节拍 ${Number(b) + 1}`
+const stageIndicator = computed(() => {
+  if (!isWriting.value) return ''
+  const sub = status.value?.writing_substep || ''
+  if (sub === 'script_generation') return '剧本生成中'
+  if (sub === 'prose_generation') return '正文撰写中'
+  return ''
 })
 
 /** ★ V9 细化状态：写作/审计/规划子步骤详情 */
@@ -523,10 +682,6 @@ const writingSubstepDetail = computed(() => {
   const substepLabel = String(s.writing_substep_label || '')
   if (!substep && !substepLabel) return null
 
-  const totalBeats = Number(s.total_beats || 0)
-  const beatIndex = Number(s.current_beat_index ?? 0) + 1
-  const beatPct = totalBeats > 0 ? Math.min(100, Math.round(beatIndex / totalBeats * 100)) : 0
-
   const accumulatedWords = Number(s.accumulated_words || 0)
   const chapterTargetWords = Number(s.chapter_target_words || 0)
   const wordPct = chapterTargetWords > 0 && accumulatedWords > 0
@@ -536,13 +691,9 @@ const writingSubstepDetail = computed(() => {
   return {
     substep,
     substepLabel: substepLabel || substep,
-    totalBeats,
-    beatIndex,
-    beatPct,
     accumulatedWords,
     chapterTargetWords,
     wordPct,
-    beatFocus: String(s.beat_focus || ''),
     contextTokens: Number(s.context_tokens || 0),
   }
 })
@@ -551,10 +702,10 @@ const writingSubstepDetail = computed(() => {
 const substepBadgeClass = computed(() => {
   const sub = status.value?.writing_substep || ''
   // 写作阶段
-  if (sub === 'llm_calling') return 'substep-active'
+  if (sub === 'prose_generation') return 'substep-active'
   if (sub === 'outline_planning') return 'substep-plan'
-  if (sub === 'context_assembly' || sub === 'beat_magnification' || sub === 'chapter_found') return 'substep-prepare'
-  if (sub === 'soft_landing' || sub === 'persisting' || sub === 'continuity_check' || sub === 'chapter_persist') return 'substep-finish'
+  if (sub === 'context_assembly' || sub === 'script_generation' || sub === 'chapter_found') return 'substep-prepare'
+  if (sub === 'persisting' || sub === 'continuity_check' || sub === 'chapter_persist') return 'substep-finish'
   // 审计阶段
   if (sub === 'audit_voice_check') return 'substep-audit'
   if (sub === 'audit_aftermath') return 'substep-audit'
@@ -590,9 +741,6 @@ function formatWords(n) {
   return n >= 10000 ? `${(n / 10000).toFixed(1)}万` : String(n)
 }
 
-// API 调用
-const autopilotApiRoot = () => `/api/v1/autopilot/${props.novelId}`
-
 // 🔥 优化：缩短超时从 25s → 10s，减少前端等待时间
 // 后端 /status 已改为纯共享内存读取（纳秒级响应），10s 已非常宽裕
 // 如果 10s 还没返回，说明后端事件循环被阻塞，继续等也没意义
@@ -600,6 +748,8 @@ const STATUS_FETCH_TIMEOUT_MS = 10_000
 
 // 🔥 新增：请求去重——如果上一次 fetchStatus 还没返回，不重复发起
 let statusFetchInFlight = false
+let lastOpenedInvocationSessionId = ''
+let openingInvocationSessionId = ''
 
 async function fetchStatus() {
   // 请求去重：上一次还在飞就不重复发
@@ -612,49 +762,47 @@ async function fetchStatus() {
   }
   const ac = new AbortController()
   statusLastAbort = ac
-  const t = window.setTimeout(() => ac.abort(), STATUS_FETCH_TIMEOUT_MS)
   statusFetchInFlight = true
   try {
-    const res = await fetch(resolveHttpUrl(`${autopilotApiRoot()}/status`), {
+    const body = await autopilotApi.getStatus(props.novelId, {
       signal: ac.signal,
+      timeoutMs: STATUS_FETCH_TIMEOUT_MS,
     })
-    if (res.status === 404) {
+    statusConnectivityFailures.value = 0
+    status.value = body
+    emit('status-change', body)
+    maybeOpenActiveInvocation(body)
+
+    // 🔍 调试：审计阶段进度日志
+    if (body.current_stage === 'auditing') {
+      console.log(
+        '[AutopilotPanel] 审计进度:',
+        body.audit_progress || '(未知)',
+        '| 相似度:', body.last_chapter_audit?.similarity_score ?? 'N/A',
+        '| 张力:', body.last_chapter_tension ?? 'N/A'
+      )
+    }
+
+    // 写作阶段流掉线且已放弃重连：由轮询在冷却后再试（勿在此处清零 reconnectAttempts，否则会死循环）
+    if (
+      shouldMaintainChapterStream(body) &&
+      !chapterStreamCtrl &&
+      !sseReconnecting.value &&
+      reconnectAttempts >= MAX_RECONNECT_ATTEMPTS &&
+      Date.now() - lastChapterStreamStartMs >= MIN_CHAPTER_STREAM_RESTART_MS * 4
+    ) {
+      reconnectAttempts = MAX_RECONNECT_ATTEMPTS - 1
+      scheduleChapterStreamReconnect(0)
+    }
+  } catch (err) {
+    if (seq !== statusFetchSeq) {
+      return
+    }
+    if (isAutopilotNotFoundError(err)) {
       clearStatusPoll()
       status.value = null
       statusPollDisabled.value = true
       statusConnectivityFailures.value = 0
-      return
-    }
-    if (res.ok) {
-      statusConnectivityFailures.value = 0
-      const body = await res.json()
-      status.value = body
-      emit('status-change', body)
-
-      // 🔍 调试：审计阶段进度日志
-      if (body.current_stage === 'auditing') {
-        console.log(
-          '[AutopilotPanel] 审计进度:',
-          body.audit_progress || '(未知)',
-          '| 相似度:', body.last_chapter_audit?.similarity_score ?? 'N/A',
-          '| 张力:', body.last_chapter_tension ?? 'N/A'
-        )
-      }
-
-      // 写作阶段流掉线且已放弃重连：由轮询在冷却后再试（勿在此处清零 reconnectAttempts，否则会死循环）
-      if (
-        shouldMaintainChapterStream(body) &&
-        !chapterStreamCtrl &&
-        !sseReconnecting.value &&
-        reconnectAttempts >= MAX_RECONNECT_ATTEMPTS &&
-        Date.now() - lastChapterStreamStartMs >= MIN_CHAPTER_STREAM_RESTART_MS * 4
-      ) {
-        reconnectAttempts = MAX_RECONNECT_ATTEMPTS - 1
-        scheduleChapterStreamReconnect(0)
-      }
-    }
-  } catch (err) {
-    if (seq !== statusFetchSeq) {
       return
     }
     statusConnectivityFailures.value += 1
@@ -664,10 +812,47 @@ async function fetchStatus() {
       console.error('[AutopilotPanel] fetchStatus error:', err)
     }
   } finally {
-    window.clearTimeout(t)
     statusFetchInFlight = false
     maybeRestartStatusPollTimer()
   }
+}
+
+function resolveActiveInvocationSessionId(sessionIdArg) {
+  if (typeof sessionIdArg === 'string' && sessionIdArg.trim()) {
+    return sessionIdArg.trim()
+  }
+  return String(status.value?.active_invocation_session_id || '').trim()
+}
+
+async function openActiveInvocation(sessionIdArg, options = {}) {
+  const sessionId = resolveActiveInvocationSessionId(sessionIdArg)
+  if (!sessionId) return
+  if (sessionId === openingInvocationSessionId) return
+  const showPanel = options.showPanel !== false
+  openingInvocationSessionId = sessionId
+  if (showPanel) {
+    aiPanelOpening.value = true
+  }
+  try {
+    await aiInvocationStore.open(sessionId, { showPanel })
+    lastOpenedInvocationSessionId = sessionId
+  } catch (err) {
+    console.warn('[AutopilotPanel] 打开 AI Invocation 面板失败:', err)
+    message.error('AI 调用处理失败')
+  } finally {
+    openingInvocationSessionId = ''
+    if (showPanel) {
+      aiPanelOpening.value = false
+    }
+  }
+}
+
+function maybeOpenActiveInvocation(s) {
+  const sessionId = String(s?.active_invocation_session_id || '')
+  if (!sessionId) return
+  if (sessionId === lastOpenedInvocationSessionId) return
+  if (sessionId === openingInvocationSessionId) return
+  void openActiveInvocation(sessionId, { showPanel: featureFlags.aiInvocationDebug })
 }
 
 function clearStatusPoll() {
@@ -697,6 +882,7 @@ function maybeRestartStatusPollTimer() {
 function shouldMaintainChapterStream(body = status.value) {
   if (!body || statusPollDisabled.value) return false
   if (body.autopilot_status !== 'running') return false
+  if (statusHasActiveInvocation(body)) return false
   if (statusNeedsManualReview(body)) return false
   return body.current_stage === 'writing'
 }
@@ -757,7 +943,7 @@ function startChapterStream() {
 
   console.log('[AutopilotPanel] 启动 SSE 连接...')
 
-  chapterStreamCtrl = subscribeChapterStream(props.novelId, {
+  chapterStreamCtrl = chapterApi.subscribeStream(props.novelId, {
     onOutlinePlanning: () => {
       void fetchStatus()
     },
@@ -767,27 +953,35 @@ function startChapterStream() {
       emit('beats-planned', { chapterNumber, beats })
     },
     onChapterStart: (num) => {
+      const isNewChapter = writingChapterNumber.value !== num
       writingChapterNumber.value = num
-      writingContent.value = ''
-      writingBeatIndex.value = 0
+      // SSE 重连会对同一章再次发 chapter_start，勿清空已累积正文
+      if (isNewChapter) {
+        writingContent.value = ''
+        writingBeatIndex.value = 0
+      }
       reconnectAttempts = 0  // 重置重连计数
       emit('chapter-start', num)
       // 🔥 新章节开始写时刷新侧栏，让结构树/章节列表同步（规划后首次写作尤其需要）
       emit('desk-refresh')
     },
-    onChapterChunk: (chunk, beatIndex) => {
-      // 🔧 优化：限制内容长度，避免 Vue 响应式性能问题
+    onChapterChunk: (payload) => {
       const maxLen = 80000
-      if (writingContent.value.length < maxLen) {
-        writingContent.value += chunk
+      if (payload.isSnapshot && payload.content != null) {
+        if (payload.content.length <= maxLen) {
+          writingContent.value = payload.content
+        }
+      } else if (payload.chunk && writingContent.value.length < maxLen) {
+        writingContent.value += payload.chunk
       }
-      writingBeatIndex.value = beatIndex
-      emit('chapter-chunk', {
-        chunk,
-        beatIndex,
+      writingBeatIndex.value = payload.beatIndex
+      emitChapterChunkThrottled({
+        chunk: payload.chunk ?? '',
+        beatIndex: payload.beatIndex,
         content: writingContent.value,
         chapterNumber: writingChapterNumber.value,
-      })
+        isSnapshot: payload.isSnapshot,
+      }, Boolean(payload.isSnapshot))
     },
     onChapterContent: (data) => {
       writingContent.value = data.content
@@ -880,7 +1074,8 @@ function stopChapterStream() {
 // - 审阅等待中：10s（用户在看大纲，不需要高频刷新）
 function getAdaptivePollInterval() {
   let base
-  if (needsReview.value) base = 10000
+  if (requiresAIReview.value) base = 5000
+  else if (needsReview.value) base = 10000
   else if (!isRunning.value) base = 3000
   else if (sseConnected.value) base = 15000
   else base = 5000
@@ -889,11 +1084,12 @@ function getAdaptivePollInterval() {
 }
 
 watch(
-  () => [
-    isRunning.value,
-    needsReview.value,
-    statusPollDisabled.value,
-    status.value?.current_stage,
+  [
+    () => isRunning.value,
+    () => requiresAIReview.value,
+    () => needsReview.value,
+    () => statusPollDisabled.value,
+    () => status.value?.current_stage,
   ],
   () => {
     clearStatusPoll()
@@ -932,6 +1128,8 @@ watch(
     statusPollDisabled.value = false
     statusConnectivityFailures.value = 0
     reconnectAttempts = 0
+    lastOpenedInvocationSessionId = ''
+    openingInvocationSessionId = ''
     stopChapterStream()
   }
 )
@@ -977,6 +1175,12 @@ async function start() {
       target_words_per_chapter: newWpc,
       auto_approve_mode: newAutoApprove,
       consecutive_error_count: 0,
+      needs_review: false,
+      requires_ai_review: false,
+      review_gate: null,
+      has_active_invocation: false,
+      active_invocation_session_id: '',
+      active_invocation_status: '',
     }
     emit('status-change', status.value)
     reconnectAttempts = 0
@@ -989,35 +1193,20 @@ async function start() {
 
     if (currentAutoApprove !== newAutoApprove) {
       requests.push(
-        fetch(resolveHttpUrl(`/api/v1/novels/${props.novelId}/auto-approve-mode`), {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ auto_approve_mode: newAutoApprove }),
-        }).catch(err => {
+        novelApi.updateAutoApproveMode(props.novelId, newAutoApprove).catch(err => {
           console.warn('[AutopilotPanel] 更新自动审阅模式失败:', err)
         })
       )
     }
 
     requests.push(
-      fetch(resolveHttpUrl(`${autopilotApiRoot()}/start`), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          max_auto_chapters: startConfig.value.max_auto_chapters,
-          target_chapters: newTarget,
-          target_words_per_chapter: newWpc,
-        }),
-      }).then(res => {
-        if (!res.ok) {
-          // 🔥 启动失败时回滚乐观更新
-          status.value = prevStatus
-          emit('status-change', prevStatus)
-          message.error('启动失败')
-        }
+      autopilotApi.start(props.novelId, {
+        max_auto_chapters: startConfig.value.max_auto_chapters,
+        target_chapters: newTarget,
+        target_words_per_chapter: newWpc,
       }).catch(err => {
         console.warn('[AutopilotPanel] 启动请求失败:', err)
-        // 网络错误时回滚
+        // 网络错误或接口错误时回滚
         status.value = prevStatus
         emit('status-change', prevStatus)
         message.error('启动请求失败，请重试')
@@ -1041,6 +1230,9 @@ async function stop() {
   status.value = {
     ...status.value,
     autopilot_status: 'stopped',
+    needs_review: false,
+    requires_ai_review: false,
+    review_gate: null,
   }
   emit('status-change', status.value)
   message.info('已停止')
@@ -1050,17 +1242,10 @@ async function stop() {
     // 先关闭 SSE 连接，避免阻塞
     stopChapterStream()
     // 发送停止请求（带超时）
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 5000)
     try {
-      await fetch(resolveHttpUrl(`${autopilotApiRoot()}/stop`), {
-        method: 'POST',
-        signal: controller.signal
-      })
-      clearTimeout(timeoutId)
+      await autopilotApi.stop(props.novelId, 5000)
     } catch (e) {
-      clearTimeout(timeoutId)
-      if (e.name === 'AbortError') {
+      if (e instanceof Error && e.name === 'AbortError') {
         message.warning('停止请求超时，但后台可能已处理')
       } else {
         // 🔥 网络错误时回滚乐观更新
@@ -1077,31 +1262,31 @@ async function stop() {
 
 async function resume() {
   if (isToggleThrottled()) return
-  // 🔥 乐观更新：立即更新本地状态
-  const prevStatus = status.value
-  status.value = {
-    ...status.value,
-    autopilot_status: 'running',
-    current_stage: 'writing',
-    needs_review: false,
+  if (!canResumeReview.value) {
+    message.warning(reviewGateMessage.value || '当前还没有可确认的产物')
+    return
   }
-  emit('status-change', status.value)
+  const prevStatus = status.value
   reconnectAttempts = 0
-  message.success('已确认大纲，开始写作')
   toggling.value = true
 
   try {
-    const res = await fetch(resolveHttpUrl(`${autopilotApiRoot()}/resume`), { method: 'POST' })
-    if (!res.ok) {
-      // 🔥 恢复失败时回滚乐观更新
-      status.value = prevStatus
-      emit('status-change', prevStatus)
-      const e = await res.json()
-      message.error(e.detail || '恢复失败')
+    const body = await autopilotApi.resume(props.novelId)
+    status.value = {
+      ...status.value,
+      autopilot_status: 'running',
+      current_stage: body.current_stage || 'writing',
+      needs_review: false,
     }
+    emit('status-change', status.value)
+    message.success(body.message || reviewGateActionLabel.value || '已确认，继续自动驾驶')
     void fetchStatus()
   } catch (err) {
-    // 网络错误时回滚
+    if (isAutopilotHttpError(err)) {
+      message.error(getAutopilotErrorDetail(err) || '恢复失败')
+      void fetchStatus()
+      return
+    }
     status.value = prevStatus
     emit('status-change', prevStatus)
     message.error('恢复请求失败，请重试')
@@ -1123,15 +1308,7 @@ async function clearCircuitBreaker() {
   toggling.value = true
 
   try {
-    const res = await fetch(
-      resolveHttpUrl(`${autopilotApiRoot()}/circuit-breaker/reset`),
-      { method: 'POST' },
-    )
-    if (!res.ok) {
-      status.value = prevStatus
-      emit('status-change', prevStatus)
-      message.error('操作失败')
-    }
+    await autopilotApi.resetCircuitBreaker(props.novelId)
     void fetchStatus()
   } catch (err) {
     status.value = prevStatus
@@ -1159,15 +1336,10 @@ async function forceStopFromError() {
     // 先关闭 SSE 连接
     stopChapterStream()
     // 并行发送：stop 请求 + circuit-breaker/reset 请求
-    const stopPromise = fetch(resolveHttpUrl(`${autopilotApiRoot()}/stop`), {
-      method: 'POST',
-    }).catch(err => {
+    const stopPromise = autopilotApi.stop(props.novelId).catch(err => {
       console.warn('[AutopilotPanel] 强制停止请求失败:', err)
     })
-    const resetPromise = fetch(
-      resolveHttpUrl(`${autopilotApiRoot()}/circuit-breaker/reset`),
-      { method: 'POST' },
-    ).catch(err => {
+    const resetPromise = autopilotApi.resetCircuitBreaker(props.novelId).catch(err => {
       console.warn('[AutopilotPanel] 重置熔断器失败:', err)
     })
     await Promise.allSettled([stopPromise, resetPromise])
@@ -1181,8 +1353,8 @@ async function forceStopFromError() {
   }
 }
 
-onMounted(() => { fetchStatus() })
 onUnmounted(() => {
+  flushChapterChunkEmit()
   statusFetchSeq += 1
   statusFetchInFlight = false  // 🔥 重置请求去重标志
   if (statusLastAbort) {
@@ -1310,8 +1482,21 @@ onUnmounted(() => {
 }
 
 .ap-inline-alert :deep(.n-alert-body) {
-  padding-top: 2px;
-  padding-bottom: 2px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.ap-inline-alert :deep(.n-alert__icon) {
+  top: 50%;
+  margin-top: 0;
+  margin-bottom: 0;
+  transform: translateY(-50%);
+}
+
+.ap-inline-alert :deep(.n-alert-body__content) {
+  display: flex;
+  align-items: center;
+  width: 100%;
 }
 
 .ap-dot {
@@ -1497,6 +1682,11 @@ onUnmounted(() => {
   line-height: 1.45;
 }
 
+.ap-kpi--location {
+  gap: 7px;
+  padding-bottom: 11px;
+}
+
 .ap-kpi__sep {
   margin: 0 2px;
   color: var(--app-text-muted);
@@ -1514,6 +1704,67 @@ onUnmounted(() => {
 .ap-kpi__muted {
   color: var(--app-text-muted);
   font-weight: 500;
+}
+
+.ap-location {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.ap-location__meta {
+  width: fit-content;
+  max-width: 100%;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-primary, #2563eb) 18%, var(--app-border));
+  background: color-mix(in srgb, var(--color-primary, #2563eb) 7%, transparent);
+  color: var(--app-text-secondary);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+}
+
+.ap-location__title {
+  min-width: 0;
+  max-width: 100%;
+  color: var(--app-text-primary);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ap-location__trail {
+  min-height: 20px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.ap-location__chip {
+  min-width: 0;
+  max-width: 100%;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--app-text-muted) 8%, transparent);
+  color: var(--app-text-muted);
+  font-size: 10.5px;
+  font-weight: 650;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ap-location__chip--strong {
+  background: var(--color-primary-light, color-mix(in srgb, var(--color-primary, #2563eb) 12%, transparent));
+  color: var(--color-primary, #2563eb);
 }
 
 .ap-narrative {
@@ -1702,16 +1953,28 @@ onUnmounted(() => {
 
 .ap-review-alert {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
 }
 
 .ap-review-alert span {
   line-height: 1.55;
+  min-width: 0;
+}
+
+.ap-review-alert .n-button {
+  flex: 0 0 auto;
 }
 
 .recovery-hint p { margin: 0 0 6px; line-height: 1.5; }
 .recovery-sub { font-size: 11px; opacity: 0.95; margin-bottom: 8px !important; }
-</style>
 
+@media (max-width: 640px) {
+  .ap-review-alert {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+</style>

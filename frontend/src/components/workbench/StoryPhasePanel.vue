@@ -12,11 +12,11 @@
           <div class="phase-track">
             <div
               v-for="s in PHASE_STAGES"
-              :key="s.key"
+              :key="s.value"
               class="phase-stage"
               :class="{
-                'phase-stage--active': s.key === phase.phase,
-                'phase-stage--past': PHASE_ORDER.indexOf(s.key) < PHASE_ORDER.indexOf(phase.phase),
+                'phase-stage--active': s.value === phase.phase,
+                'phase-stage--past': isPhasePast(s.value, phase.phase),
               }"
             >
               <div class="stage-dot" />
@@ -56,60 +56,30 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { storyPhaseApi, type StoryPhaseDTO } from '@/api/engineCore'
+import {
+  STORY_PHASE_STAGES,
+  getStoryPhaseLabel,
+  getStoryPhaseTagType,
+  isStoryPhasePast,
+  normalizeStoryPhase,
+} from '@/domain/storyline'
 
 const props = defineProps<{ slug: string }>()
 
 const loading = ref(false)
 const phase = ref<StoryPhaseDTO | null>(null)
 
-// 对齐后端 4 阶段模型: opening / development / convergence / finale
-const PHASE_STAGES = [
-  { key: 'opening', label: '开局' },
-  { key: 'development', label: '发展' },
-  { key: 'convergence', label: '收敛' },
-  { key: 'finale', label: '终局' },
-]
-
-const PHASE_ORDER = PHASE_STAGES.map(s => s.key)
-
-const PHASE_LABELS: Record<string, string> = {
-  opening: '开局期',
-  development: '发展期',
-  convergence: '收敛期',
-  finale: '终局期',
-  // 兼容旧后端可能返回的5阶段值
-  setup: '设定阶段',
-  rising_action: '冲突升级',
-  crisis: '危机阶段',
-  climax: '高潮阶段',
-  resolution: '收束阶段',
-}
-
-// 旧5阶段到新4阶段的映射
-function normalizePhase(p: string): string {
-  const LEGACY_MAP: Record<string, string> = {
-    setup: 'opening',
-    rising_action: 'development',
-    crisis: 'development',
-    climax: 'convergence',
-    resolution: 'finale',
-  }
-  return LEGACY_MAP[p] || p
-}
+const PHASE_STAGES = STORY_PHASE_STAGES
+const isPhasePast = isStoryPhasePast
 
 const phaseLabel = computed(() => {
   if (!phase.value) return ''
-  return PHASE_LABELS[phase.value.phase] || phase.value.phase
+  return getStoryPhaseLabel(phase.value.phase)
 })
 
-const phaseTagType = computed((): 'default' | 'info' | 'success' | 'warning' | 'error' => {
+const phaseTagType = computed(() => {
   if (!phase.value) return 'default'
-  const normalized = normalizePhase(phase.value.phase)
-  const idx = PHASE_ORDER.indexOf(normalized)
-  if (idx <= 0) return 'info'
-  if (idx <= 1) return 'warning'
-  if (idx === 2) return 'error'
-  return 'success'
+  return getStoryPhaseTagType(phase.value.phase)
 })
 
 const phaseColor = computed(() => {
@@ -128,7 +98,7 @@ async function load() {
     const result = await storyPhaseApi.get(props.slug)
     // 规范化阶段值
     if (result) {
-      result.phase = normalizePhase(result.phase)
+      result.phase = normalizeStoryPhase(result.phase)
     }
     phase.value = result
   } catch {

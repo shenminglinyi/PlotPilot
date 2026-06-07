@@ -37,7 +37,6 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from domain.ai.services.llm_service import LLMService, GenerationConfig
-from domain.ai.value_objects.prompt import Prompt
 
 logger = logging.getLogger(__name__)
 
@@ -47,54 +46,26 @@ from infrastructure.ai.prompt_keys import (
     CHAPTER_BRIDGE_CHECK as _BRIDGE_CHECK_NODE_KEY,
     CHAPTER_BRIDGE_FIX as _BRIDGE_FIX_NODE_KEY,
 )
+from infrastructure.ai.prompt_utils import PromptTemplateUnavailable, render_required_prompt
 
-# 硬编码回退（仅在 PromptRegistry 不可用时使用）
-_FALLBACK_BRIDGE_EXTRACT_SYSTEM = """你是小说叙事编辑，负责提取章节末尾的"转场桥段"。
+@dataclass(frozen=True)
+class ChapterContinuityPolicy:
+    """章间衔接策略口径。
 
-从章节末尾文本中提取 5 个维度的衔接锚点，输出一个 JSON 对象：
-{
-  "suspense_hook": "章末未解决的悬念/未回答的问题，一两句话概括",
-  "emotional_residue": "POV角色的核心情绪状态，格式：角色名：情绪，1-10分",
-  "emotional_intensity": 7,
-  "scene_state": "章末场景的物理状态（环境+时间+天气），一两句话",
-  "character_positions": "章末各角色的位置和行动，每个角色一句话",
-  "unfinished_actions": "章末正在进行但未完成的动作/对话"
-}
+    把"什么分数需要告警/什么分数允许自动改正文"集中到一个对象里，
+    避免调用方和修复方各自硬编码阈值。
+    """
 
-约束：
-- 每个字段最多 100 字
-- 只提取文本中明确出现的信息，不要推断
-- 如果某维度无明显信息，填空字符串
-- 严格合法 JSON"""
+    warn_threshold: float = 0.6
+    auto_fix_threshold: float = 0.4
+    max_fix_rounds: int = 2
 
-_FALLBACK_BRIDGE_CHECK_SYSTEM = """你是小说衔接度评审。评估本章开头是否有效承接了上一章结尾。
+    def needs_attention(self, score: float) -> bool:
+        return score < self.warn_threshold
 
-评分标准（0-1）：
-- 0.9-1.0：完美衔接，首段直接呼应前章的悬念/情绪/场景
-- 0.7-0.9：良好衔接，有明确的过渡但可以更紧密
-- 0.5-0.7：弱衔接，读者能感觉到两章属于同一本书但过渡生硬
-- 0.3-0.5：割裂感明显，但时间跳跃/视角切换也是合法的文学技法
-- 0-0.3：完全断裂，且无文学意图
+    def should_auto_fix(self, score: float) -> bool:
+        return score < self.auto_fix_threshold
 
-输出 JSON：
-{
-  "score": 0.8,
-  "issues": ["问题1", "问题2"],
-  "suggested_fix": "建议的首段修改方向（一两句话），或空字符串"
-}"""
-
-_FALLBACK_BRIDGE_FIX_SYSTEM = """你是小说衔接修整专家。重写章节首段，使其与前章结尾紧密衔接。
-
-要求：
-1. 保持原文的核心信息和情节方向不变
-2. 在前三句话内建立与前章的连接（情绪/画面/动作）
-3. 不能改变后续情节的展开逻辑
-4. 修整后的首段长度与原文相当
-5. 只输出重写后的首段，不要解释"""
-
-# ---------------------------------------------------------------------------
-# 数据结构
-# ---------------------------------------------------------------------------
 
 @dataclass
 class ChapterBridge:
@@ -165,30 +136,12 @@ class ChapterBridgeService:
         self,
         llm_service: Optional[LLMService] = None,
         db_path: Optional[str] = None,
+        policy: Optional[ChapterContinuityPolicy] = None,
     ):
         self._llm = llm_service
         self._db_path = db_path
+        self.policy = policy or ChapterContinuityPolicy()
         self._ensure_table()
-
-    # ─── CPMS 提示词获取 ───
-
-    @staticmethod
-    def _get_system_prompt(node_key: str, fallback: str = "") -> str:
-        """获取 system prompt。
-
-        CPMS: 优先从 PromptRegistry 获取（广场可编辑），
-        如果 Registry 不可用则回退到硬编码默认值。
-        """
-        try:
-            from infrastructure.ai.prompt_registry import get_prompt_registry
-            registry = get_prompt_registry()
-            system = registry.get_system(node_key)
-            if system:
-                return system
-        except Exception as exc:
-            logger.debug("PromptRegistry 不可用 (%s): %s", node_key, exc)
-
-        return fallback
 
     def _ensure_table(self):
         """确保 chapter_bridges 表存在"""
@@ -212,6 +165,37 @@ class ChapterBridgeService:
             db.commit()
         except Exception as e:
             logger.warning("chapter_bridges 建表失败: %s", e)
+
+    async def _invoke_helper_text(
+        self,
+        *,
+        novel_id: str,
+        chapter_number: int,
+        operation: str,
+        node_key: str,
+        variables: Dict[str, Any],
+        max_tokens: int,
+        temperature: float,
+    ) -> str:
+        from application.ai_invocation.autopilot.factory import get_or_create_autopilot_helper_invoker
+        from application.ai_invocation.autopilot.helper_invoker import AutopilotHelperRequest
+
+        owner = type("ChapterBridgeInvocationOwner", (), {"llm_service": self._llm})()
+        return await get_or_create_autopilot_helper_invoker(owner).invoke_text(
+            AutopilotHelperRequest(
+                novel_id=novel_id,
+                stage="writing",
+                operation=operation,
+                node_key=node_key,
+                explicit_variables=variables,
+                context={
+                    "novel_id": novel_id,
+                    "chapter_number": chapter_number,
+                },
+                metadata={"source": "chapter_bridge_service"},
+                config={"max_tokens": max_tokens, "temperature": temperature},
+            )
+        )
 
     # ------------------------------------------------------------------
     # 1. 章末桥段提取
@@ -242,7 +226,9 @@ class ChapterBridgeService:
 
         if self._llm:
             try:
-                bridge = await self._llm_extract_bridge(chapter_number, tail, bridge)
+                bridge = await self._llm_extract_bridge(novel_id, chapter_number, tail, bridge)
+            except PromptTemplateUnavailable:
+                raise
             except Exception as e:
                 logger.warning("LLM 桥段提取失败（降级启发式）ch=%s: %s", chapter_number, e)
                 bridge = self._heuristic_extract_bridge(tail, bridge)
@@ -262,6 +248,7 @@ class ChapterBridgeService:
 
     async def _llm_extract_bridge(
         self,
+        novel_id: str,
         chapter_number: int,
         tail_text: str,
         bridge: ChapterBridge,
@@ -272,20 +259,15 @@ class ChapterBridgeService:
         if len(body) > 1500:
             body = body[-1500:]
 
-        # CPMS render
-        from infrastructure.ai.prompt_registry import get_prompt_registry
-        registry = get_prompt_registry()
-        variables = {"chapter_text": body}
-        prompt = registry.render_to_prompt(_BRIDGE_EXTRACT_NODE_KEY, variables)
-
-        if not prompt:
-            system = self._get_system_prompt(_BRIDGE_EXTRACT_NODE_KEY, _FALLBACK_BRIDGE_EXTRACT_SYSTEM)
-            user = f"第 {chapter_number} 章末尾：\n\n{body}"
-            prompt = Prompt(system=system, user=user)
-        config = GenerationConfig(max_tokens=512, temperature=0.3)
-
-        result = await self._llm.generate(prompt, config)
-        raw = result.content if hasattr(result, "content") else str(result)
+        raw = await self._invoke_helper_text(
+            novel_id=novel_id,
+            chapter_number=chapter_number,
+            operation="autopilot.bridge.extract",
+            node_key=_BRIDGE_EXTRACT_NODE_KEY,
+            variables={"chapter_text": body},
+            max_tokens=512,
+            temperature=0.3,
+        )
 
         # 解析 JSON
         data = self._parse_json(raw)
@@ -378,28 +360,28 @@ class ChapterBridgeService:
         ]):
             return ""
 
-        parts = ["【🔗 前章桥段（参考信息，非强制约束）】"]
+        parts = ["【前章桥段（参考信息，非强制约束）】"]
         parts.append(f"上一章（第 {prev_bridge.chapter_number} 章）结束时：\n")
 
         if prev_bridge.suspense_hook:
-            parts.append(f"💡 悬念：{prev_bridge.suspense_hook}")
+            parts.append(f"悬念：{prev_bridge.suspense_hook}")
             parts.append("  如果合适，可以呼应此悬念；也可以加深谜团、或从其他视角侧面映射。\n")
 
         if prev_bridge.emotional_residue:
             intensity_label = "强烈" if prev_bridge.emotional_intensity >= 7 else "中等" if prev_bridge.emotional_intensity >= 4 else "微弱"
-            parts.append(f"💭 情感余韵：{prev_bridge.emotional_residue}（{intensity_label}，{prev_bridge.emotional_intensity}/10）")
+            parts.append(f"情感余韵：{prev_bridge.emotional_residue}（{intensity_label}，{prev_bridge.emotional_intensity}/10）")
             parts.append("  情绪有惯性，但也会冷却——你可以延续，也可以让时间冲淡它。\n")
 
         if prev_bridge.scene_state:
-            parts.append(f"🏔 场景：{prev_bridge.scene_state}")
+            parts.append(f"场景：{prev_bridge.scene_state}")
             parts.append("  如果你在同一场景继续，这些信息有帮助。但场景切换（如'第二天清晨'）完全合法。\n")
 
         if prev_bridge.character_positions:
-            parts.append(f"👤 角色位置：{prev_bridge.character_positions}")
+            parts.append(f"角色位置：{prev_bridge.character_positions}")
             parts.append("  如果继续同一视角，保持位置一致。视角切换时，这些仅供参考。\n")
 
         if prev_bridge.unfinished_actions:
-            parts.append(f"🎬 未完成：{prev_bridge.unfinished_actions}")
+            parts.append(f"未完成：{prev_bridge.unfinished_actions}")
             parts.append("  你可以选择延续此动作，也可以暂且搁置、从另一条线开篇。\n")
 
         # V9: 删除了原来的"首段衔接铁律"4条禁令
@@ -475,27 +457,16 @@ class ChapterBridgeService:
 
         bridge_summary = "\n".join(bridge_parts)
 
-        # CPMS render
-        from infrastructure.ai.prompt_registry import get_prompt_registry
-        registry = get_prompt_registry()
-        variables = {"bridge_data": bridge_summary, "chapter_opening": head}
-        prompt = registry.render_to_prompt(_BRIDGE_CHECK_NODE_KEY, variables)
-
-        if not prompt:
-            system = self._get_system_prompt(_BRIDGE_CHECK_NODE_KEY, _FALLBACK_BRIDGE_CHECK_SYSTEM)
-            user = f"""上一章（第{prev_bridge.chapter_number}章）结尾桥段：
-{bridge_summary}
-
-本章（第{chapter_number}章）开头：
-{head}
-
-请评估衔接度。"""
-            prompt = Prompt(system=system, user=user)
-        config = GenerationConfig(max_tokens=256, temperature=0.3)
-
         try:
-            result = await self._llm.generate(prompt, config)
-            raw = result.content if hasattr(result, "content") else str(result)
+            raw = await self._invoke_helper_text(
+                novel_id=novel_id,
+                chapter_number=chapter_number,
+                operation="autopilot.bridge.check",
+                node_key=_BRIDGE_CHECK_NODE_KEY,
+                variables={"bridge_data": bridge_summary, "chapter_opening": head},
+                max_tokens=256,
+                temperature=0.3,
+            )
             data = self._parse_json(raw)
 
             if data:
@@ -514,6 +485,10 @@ class ChapterBridgeService:
         # 降级：不做检查
         return ContinuityCheckResult(score=0.7)
 
+    def should_auto_fix_opening(self, check_result: ContinuityCheckResult) -> bool:
+        """统一判断是否允许自动改写首段。"""
+        return self.policy.should_auto_fix(check_result.score)
+
     async def auto_fix_opening(
         self,
         novel_id: str,
@@ -523,12 +498,12 @@ class ChapterBridgeService:
         check_result: ContinuityCheckResult,
         max_rounds: int = 2,
     ) -> str:
-        """自动修整首段（仅当衔接度 < 0.6 时触发）
+        """自动修整首段（仅当策略允许时触发）
 
         策略：用 LLM 重写首段（前 300 字），保持后文不变。
         最多修整 max_rounds 轮。
         """
-        if check_result.score >= 0.4 or not self._llm:  # V9: 从 0.6 降至 0.4，降低强制修整门槛
+        if not self.should_auto_fix_opening(check_result) or not self._llm:
             return content
 
         stripped = content.strip()
@@ -565,35 +540,20 @@ class ChapterBridgeService:
             bridge_parts.append(f"未完成动作：{prev_bridge.unfinished_actions}")
         bridge_summary = "\n".join(bridge_parts)
 
-        # CPMS render
-        from infrastructure.ai.prompt_registry import get_prompt_registry
-        registry = get_prompt_registry()
-        variables = {
-            "bridge_data": bridge_summary,
-            "issues": issues_text,
-            "original_opening": head,
-        }
-        prompt = registry.render_to_prompt(_BRIDGE_FIX_NODE_KEY, variables)
-
-        if not prompt:
-            system = self._get_system_prompt(_BRIDGE_FIX_NODE_KEY, _FALLBACK_BRIDGE_FIX_SYSTEM)
-            user = f"""前章桥段：
-{bridge_summary}
-
-当前首段：
-{head}
-
-问题：{issues_text}
-修整方向：{fix_hint}
-
-请重写首段："""
-            prompt = Prompt(system=system, user=user)
-
-        config = GenerationConfig(max_tokens=512, temperature=0.4)
-
         try:
-            result = await self._llm.generate(prompt, config)
-            new_head = result.content if hasattr(result, "content") else str(result)
+            new_head = await self._invoke_helper_text(
+                novel_id=novel_id,
+                chapter_number=chapter_number,
+                operation="autopilot.bridge.fix",
+                node_key=_BRIDGE_FIX_NODE_KEY,
+                variables={
+                    "bridge_data": bridge_summary,
+                    "issues": issues_text,
+                    "original_opening": head,
+                },
+                max_tokens=512,
+                temperature=0.4,
+            )
             new_head = new_head.strip()
 
             if new_head and len(new_head) >= 50:

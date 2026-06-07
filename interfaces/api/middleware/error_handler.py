@@ -60,9 +60,13 @@ async def http_exception_handler(request: Request, exc) -> JSONResponse:
         code=error_code
     )
 
+    content = error_response.model_dump()
+    # Keep FastAPI's traditional HTTPException shape available for legacy clients.
+    content["detail"] = detail
+
     return JSONResponse(
         status_code=status_code,
-        content=error_response.model_dump()
+        content=content
     )
 
 

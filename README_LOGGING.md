@@ -11,6 +11,9 @@
 ```bash
 LOG_LEVEL=INFO      # 可选: DEBUG, INFO, WARNING, ERROR, CRITICAL
 LOG_FILE=logs/plotpilot.log
+LOG_COLOR=auto      # auto / always / never
+LOG_MAX_BYTES=10485760
+LOG_BACKUP_COUNT=5
 ```
 
 ### 2. 启动后端
@@ -32,14 +35,12 @@ python interfaces/main.py
 启动时会看到：
 
 ```
-================================================================================
-🚀 BACKEND STARTING - Version: 20260406-143022
-   Timestamp: 2026-04-06 14:30:22
-   Log Level: INFO
-   Log File: logs/plotpilot.log
-   Python: 3.11.0
-   Working Dir: <项目根目录>
-================================================================================
+14:30:22 INFO  api.main               ------------------------------------------------
+14:30:22 INFO  api.main               PlotPilot backend starting - release 1.0.2
+14:30:22 INFO  api.main                 Build:       build-20260209-1200-c4d2
+14:30:22 INFO  api.main                 Log level:   INFO
+14:30:22 INFO  api.main                 Log file:    logs/plotpilot.log
+14:30:22 INFO  api.main               ------------------------------------------------
 ```
 
 ### 3. 查看日志
@@ -89,29 +90,35 @@ python scripts/check_health.py
 ### 后端启动日志
 
 ```
-14:30:22 [INFO] __main__ - 🚀 BACKEND STARTING - Version: 20260406-143022
-14:30:23 [INFO] __main__ - ✅ FastAPI application started successfully
-14:30:23 [INFO] __main__ - 📊 Registered 87 routes
+14:30:22 INFO  api.main               PlotPilot backend starting - release 1.0.2
+14:30:23 INFO  api.main               FastAPI application started successfully
+14:30:23 INFO  api.main               Registered 87 routes
 ```
 
 ### 自动驾驶守护进程日志
 
 ```
-14:30:25 [INFO] autopilot_daemon - 🚀 Autopilot Daemon Started
-14:30:25 [INFO] autopilot_daemon -    Poll Interval: 5s
-14:30:30 [INFO] autopilot_daemon - 🔄 Loop #1: 发现 2 本活跃小说
-14:30:30 [INFO] autopilot_daemon - [novel-123] ✍️  开始写作 (第 2 幕)
-14:30:30 [INFO] autopilot_daemon - [novel-123] 📖 开始写第 15 章：主角突破境界...
-14:30:45 [INFO] autopilot_daemon - [novel-123]    ✅ 节拍 1/5 完成: 523 字
-14:31:51 [INFO] autopilot_daemon - [novel-123] 🎉 第 15 章完成：2525 字 (共 15/50 章)
+14:30:25 INFO  runtime.daemon_host    Autopilot daemon started
+14:30:25 INFO  runtime.daemon_host    Poll interval: 5s
+14:30:30 INFO  runtime.daemon_host    Loop #1: 发现 2 本活跃小说
+14:30:30 INFO  runtime.writing        [novel-123] 开始写作 (第 2 幕)
+14:30:30 INFO  runtime.writing        [novel-123] 开始写第 15 章：主角突破境界...
+14:30:45 INFO  runtime.writing        [novel-123] 节拍 1/5 完成: 523 字
+14:31:51 INFO  runtime.writing        [novel-123] 第 15 章完成：2525 字 (共 15/50 章)
 ```
 
 ### 错误日志
 
 ```
-14:32:15 [ERROR] autopilot_daemon - ❌ [novel-456] 处理失败: Connection timeout
-14:32:15 [WARNING] autopilot_daemon - ⚠️  [novel-456] 连续失败 1/3 次
-14:32:25 [ERROR] autopilot_daemon - 🚨 [novel-456] 连续失败 3 次，挂起等待急救
+14:32:15 ERROR runtime.daemon_host    [novel-456] 处理失败: Connection timeout
+14:32:15 WARN  runtime.daemon_host    [novel-456] 连续失败 1/3 次
+14:32:25 ERROR runtime.daemon_host    [novel-456] 连续失败 3 次，挂起等待急救
+```
+
+文件日志会使用更适合检索的格式，包含毫秒、进程号、模块名与代码位置，例如：
+
+```
+2026-04-06 14:32:15.128 ERROR pid=18420  runtime.daemon_host          daemon_host.py:606       [novel-456] 处理失败: Connection timeout
 ```
 
 ## 调试技巧

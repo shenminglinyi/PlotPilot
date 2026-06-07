@@ -1,14 +1,6 @@
-"""道具全套 API
-
-GET    /novels/{novel_id}/props                    → 列出所有道具
-POST   /novels/{novel_id}/props                    → 创建道具
-GET    /novels/{novel_id}/props/{prop_id}          → 单个道具详情
-PATCH  /novels/{novel_id}/props/{prop_id}          → 更新道具
-DELETE /novels/{novel_id}/props/{prop_id}          → 删除道具
-GET    /novels/{novel_id}/props/{prop_id}/events   → 事件时间线
-POST   /novels/{novel_id}/props/{prop_id}/events   → 手动记录事件
-"""
+"""Prop lifecycle API."""
 from __future__ import annotations
+
 import logging
 import uuid
 from typing import Any, Dict, List, Optional
@@ -18,16 +10,15 @@ from pydantic import BaseModel, Field
 
 from domain.shared.time_utils import utcnow_iso
 from interfaces.api.dependencies import (
-    get_unified_prop_repository,
-    get_prop_event_repository,
     get_novel_service,
+    get_prop_event_repository,
+    get_unified_character_repository,
+    get_unified_prop_repository,
 )
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/novels", tags=["props"])
 
-
-# ─── DTOs ──────────────────────────────────────────────────────────────────
 
 class PropDTO(BaseModel):
     id: str
@@ -88,11 +79,22 @@ class CreateEventBody(BaseModel):
     to_holder_id: Optional[str] = None
 
 
-# ─── Helpers ───────────────────────────────────────────────────────────────
-
 def _check_novel(novel_id: str, novel_service) -> None:
     if novel_service.get_novel(novel_id) is None:
         raise HTTPException(status_code=404, detail="Novel not found")
+
+
+def _check_holder(novel_id: str, holder_character_id: Optional[str], character_repo) -> None:
+    if not holder_character_id:
+        return
+    from domain.character.value_objects.character_id import CharacterId
+
+    char = character_repo.get(CharacterId(holder_character_id))
+    if not char or char.novel_id != novel_id:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Holder character '{holder_character_id}' not found in unified characters",
+        )
 
 
 def _prop_to_dto(prop) -> PropDTO:
@@ -113,8 +115,6 @@ def _prop_to_dto(prop) -> PropDTO:
     )
 
 
-# ─── Endpoints ─────────────────────────────────────────────────────────────
-
 @router.get("/{novel_id}/props", response_model=List[PropDTO])
 async def list_props(
     novel_id: str,
@@ -131,11 +131,14 @@ async def create_prop(
     body: CreatePropBody,
     novel_service=Depends(get_novel_service),
     repo=Depends(get_unified_prop_repository),
+    character_repo=Depends(get_unified_character_repository),
 ):
     _check_novel(novel_id, novel_service)
+    _check_holder(novel_id, body.holder_character_id, character_repo)
     from domain.prop.entities.prop import Prop
-    from domain.prop.value_objects.prop_id import PropId
     from domain.prop.value_objects.prop_category import PropCategory
+    from domain.prop.value_objects.prop_id import PropId
+
     now = utcnow_iso()
     try:
         prop = Prop(
@@ -152,7 +155,7 @@ async def create_prop(
             updated_at=now,
         )
     except (ValueError, KeyError) as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e)) from e
     repo.save(prop)
     return _prop_to_dto(prop)
 
@@ -166,6 +169,7 @@ async def get_prop(
 ):
     _check_novel(novel_id, novel_service)
     from domain.prop.value_objects.prop_id import PropId
+
     prop = repo.get(PropId(prop_id))
     if not prop or prop.novel_id != novel_id:
         raise HTTPException(status_code=404, detail="Prop not found")
@@ -179,14 +183,18 @@ async def patch_prop(
     body: PatchPropBody,
     novel_service=Depends(get_novel_service),
     repo=Depends(get_unified_prop_repository),
+    character_repo=Depends(get_unified_character_repository),
 ):
     _check_novel(novel_id, novel_service)
-    from domain.prop.value_objects.prop_id import PropId
-    from domain.prop.value_objects.prop_category import PropCategory
     from domain.prop.value_objects.lifecycle_state import LifecycleState
+    from domain.prop.value_objects.prop_category import PropCategory
+    from domain.prop.value_objects.prop_id import PropId
+
     prop = repo.get(PropId(prop_id))
     if not prop or prop.novel_id != novel_id:
         raise HTTPException(status_code=404, detail="Prop not found")
+    if body.holder_character_id is not None:
+        _check_holder(novel_id, body.holder_character_id, character_repo)
     try:
         if body.name is not None:
             prop.name = body.name
@@ -205,7 +213,7 @@ async def patch_prop(
         if body.attributes is not None:
             prop.attributes = body.attributes
     except (ValueError, KeyError) as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e)) from e
     repo.save(prop)
     return _prop_to_dto(prop)
 
@@ -219,6 +227,7 @@ async def delete_prop(
 ):
     _check_novel(novel_id, novel_service)
     from domain.prop.value_objects.prop_id import PropId
+
     prop = repo.get(PropId(prop_id))
     if not prop or prop.novel_id != novel_id:
         raise HTTPException(status_code=404, detail="Prop not found")
@@ -234,13 +243,21 @@ async def list_prop_events(
 ):
     _check_novel(novel_id, novel_service)
     events = event_repo.list_for_prop(prop_id)
-    return [PropEventDTO(
-        id=e.id, prop_id=e.prop_id, chapter_number=e.chapter_number,
-        event_type=e.event_type.value, source=e.source.value,
-        description=e.description, actor_character_id=e.actor_character_id,
-        from_holder_id=e.from_holder_id, to_holder_id=e.to_holder_id,
-        created_at=e.created_at,
-    ) for e in events]
+    return [
+        PropEventDTO(
+            id=e.id,
+            prop_id=e.prop_id,
+            chapter_number=e.chapter_number,
+            event_type=e.event_type.value,
+            source=e.source.value,
+            description=e.description,
+            actor_character_id=e.actor_character_id,
+            from_holder_id=e.from_holder_id,
+            to_holder_id=e.to_holder_id,
+            created_at=e.created_at,
+        )
+        for e in events
+    ]
 
 
 @router.post("/{novel_id}/props/{prop_id}/events", response_model=PropEventDTO, status_code=201)
@@ -253,8 +270,9 @@ async def create_prop_event(
     event_repo=Depends(get_prop_event_repository),
 ):
     _check_novel(novel_id, novel_service)
+    from domain.prop.value_objects.prop_event import PropEvent, PropEventSource, PropEventType
     from domain.prop.value_objects.prop_id import PropId
-    from domain.prop.value_objects.prop_event import PropEvent, PropEventType, PropEventSource
+
     prop = repo.get(PropId(prop_id))
     if not prop or prop.novel_id != novel_id:
         raise HTTPException(status_code=404, detail="Prop not found")
@@ -275,9 +293,16 @@ async def create_prop_event(
         repo.save(prop)
         event_repo.save(event)
     except Exception as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e)) from e
     return PropEventDTO(
-        id=event.id, prop_id=event.prop_id, chapter_number=event.chapter_number,
-        event_type=event.event_type.value, source=event.source.value,
-        description=event.description, created_at=event.created_at,
+        id=event.id,
+        prop_id=event.prop_id,
+        chapter_number=event.chapter_number,
+        event_type=event.event_type.value,
+        source=event.source.value,
+        description=event.description,
+        actor_character_id=event.actor_character_id,
+        from_holder_id=event.from_holder_id,
+        to_holder_id=event.to_holder_id,
+        created_at=event.created_at,
     )

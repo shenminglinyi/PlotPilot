@@ -369,6 +369,15 @@ class PromptManager:
         existing_version = existing_meta.get("version", "")
 
         if existing_version == seed_version:
+            repaired = self._repair_corrupt_builtin_versions(conn, prompts)
+            added = self._insert_missing_builtin_nodes(conn, template_id, prompts)
+            if repaired or added:
+                conn.commit()
+                logger.warning(
+                    "PromptManager: 同版本种子修复完成，修复 %d 个疑似乱码节点，补齐 %d 个缺失节点",
+                    repaired,
+                    added,
+                )
             self._seeded = True
             logger.info("PromptManager: 种子版本相同 (%s)，跳过更新", seed_version)
             return True
@@ -379,6 +388,79 @@ class PromptManager:
             existing_version, seed_version
         )
         return self._do_incremental_update(conn, seed_data, meta, template_id)
+
+    def _repair_corrupt_builtin_versions(self, conn, prompts: List[Dict]) -> int:
+        """Repair built-in system versions when the seed body is newer than DB."""
+        from infrastructure.ai.prompt_seed.normalize import normalize_prompt_record
+
+        repaired = 0
+        now = datetime.now().isoformat()
+        by_key = {str(p.get("id") or ""): p for p in prompts if p.get("id")}
+        rows = conn.execute("""
+            SELECT n.id AS node_id, n.node_key, v.id AS version_id,
+                   v.system_prompt, v.user_template, v.created_by
+            FROM prompt_nodes n
+            INNER JOIN prompt_versions v ON n.active_version_id = v.id
+            WHERE n.is_builtin = 1
+        """).fetchall()
+        for row in rows:
+            if row["created_by"] == "user":
+                continue
+            node_key = row["node_key"]
+            seed = by_key.get(node_key)
+            if not seed:
+                continue
+            seed_norm = normalize_prompt_record(dict(seed))
+            old_system = row["system_prompt"] or ""
+            old_user = row["user_template"] or ""
+            new_system = seed_norm.get("system") or ""
+            new_user = seed_norm.get("user_template") or ""
+            if not (
+                self._looks_like_mojibake(old_system)
+                or self._looks_like_mojibake(old_user)
+                or old_system != new_system
+                or old_user != new_user
+            ):
+                continue
+            self._overwrite_system_version(conn, row["node_id"], row["version_id"], seed_norm, now)
+            repaired += 1
+        return repaired
+
+    def _insert_missing_builtin_nodes(self, conn, template_id: str, prompts: List[Dict]) -> int:
+        """Insert seed nodes missing from an existing same-version builtin bundle.
+
+        Older local databases can have bundle metadata already set to the current
+        version while newer node directories were added later. In that case a
+        pure version check would skip seeding and runtime contracts would fail
+        with "CPMS node is not published".
+        """
+        existing_rows = conn.execute(
+            "SELECT node_key FROM prompt_nodes WHERE template_id = ?",
+            (template_id,),
+        ).fetchall()
+        existing_keys = {str(row["node_key"]) for row in existing_rows}
+        now = datetime.now().isoformat()
+        added = 0
+        for idx, prompt in enumerate(prompts):
+            node_key = str(prompt.get("id") or f"node-{idx}")
+            if node_key in existing_keys:
+                continue
+            self._insert_node(conn, template_id, idx, prompt, now)
+            existing_keys.add(node_key)
+            added += 1
+        if added:
+            logger.info("PromptManager: 同版本种子补齐 %d 个缺失内置节点", added)
+        return added
+
+    @staticmethod
+    def _looks_like_mojibake(text: str) -> bool:
+        if not text:
+            return False
+        replacement_char = chr(0xFFFD)
+        mojibake_bom = bytes([0xEF, 0xBB, 0xBF]).decode("latin-1")
+        if replacement_char in text or mojibake_bom in text:
+            return True
+        return text.count("??") >= 2
 
     def _do_full_seed(self, conn, seed_data: Dict, meta: Dict) -> bool:
         """完整导入种子（首次启动）。"""
@@ -713,6 +795,7 @@ class PromptManager:
     def get_node(self, node_key_or_id: str,
                  by_key: bool = True) -> Optional[NodeInfo]:
         """获取单个节点详情（含激活版本内容）。"""
+        self.ensure_seeded()
         db = self._get_db()
         if by_key:
             col = "node_key"

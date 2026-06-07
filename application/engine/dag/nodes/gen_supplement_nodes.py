@@ -23,6 +23,11 @@ from application.engine.dag.models import (
     PromptMode,
 )
 from application.engine.dag.registry import BaseNode, NodeRegistry
+from infrastructure.ai.prompt_keys import (
+    CHAPTER_GENERATION_BASIC,
+    DIALOGUE_GENERATION,
+    SCENE_GENERATION,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,9 +41,9 @@ class ChapterBasicNode(BaseNode):
 
     meta = NodeMeta(
         node_type="gen_chapter_basic",
-        display_name="📝 基础章节生成",
+        display_name="基础章节生成",
         category=NodeCategory.EXECUTION,
-        icon="📝",
+        icon="",
         color="#4338ca",
         input_ports=[
             NodePort(name="novel_title", data_type=PortDataType.TEXT, required=True),
@@ -51,12 +56,11 @@ class ChapterBasicNode(BaseNode):
             NodePort(name="content", data_type=PortDataType.TEXT),
             NodePort(name="word_count", data_type=PortDataType.SCORE),
         ],
-        prompt_template="你是长篇小说的创作者...",
         prompt_variables=["novel_title", "chapter_number", "outline", "characters_section", "world_settings_section"],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=300,
-        cpms_node_key="chapter-generation-basic",
+        cpms_node_key=CHAPTER_GENERATION_BASIC,
         prompt_mode=PromptMode.CPMS_FIRST,
         description="引擎层基础章节生成，注入 Bible 人物和世界设定",
         default_edges=["val_style"],
@@ -121,9 +125,9 @@ class DialogueNode(BaseNode):
 
     meta = NodeMeta(
         node_type="gen_dialogue",
-        display_name="💬 对白生成",
+        display_name="对白生成",
         category=NodeCategory.EXECUTION,
-        icon="💬",
+        icon="",
         color="#6d28d9",
         input_ports=[
             NodePort(name="context", data_type=PortDataType.TEXT, required=False),
@@ -135,12 +139,11 @@ class DialogueNode(BaseNode):
             NodePort(name="dialogue_text", data_type=PortDataType.TEXT),
             NodePort(name="word_count", data_type=PortDataType.SCORE),
         ],
-        prompt_template="",
         prompt_variables=["context", "scene_description", "characters", "tension_level"],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=120,
-        cpms_node_key="dialogue-generation",
+        cpms_node_key=DIALOGUE_GENERATION,
         prompt_mode=PromptMode.CPMS_FIRST,
         description="双人或多角色对白场景生成，追求弦外之音和潜台词",
         default_edges=["val_style"],
@@ -204,9 +207,9 @@ class SceneGenNode(BaseNode):
 
     meta = NodeMeta(
         node_type="gen_scene",
-        display_name="🎬 场景正文生成",
+        display_name="场景正文生成",
         category=NodeCategory.EXECUTION,
-        icon="🎬",
+        icon="",
         color="#7c3aed",
         input_ports=[
             NodePort(name="title", data_type=PortDataType.TEXT, required=False),
@@ -223,12 +226,11 @@ class SceneGenNode(BaseNode):
             NodePort(name="content", data_type=PortDataType.TEXT),
             NodePort(name="word_count", data_type=PortDataType.SCORE),
         ],
-        prompt_template="",
         prompt_variables=["title", "goal", "pov_character", "location", "tone", "estimated_words", "analysis_block", "previous_scenes_block", "foreshadowing_block"],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=180,
-        cpms_node_key="scene-generation",
+        cpms_node_key=SCENE_GENERATION,
         prompt_mode=PromptMode.CPMS_FIRST,
         description="v2沉浸式反AI场景生成：MRU理论+POV限制视角",
         default_edges=["val_style"],

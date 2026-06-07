@@ -1,5 +1,3 @@
-import type { App } from 'vue'
-import ECharts from 'vue-echarts'
 import { use } from 'echarts/core'
 import {
   BarChart,
@@ -39,7 +37,6 @@ import {
   LegendPlainComponent
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import * as echarts from 'echarts'
 
 // Register components, charts, and renderer
 use([
@@ -79,9 +76,3 @@ use([
   CanvasRenderer
 ])
 
-export default function installECharts(app: App) {
-  app.component('VChart', ECharts)
-  app.config.globalProperties.$echarts = echarts
-}
-
-export { echarts }

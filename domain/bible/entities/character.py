@@ -19,6 +19,13 @@ class Character(BaseEntity):
         name: str,
         description: str,
         relationships: List[Any] = None,
+        gender: str = "",
+        age: str = "",
+        appearance: str = "",
+        personality: str = "",
+        background: str = "",
+        core_motivation: str = "",
+        inner_lack: str = "",
         public_profile: str = "",
         hidden_profile: str = "",
         reveal_chapter: int = None,
@@ -36,6 +43,13 @@ class Character(BaseEntity):
         self.name = name
         self.description = description
         self.relationships = relationships or []
+        self.gender = gender or ""
+        self.age = age or ""
+        self.appearance = appearance or ""
+        self.personality = personality or ""
+        self.background = background or ""
+        self.core_motivation = core_motivation or ""
+        self.inner_lack = inner_lack or ""
         self.public_profile = public_profile
         self.hidden_profile = hidden_profile
         self.reveal_chapter = reveal_chapter

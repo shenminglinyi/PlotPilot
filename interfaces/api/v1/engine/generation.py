@@ -3,12 +3,33 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
+from application.ai_invocation.contracts import ensure_invocation_contract
+from application.ai_invocation.dtos import InvocationPolicy
+from application.audit.services.chapter_ai_review_service import (
+    ChapterAIReviewContractError,
+    ChapterAIReviewService,
+)
+from application.blueprint.services.setup_main_plot_invocation import (
+    SETUP_MAIN_PLOT_NODE,
+    SETUP_MAIN_PLOT_OPERATION,
+    build_setup_main_plot_invocation_variables,
+    ensure_setup_main_plot_contract,
+)
+from application.blueprint.services.setup_plot_outline_invocation import (
+    SETUP_PLOT_OUTLINE_NODE,
+    SETUP_PLOT_OUTLINE_OPERATION,
+    build_setup_plot_outline_invocation_variables,
+    ensure_setup_plot_outline_contract,
+)
+from application.blueprint.services.setup_plot_outline_continuation import (
+    normalize_setup_plot_outline_payload,
+)
 from application.blueprint.services.continuous_planning_service import ContinuousPlanningService
 from application.engine.dtos.scene_director_dto import SceneDirectorAnalysis
 from application.engine.services.hosted_write_service import HostedWriteService
@@ -23,22 +44,33 @@ from domain.novel.value_objects.novel_id import NovelId
 from domain.novel.value_objects.plot_point import PlotPoint, PlotPointType
 from domain.novel.value_objects.storyline_type import StorylineType
 from domain.novel.value_objects.tension_level import TensionLevel
+from infrastructure.ai.prompt_keys import CHAPTER_GENERATION_MAIN
+from infrastructure.persistence.database.connection import get_database
 from infrastructure.persistence.database.chapter_element_repository import ChapterElementRepository
 from infrastructure.persistence.database.story_node_repository import StoryNodeRepository
+from interfaces.api.v1.engine.ai_invocation_routes import InvocationCreateRequest, create_invocation
 from interfaces.api.dependencies import (
     get_auto_bible_generator,
     get_auto_knowledge_generator,
     get_auto_workflow,
     get_bible_service,
     get_chapter_service,
+    get_chapter_ai_review_service,
     get_hosted_write_service,
     get_novel_service,
     get_plot_arc_repository,
     get_setup_main_plot_suggestion_service,
+    get_setup_plot_outline_service,
     get_storyline_manager,
 )
 
 logger = logging.getLogger(__name__)
+
+_PRE_CALL_INVOCATION_POLICIES = {
+    InvocationPolicy.REVIEW_BEFORE_CALL,
+    InvocationPolicy.FULL_INTERACTIVE,
+    InvocationPolicy.AUTOPILOT_PAUSE,
+}
 
 
 def _refresh_narrative_contract_shared(novel_id: str) -> None:
@@ -47,6 +79,23 @@ def _refresh_narrative_contract_shared(novel_id: str) -> None:
         refresh_narrative_contract_in_shared_state(novel_id)
     except Exception as e:
         logger.debug("共享叙事契约刷新跳过 novel=%s: %s", novel_id, e)
+
+
+def _ensure_main_plot_invocation_contract() -> None:
+    """确保向导主线候选推演具备 AI Invocation 契约。"""
+    ensure_setup_main_plot_contract(get_database())
+
+
+def _main_plot_invocation_variables(ctx: Dict[str, Any]) -> Dict[str, Any]:
+    return build_setup_main_plot_invocation_variables(ctx)
+
+
+def _ensure_plot_outline_invocation_contract() -> None:
+    ensure_setup_plot_outline_contract(get_database())
+
+
+def _plot_outline_invocation_variables(ctx: Dict[str, Any]) -> Dict[str, Any]:
+    return build_setup_plot_outline_invocation_variables(ctx)
 
 
 router = APIRouter(prefix="/novels", tags=["generation"])
@@ -80,10 +129,155 @@ class GenerateChapterRequest(BaseModel):
     chapter_number: int = Field(..., gt=0, description="章节号（必须 > 0）")
     outline: str = Field(..., min_length=1, description="章节大纲")
     scene_director_result: Optional[dict] = Field(None, description="可选的场记分析结果")
+    invocation_policy: Optional[InvocationPolicy] = Field(
+        None,
+        description="可选 AI Invocation 策略；FULL_INTERACTIVE/REVIEW_BEFORE_CALL 会先返回 approval_required",
+    )
     regeneration_guidance: Optional[str] = Field(
         None,
         max_length=2000,
         description="重新生成指导（告诉 AI 改进方向；仅用于重写已有章节时）",
+    )
+    allow_evolution_gate_bypass: bool = Field(
+        False,
+        description="手动确认绕过故事演进 Gate 的 blocking 风险",
+    )
+    profile_id: Optional[str] = Field(
+        None,
+        description="覆盖 LLM 控制台档案 ID；不传则使用当前激活档案",
+    )
+    script_prompt_template: Optional[str] = Field(
+        None,
+        description="自定义六模块剧本生成提示词模板；支持 {{variable}} 占位符",
+    )
+    prose_prompt_template: Optional[str] = Field(
+        None,
+        description="自定义剧本转正文提示词模板；支持 {{variable}} 占位符",
+    )
+    prompt_variables: Optional[dict] = Field(
+        None,
+        description="提示词变量键值对；与模板配合使用",
+    )
+
+
+def _ensure_chapter_generation_invocation_contract() -> None:
+    """确保手动章节生成具备 AI Invocation 最小契约。
+
+    这里只登记已发布 CPMS 节点的 active version、模板变量名与调用能力，
+    不写入任何提示词正文；CPMS 节点缺失时阻塞流程。
+    """
+    ensure_invocation_contract("chapter.generate", CHAPTER_GENERATION_MAIN, get_database())
+
+
+def _chapter_invocation_variables(
+    *,
+    workflow: AutoNovelGenerationWorkflow,
+    bundle: dict,
+    outline: str,
+) -> dict:
+    """生成章节审阅用变量快照，变量来源沿用当前章节准备链路。"""
+    novel_id = str(bundle.get("novel_id") or "")
+    target_words = 0
+    if novel_id and hasattr(workflow, "_resolve_target_chapter_words"):
+        target_words = int(workflow._resolve_target_chapter_words(novel_id) or 0)
+    context = str(bundle.get("context") or "")
+    style_summary = str(bundle.get("style_summary") or "").strip()
+    storyline_context = str(bundle.get("storyline_context") or "").strip()
+    plot_tension = str(bundle.get("plot_tension") or "").strip()
+
+    planning_parts: list[str] = []
+    if storyline_context and storyline_context not in ("Storyline context unavailable",):
+        planning_parts.append(f"【故事线 / 里程碑】\n{storyline_context}")
+    if plot_tension and plot_tension not in ("Plot tension unavailable", "No plot arc defined"):
+        planning_parts.append(f"【情节节奏 / 张力控制（必须遵守）】\n{plot_tension}")
+    if style_summary:
+        planning_parts.append(f"【风格约束】\n{style_summary}")
+    planning_section = ""
+    if planning_parts:
+        planning_section = "\n".join(planning_parts) + "\n\n以上约束须与本章大纲及后文 Bible/摘要一致；不得与之矛盾。\n"
+
+    voice_anchors = str(bundle.get("voice_anchors") or "").strip()
+    voice_block = (
+        f"\n【角色声线与肢体语言（Bible 锚点，必须遵守）】\n{voice_anchors}\n\n"
+        if voice_anchors
+        else ""
+    )
+    genre_profile_block = (
+        "【类型开篇画像 / 读者契约 / 节奏约束】\n"
+        + json.dumps(
+            {
+                "genre_opening_profile": bundle.get("genre_opening_profile") or {},
+                "genre_reader_contract": bundle.get("genre_reader_contract") or {},
+                "genre_rhythm_constraints": bundle.get("genre_rhythm_constraints") or {},
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n\n"
+    )
+    length_rule = (
+        f"7. 【章节字数指引】本章目标约 {target_words} 字。完整覆盖下方大纲的所有要点，"
+        "字数不足时优先补充对话与场景细节，禁止重复情节水字；用完整句收束，不要戛然而止。"
+        if target_words
+        else "7. 章节长度：3000-4000字"
+    )
+
+    return {
+        "outline": outline,
+        "context": context,
+        "planning_section": planning_section,
+        "voice_block": voice_block,
+        "genre_profile_block": genre_profile_block,
+        "genre_opening_profile": bundle.get("genre_opening_profile") or {},
+        "genre_reader_contract": bundle.get("genre_reader_contract") or {},
+        "genre_rhythm_constraints": bundle.get("genre_rhythm_constraints") or {},
+        "length_rule": length_rule,
+        "beat_extra": "",
+        "beat_section": "",
+        "fact_lock": "",
+        "behavior_protocol": "",
+        "character_state_lock": "",
+        "allowlist_block": "",
+        "nervous_habits": "",
+    }
+
+
+async def _create_pre_call_review_invocation(
+    *,
+    novel_id: str,
+    request: GenerateChapterRequest,
+    workflow: AutoNovelGenerationWorkflow,
+    scene_director: Optional[SceneDirectorAnalysis],
+) -> dict:
+    _ensure_chapter_generation_invocation_contract()
+    bundle = workflow.prepare_chapter_generation(
+        novel_id,
+        request.chapter_number,
+        request.outline,
+        scene_director=scene_director,
+        allow_evolution_gate_bypass=request.allow_evolution_gate_bypass,
+    )
+    bundle["novel_id"] = novel_id
+    policy = request.invocation_policy or InvocationPolicy.FULL_INTERACTIVE
+    return await create_invocation(
+        InvocationCreateRequest(
+            operation="chapter.generate",
+            node_key=CHAPTER_GENERATION_MAIN,
+            variables=_chapter_invocation_variables(
+                workflow=workflow,
+                bundle=bundle,
+                outline=request.outline,
+            ),
+            context={
+                "novel_id": novel_id,
+                "chapter_number": request.chapter_number,
+            },
+            policy=policy,
+            metadata={
+                "source": "generate_chapter_stream",
+                "regeneration": bool(request.regeneration_guidance and request.regeneration_guidance.strip()),
+            },
+        )
     )
 
 
@@ -151,10 +345,47 @@ class MainPlotOptionItem(BaseModel):
     logline: str = ""
     core_conflict: str = ""
     starting_hook: str = ""
+    main_axis: str = ""
+    opening_pressure: str = ""
+    forbidden_drift: str = ""
+    sublines: List[dict] = Field(default_factory=list)
 
 
 class SuggestMainPlotOptionsResponse(BaseModel):
     plot_options: List[MainPlotOptionItem]
+    invocation_session_id: str = ""
+    invocation_next_action: str = ""
+
+
+class PlotOutlineStageItem(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    phase: str
+    label: str
+    range_percent: str
+    chapter_start: Optional[int] = None
+    chapter_end: Optional[int] = None
+    summary: str
+    key_goals: List[str] = Field(default_factory=list)
+
+
+class PlotOutlineItem(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    main_story_overview: str = ""
+    stage_plan: List[PlotOutlineStageItem] = Field(default_factory=list)
+    expected_ending: str = ""
+    core_conflict: str = ""
+
+
+class GeneratePlotOutlineResponse(BaseModel):
+    plot_outline: Optional[PlotOutlineItem] = None
+    invocation_session_id: str = ""
+    invocation_next_action: str = ""
+
+
+class SavePlotOutlineRequest(BaseModel):
+    plot_outline: PlotOutlineItem
 
 
 def _storyline_to_response(storyline) -> StorylineResponse:
@@ -258,12 +489,32 @@ async def generate_chapter_stream(
         if request.scene_director_result:
             scene_director = SceneDirectorAnalysis(**request.scene_director_result)
 
+        if request.invocation_policy in _PRE_CALL_INVOCATION_POLICIES:
+            try:
+                payload = await _create_pre_call_review_invocation(
+                    novel_id=novel_id,
+                    request=request,
+                    workflow=workflow,
+                    scene_director=scene_director,
+                )
+                session = payload.get("session") or {}
+                yield f"data: {json.dumps({'type': 'approval_required', 'session_id': session.get('id', ''), 'status': session.get('status', ''), 'next_action': payload.get('next_action', '')}, ensure_ascii=False)}\n\n"
+            except Exception as exc:
+                logger.exception("AI Invocation 生成前审阅创建失败: %s", exc)
+                yield f"data: {json.dumps({'type': 'error', 'message': str(exc)}, ensure_ascii=False)}\n\n"
+            return
+
         async for event in workflow.generate_chapter_stream(
             novel_id=novel_id,
             chapter_number=request.chapter_number,
             outline=request.outline,
             scene_director=scene_director,
             regeneration_guidance=request.regeneration_guidance,
+            allow_evolution_gate_bypass=request.allow_evolution_gate_bypass,
+            profile_id=request.profile_id,
+            script_prompt_template=request.script_prompt_template,
+            prose_prompt_template=request.prose_prompt_template,
+            prompt_variables=request.prompt_variables,
         ):
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
@@ -338,15 +589,261 @@ async def suggest_main_plot_options(
     if novel_service.get_novel(novel_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Novel not found")
     try:
-        raw = await setup_svc.suggest_options(novel_id)
-        items = [MainPlotOptionItem(**opt) for opt in raw]
-        return SuggestMainPlotOptionsResponse(plot_options=items)
+        _ensure_main_plot_invocation_contract()
+        ctx = setup_svc.build_context(novel_id)
+        payload = await create_invocation(
+            InvocationCreateRequest(
+                operation=SETUP_MAIN_PLOT_OPERATION,
+                node_key=SETUP_MAIN_PLOT_NODE,
+                variables={},
+                context={"novel_id": novel_id, "setup_context": ctx},
+                policy=InvocationPolicy.FULL_INTERACTIVE,
+                metadata={
+                    "source": "setup_main_plot_suggestion",
+                    "novel_id": novel_id,
+                },
+            )
+        )
+        session = payload.get("session") or {}
+        return SuggestMainPlotOptionsResponse(
+            plot_options=[],
+            invocation_session_id=str(session.get("id") or ""),
+            invocation_next_action=str(payload.get("next_action") or ""),
+        )
     except Exception as e:
         logger.exception("suggest_main_plot_options failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to suggest main plot options: {str(e)}",
         )
+
+
+@router.post(
+    "/{novel_id}/setup/suggest-main-plot-options-stream",
+    status_code=status.HTTP_200_OK,
+)
+async def suggest_main_plot_options_stream(
+    novel_id: str,
+    novel_service=Depends(get_novel_service),
+    setup_svc=Depends(get_setup_main_plot_suggestion_service),
+):
+    """向导 Step 4：流式推演主线候选，解析到一条推送一条。"""
+    if novel_service.get_novel(novel_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Novel not found")
+
+    async def event_gen():
+        yield f"data: {json.dumps({'type': 'phase', 'phase': 'plot_options', 'message': '正在生成叙事结构'}, ensure_ascii=False)}\n\n"
+        try:
+            _ensure_main_plot_invocation_contract()
+            ctx = setup_svc.build_context(novel_id)
+            payload = await create_invocation(
+                InvocationCreateRequest(
+                    operation=SETUP_MAIN_PLOT_OPERATION,
+                    node_key=SETUP_MAIN_PLOT_NODE,
+                    variables={},
+                    context={"novel_id": novel_id, "setup_context": ctx},
+                    policy=InvocationPolicy.FULL_INTERACTIVE,
+                    metadata={
+                        "source": "setup_main_plot_suggestion_stream",
+                        "novel_id": novel_id,
+                    },
+                )
+            )
+            session = payload.get("session") or {}
+            if session.get("id"):
+                yield f"data: {json.dumps({'type': 'approval_required', 'session_id': session.get('id', ''), 'status': session.get('status', ''), 'next_action': payload.get('next_action', '')}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'plot_options': [], 'invocation_session_id': session.get('id', '')}, ensure_ascii=False)}\n\n"
+        except Exception as exc:
+            logger.exception("suggest_main_plot_options_stream failed")
+            yield f"data: {json.dumps({'type': 'error', 'message': str(exc)}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get(
+    "/{novel_id}/setup/plot-outline",
+    response_model=GeneratePlotOutlineResponse,
+    status_code=status.HTTP_200_OK,
+)
+def get_plot_outline(novel_id: str, novel_service=Depends(get_novel_service)):
+    if novel_service.get_novel(novel_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Novel not found")
+    try:
+        from infrastructure.persistence.database.sqlite_ai_invocation_repository import SqliteVariableHubRepository
+
+        repo = SqliteVariableHubRepository(get_database())
+        context_key = f"novel_id:{novel_id}"
+        outline_value = repo.get_value("plot.outline", context_key)
+        if outline_value is None or not isinstance(outline_value.value, dict):
+            return GeneratePlotOutlineResponse()
+        return GeneratePlotOutlineResponse(plot_outline=PlotOutlineItem(**outline_value.value))
+    except Exception as exc:
+        logger.exception("get_plot_outline failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to load plot outline: {str(exc)}",
+        )
+
+
+@router.put(
+    "/{novel_id}/setup/plot-outline",
+    response_model=GeneratePlotOutlineResponse,
+    status_code=status.HTTP_200_OK,
+)
+def save_plot_outline(
+    novel_id: str,
+    request: SavePlotOutlineRequest,
+    novel_service=Depends(get_novel_service),
+):
+    novel = novel_service.get_novel(novel_id)
+    if novel is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Novel not found")
+    try:
+        from application.ai_invocation.variable_hub import VariableWrite
+        from infrastructure.persistence.database.sqlite_ai_invocation_repository import SqliteVariableHubRepository
+
+        _ensure_plot_outline_invocation_contract()
+        target_chapters = int(getattr(novel, "target_chapters", 0) or 100)
+        outline = normalize_setup_plot_outline_payload(
+            request.plot_outline.model_dump(),
+            target_chapters=target_chapters,
+        )
+        repo = SqliteVariableHubRepository(get_database())
+        context_key = f"novel_id:{novel_id}"
+        writes = [
+            ("plot.outline", outline, "object", "剧情总纲"),
+            ("plot.stage_plan", outline["stage_plan"], "list", "阶段规划"),
+        ]
+        if outline.get("main_story_overview"):
+            writes.append(("plot.main_story_overview", outline["main_story_overview"], "string", "故事主线概述"))
+        if outline.get("expected_ending"):
+            writes.append(("plot.expected_ending", outline["expected_ending"], "string", "预期结局"))
+        if outline.get("core_conflict"):
+            writes.append(("plot.core_conflict", outline["core_conflict"], "string", "核心冲突"))
+        for key, value, value_type, display_name in writes:
+            repo.set_value(
+                VariableWrite(
+                    key=key,
+                    value=value,
+                    context_key=context_key,
+                    source_trace_id="setup_plot_outline_manual_save",
+                    source_node_key=SETUP_PLOT_OUTLINE_NODE,
+                    lineage={"source": "setup_plot_outline_manual_save"},
+                    value_type=value_type,
+                    display_name=display_name,
+                    scope="novel",
+                    stage="planning",
+                )
+            )
+        _refresh_narrative_contract_shared(novel_id)
+        return GeneratePlotOutlineResponse(plot_outline=PlotOutlineItem(**outline))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except Exception as exc:
+        logger.exception("save_plot_outline failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save plot outline: {str(exc)}",
+        )
+
+
+@router.post(
+    "/{novel_id}/setup/generate-plot-outline",
+    response_model=GeneratePlotOutlineResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def generate_plot_outline(
+    novel_id: str,
+    novel_service=Depends(get_novel_service),
+    setup_svc=Depends(get_setup_plot_outline_service),
+):
+    if novel_service.get_novel(novel_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Novel not found")
+    try:
+        _ensure_plot_outline_invocation_contract()
+        ctx = setup_svc.build_context(novel_id)
+        payload = await create_invocation(
+            InvocationCreateRequest(
+                operation=SETUP_PLOT_OUTLINE_OPERATION,
+                node_key=SETUP_PLOT_OUTLINE_NODE,
+                variables={},
+                context={"novel_id": novel_id, "setup_context": ctx},
+                policy=InvocationPolicy.FULL_INTERACTIVE,
+                metadata={
+                    "source": "setup_plot_outline",
+                    "novel_id": novel_id,
+                },
+            )
+        )
+        session = payload.get("session") or {}
+        return GeneratePlotOutlineResponse(
+            plot_outline=None,
+            invocation_session_id=str(session.get("id") or ""),
+            invocation_next_action=str(payload.get("next_action") or ""),
+        )
+    except Exception as exc:
+        logger.exception("generate_plot_outline failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate plot outline: {str(exc)}",
+        )
+
+
+@router.post(
+    "/{novel_id}/setup/generate-plot-outline-stream",
+    status_code=status.HTTP_200_OK,
+)
+async def generate_plot_outline_stream(
+    novel_id: str,
+    novel_service=Depends(get_novel_service),
+    setup_svc=Depends(get_setup_plot_outline_service),
+):
+    if novel_service.get_novel(novel_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Novel not found")
+
+    async def event_gen():
+        yield f"data: {json.dumps({'type': 'phase', 'phase': 'plot_outline', 'message': '正在生成剧情总纲'}, ensure_ascii=False)}\n\n"
+        try:
+            _ensure_plot_outline_invocation_contract()
+            ctx = setup_svc.build_context(novel_id)
+            payload = await create_invocation(
+                InvocationCreateRequest(
+                    operation=SETUP_PLOT_OUTLINE_OPERATION,
+                    node_key=SETUP_PLOT_OUTLINE_NODE,
+                    variables={},
+                    context={"novel_id": novel_id, "setup_context": ctx},
+                    policy=InvocationPolicy.FULL_INTERACTIVE,
+                    metadata={
+                        "source": "setup_plot_outline_stream",
+                        "novel_id": novel_id,
+                    },
+                )
+            )
+            session = payload.get("session") or {}
+            if session.get("id"):
+                yield f"data: {json.dumps({'type': 'approval_required', 'session_id': session.get('id', ''), 'status': session.get('status', ''), 'next_action': payload.get('next_action', '')}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'plot_outline': None, 'invocation_session_id': session.get('id', '')}, ensure_ascii=False)}\n\n"
+        except Exception as exc:
+            logger.exception("generate_plot_outline_stream failed")
+            yield f"data: {json.dumps({'type': 'error', 'message': str(exc)}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get(
@@ -844,15 +1341,15 @@ async def plan_novel(
             macro_plan,
             novel_id=novel_id,
             target_chapters=novel.target_chapters,
-            minimal_fallback_on_empty=True,
+            allow_minimal_placeholder_on_empty=False,
         )
 
         logger.info(
             f"Persisted macro structure: nodes={confirm_result['created_nodes']}, "
-            f"minimal_fallback={confirm_result.get('used_minimal_fallback')}"
+            f"minimal_placeholder={confirm_result.get('used_minimal_placeholder')}"
         )
 
-        if confirm_result.get("used_minimal_fallback"):
+        if confirm_result.get("used_minimal_placeholder"):
             msg = (
                 f"LLM 未返回有效结构，已写入占位骨架；共 {confirm_result['created_nodes']} 个结构节点"
             )
@@ -890,7 +1387,8 @@ async def review_chapter(
     novel_id: str,
     chapter_number: int,
     workflow: AutoNovelGenerationWorkflow = Depends(get_auto_workflow),
-    chapter_service = Depends(get_chapter_service)
+    chapter_service = Depends(get_chapter_service),
+    ai_review_service: ChapterAIReviewService = Depends(get_chapter_ai_review_service),
 ):
     """章节审稿：AI 审稿并返回修改建议"""
     try:
@@ -902,26 +1400,33 @@ async def review_chapter(
                 detail=f"Chapter {chapter_number} not found"
             )
 
-        # 使用一致性检查作为审稿
-        # TODO: 这里可以调用专门的审稿 LLM prompt
-        suggestions = [
-            "建议检查人物一致性",
-            "建议优化对话节奏",
-            "建议增强场景描写"
-        ]
+        if not chapter.content or not chapter.content.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Chapter {chapter_number} has no content to review",
+            )
 
-        # 简单评分逻辑（基于字数）
-        word_count = len(chapter.content)
-        score = min(100, max(60, word_count // 20))
+        result = await ai_review_service.review(
+            chapter_number=chapter_number,
+            chapter_title=chapter.title,
+            chapter_content=chapter.content,
+            chapter_outline="",
+            generation_hint=getattr(chapter, "generation_hint", "") or "",
+        )
 
         return ReviewResponse(
             chapter_number=chapter_number,
-            suggestions=suggestions,
-            score=score
+            suggestions=result.suggestions,
+            score=result.score,
         )
 
     except HTTPException:
         raise
+    except ChapterAIReviewContractError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Review failed: {str(e)}"
+        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

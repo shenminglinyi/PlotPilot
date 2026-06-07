@@ -8,13 +8,39 @@ from typing import Any, Dict
 logger = logging.getLogger(__name__)
 
 
-def resolve_story_phase_payload(novel_id: str) -> Dict[str, Any]:
+def _default_novel_service() -> Any:
+    from application.core.services.novel_service import NovelService
+    from infrastructure.persistence.database.connection import get_database
+    from infrastructure.persistence.database.sqlite_chapter_repository import SqliteChapterRepository
+    from infrastructure.persistence.database.sqlite_novel_repository import SqliteNovelRepository
+    from infrastructure.persistence.database.story_node_repository import StoryNodeRepository
+
+    db = get_database()
+    return NovelService(
+        SqliteNovelRepository(db),
+        SqliteChapterRepository(db),
+        StoryNodeRepository(db),
+    )
+
+
+def _default_chapter_repository() -> Any:
+    from infrastructure.persistence.database.connection import get_database
+    from infrastructure.persistence.database.sqlite_chapter_repository import SqliteChapterRepository
+
+    return SqliteChapterRepository(get_database())
+
+
+def resolve_story_phase_payload(
+    novel_id: str,
+    *,
+    novel_service: Any = None,
+    chapter_repository: Any = None,
+) -> Dict[str, Any]:
     """返回与 `StoryPhaseDTO` 字段一致的 dict（供 API 与叙事引擎门面复用）。"""
     novel = None
     try:
-        from interfaces.api.dependencies import get_novel_service
-
-        novel = get_novel_service().get_novel(novel_id)
+        novel_svc = novel_service or _default_novel_service()
+        novel = novel_svc.get_novel(novel_id)
         if novel and hasattr(novel, "story_phase"):
             phase = novel.story_phase
             phase_value = phase.value if hasattr(phase, "value") else str(phase)
@@ -30,10 +56,11 @@ def resolve_story_phase_payload(novel_id: str) -> Dict[str, Any]:
     try:
         from domain.novel.value_objects.novel_id import NovelId
         from engine.core.entities.story import StoryPhase as StoryPhaseEnum
-        from interfaces.api.dependencies import get_chapter_repository, get_novel_service
 
-        novel = novel or get_novel_service().get_novel(novel_id)
-        chapters = get_chapter_repository().list_by_novel(NovelId(novel_id))
+        novel_svc = novel_service or _default_novel_service()
+        chapter_repo = chapter_repository or _default_chapter_repository()
+        novel = novel or novel_svc.get_novel(novel_id)
+        chapters = chapter_repo.list_by_novel(NovelId(novel_id))
         total = len(chapters) if chapters else 0
         target_raw = getattr(novel, "target_chapters", 30) if novel else 30
         try:

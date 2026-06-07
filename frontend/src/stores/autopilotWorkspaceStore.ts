@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
 /** 托管撰稿主工作区顶栏分页 */
-export type AutopilotWorkspaceTab = 'cockpit' | 'dashboard' | 'operations'
+export type AutopilotWorkspaceTab = 'cockpit' | 'governance' | 'dashboard' | 'operations'
 
 /** 「监控 + DAG」页内子视图 */
 export type AutopilotOperationsSubview = 'monitor' | 'dag'
@@ -18,6 +18,12 @@ export const AUTOPILOT_WORKSPACE_TABS: ReadonlyArray<{
     label: '全托管驾驶',
     short: '驾驶舱',
     description: '启动、暂停与写作进度',
+  },
+  {
+    id: 'governance',
+    label: '总编辑驾驶舱',
+    short: '总编辑',
+    description: '叙事契约、故事线与治理报告',
   },
   {
     id: 'dashboard',

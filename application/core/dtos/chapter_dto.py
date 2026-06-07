@@ -16,6 +16,7 @@ class ChapterDTO:
     content: str
     word_count: int
     status: str
+    generation_hint: str = ""
 
     @classmethod
     def from_domain(cls, chapter: 'Chapter') -> 'ChapterDTO':
@@ -38,5 +39,6 @@ class ChapterDTO:
             title=chapter.title,
             content=chapter.content,
             word_count=chapter.word_count.value,
-            status=status
+            status=status,
+            generation_hint=getattr(chapter, 'generation_hint', '') or '',
         )

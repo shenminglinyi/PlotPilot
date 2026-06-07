@@ -1,0 +1,9 @@
+﻿name: 都市题材包
+extends: base
+motifs:
+  - 现实身份差
+  - 资源博弈
+  - 人情与规则
+anti_guidelines:
+  - 不要把所有冲突写成装腔打脸。
+  - 现实细节必须服务角色选择。

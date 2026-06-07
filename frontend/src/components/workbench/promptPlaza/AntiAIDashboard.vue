@@ -3,12 +3,12 @@
     <!-- 顶部概览 -->
     <div class="dashboard-header">
       <div class="header-info">
-        <h3 class="dashboard-title">🛡️ Anti-AI 防御系统</h3>
+        <h3 class="dashboard-title">Anti-AI 防御系统</h3>
         <p class="dashboard-subtitle">七层纵深防御体系 · 让 AI 写出来的文字不再像 AI</p>
       </div>
       <div class="header-actions">
         <n-button size="small" type="primary" secondary @click="showTutorial = true">
-          📖 使用教程
+          使用教程
         </n-button>
       </div>
     </div>
@@ -22,7 +22,7 @@
         :class="{ 'is-active': activeSubTab === tab.key }"
         @click="activeSubTab = tab.key"
       >
-        {{ tab.icon }} {{ tab.label }}
+        {{ tab.label }}
       </div>
     </div>
 
@@ -39,7 +39,7 @@
           :class="{ 'is-active': layer.active }"
           :style="{ '--layer-color': layer.color }"
         >
-          <div class="layer-icon">{{ layer.icon }}</div>
+          <div v-if="layer.icon" class="layer-icon">{{ layer.icon }}</div>
           <div class="layer-info">
             <div class="layer-name">{{ layer.name }}</div>
             <div class="layer-desc">{{ layer.desc }}</div>
@@ -54,7 +54,7 @@
 
       <!-- 系统统计 -->
       <div v-if="antiAIStats" class="stats-section">
-        <h4 class="section-title">📊 系统统计</h4>
+        <h4 class="section-title">系统统计</h4>
         <div class="stats-grid">
           <div class="stat-card">
             <div class="stat-number">{{ antiAIStats.total_prompts }}</div>
@@ -152,7 +152,7 @@
 
           <!-- 改进建议 -->
           <div v-if="scanResult.improvement_suggestions && scanResult.improvement_suggestions.length" class="suggestions">
-            <h5 class="sub-title">💡 改进建议</h5>
+            <h5 class="sub-title">改进建议</h5>
             <div
               v-for="(sug, idx) in scanResult.improvement_suggestions"
               :key="idx"
@@ -164,7 +164,7 @@
 
           <!-- 修改建议 -->
           <div v-if="scanResult.recommendations && scanResult.recommendations.length" class="recommendations">
-            <h5 class="sub-title">⚠️ 修改建议</h5>
+            <h5 class="sub-title">修改建议</h5>
             <div
               v-for="(rec, idx) in scanResult.recommendations"
               :key="idx"
@@ -226,7 +226,7 @@
               <n-tag size="tiny" :bordered="false" type="info">{{ rule.category }}</n-tag>
             </div>
             <div class="rule-action">
-              <span class="rule-label">✅ 正向动作：</span>
+              <span class="rule-label">正向动作：</span>
               {{ rule.positive_action }}
             </div>
           </div>
@@ -298,13 +298,13 @@
     <n-modal
       v-model:show="showTutorial"
       preset="card"
-      title="📖 Anti-AI 防御系统使用教程"
+      title="Anti-AI 防御系统使用教程"
       style="max-width: 720px"
       :bordered="true"
     >
       <div class="tutorial-content">
         <section class="tutorial-section">
-          <h4>🎯 这是什么？</h4>
+          <h4>这是什么？</h4>
           <p>
             Anti-AI 防御系统是一套工程化的"去AI味"治理方案，从提示词重构到 Token 级拦截，
             建立七层纵深防御体系，让 AI 生成的文字不再有"AI味"。
@@ -316,7 +316,7 @@
         </section>
 
         <section class="tutorial-section">
-          <h4>🏗️ 七层防御体系</h4>
+          <h4>七层防御体系</h4>
           <div class="tutorial-layers">
             <div class="tl-item">
               <strong>L1 正向行为映射</strong>：把"禁止X"改为"当遇到Y时执行Z"，避免否定指令反而激活被禁止的模式。
@@ -343,9 +343,9 @@
         </section>
 
         <section class="tutorial-section">
-          <h4>🚀 如何使用？</h4>
+          <h4>如何使用？</h4>
           <ol class="tutorial-steps">
-            <li>在提示词广场的 <strong>🛡️ Anti-AI 防御</strong> 分类中查看和编辑防御提示词</li>
+            <li>在提示词广场的 <strong>Anti-AI 防御</strong> 分类中查看和编辑防御提示词</li>
             <li>使用<strong>快速扫描</strong>标签页检测文本中的 AI 味</li>
             <li>在<strong>规则</strong>标签页中查看正向行为映射规则</li>
             <li>在<strong>白名单</strong>标签页中了解各场景的豁免规则</li>
@@ -356,7 +356,7 @@
         </section>
 
         <section class="tutorial-section">
-          <h4>🔬 35+ 检测模式一览</h4>
+          <h4>35+ 检测模式一览</h4>
           <p>系统内置 35+ 种 AI 味检测模式，覆盖以下分类：</p>
           <div class="pattern-categories">
             <div class="pc-item"><strong>微表情</strong>：嘴角上扬、眼里闪过、指尖泛白、一丝系列、下意识等</div>
@@ -371,7 +371,7 @@
         </section>
 
         <section class="tutorial-section">
-          <h4>⚠️ 注意事项</h4>
+          <h4>注意事项</h4>
           <ul class="tutorial-notes">
             <li>白名单不等于滥用——即使在允许的场景中，也有密度限制</li>
             <li>角色状态锁是防止"记忆漂移"的关键，请确保 Bible 中的角色信息完整</li>
@@ -397,10 +397,10 @@ const message = useMessage()
 
 // 子标签页
 const subTabs = [
-  { key: 'overview', icon: '🏠', label: '概览' },
-  { key: 'scan', icon: '🔍', label: '快速扫描' },
-  { key: 'rules', icon: '📋', label: '规则' },
-  { key: 'allowlist', icon: '🎫', label: '白名单' },
+  { key: 'overview', icon: '', label: '概览' },
+  { key: 'scan', icon: '', label: '快速扫描' },
+  { key: 'rules', icon: '', label: '规则' },
+  { key: 'allowlist', icon: '', label: '白名单' },
 ]
 const activeSubTab = ref('overview')
 
@@ -427,7 +427,7 @@ const defenseLayers = computed(() => {
       key: 'L1',
       name: 'L1 正向行为映射',
       desc: '将否定指令转为确定性的动作映射',
-      icon: '🧭',
+      icon: '',
       color: '#6366f1',
       active: true,
     },
@@ -435,7 +435,7 @@ const defenseLayers = computed(() => {
       key: 'L2',
       name: 'L2 核心协议 P1-P5',
       desc: '五大写作法则：密度/感官/差异/节奏/衔接',
-      icon: '📋',
+      icon: '',
       color: '#8b5cf6',
       active: true,
     },
@@ -443,7 +443,7 @@ const defenseLayers = computed(() => {
       key: 'L3',
       name: 'L3 场景化白名单',
       desc: '不同场景的差异化模式豁免',
-      icon: '🎫',
+      icon: '',
       color: '#a855f7',
       active: (layers?.L3_allowlist_scenes ?? 0) > 0,
     },
@@ -451,7 +451,7 @@ const defenseLayers = computed(() => {
       key: 'L4',
       name: 'L4 角色状态向量',
       desc: '声线指纹/紧张习惯/反应模式/信息边界',
-      icon: '🎯',
+      icon: '',
       color: '#d946ef',
       active: layers?.L4_state_vector === 'active',
     },
@@ -459,7 +459,7 @@ const defenseLayers = computed(() => {
       key: 'L5',
       name: 'L5 上下文配额',
       desc: '洋葱模型配额分配，T0 永不压缩',
-      icon: '🧅',
+      icon: '',
       color: '#ec4899',
       active: layers?.L5_context_quota === 'active',
     },
@@ -467,7 +467,7 @@ const defenseLayers = computed(() => {
       key: 'L6',
       name: 'L6 Token 级拦截',
       desc: 'AC自动机流式扫描 + Logit Bias 抑制',
-      icon: '🔒',
+      icon: '',
       color: '#f43f5e',
       active: layers?.L6_token_guard === 'active',
     },
@@ -475,7 +475,7 @@ const defenseLayers = computed(() => {
       key: 'L7',
       name: 'L7 章后审计',
       desc: '35+模式检测 + 指标趋势 + 自适应学习',
-      icon: '📊',
+      icon: '',
       color: '#ef4444',
       active: layers?.L7_audit === 'active',
     },

@@ -253,8 +253,8 @@ class ThemeAgent(ABC):
     3. magnify_outline_to_beats() → get_beat_templates()
     4. _handle_writing() buffer → get_buffer_chapter_template()
 
-    CPMS 改造：所有方法优先从 PromptRegistry 获取（广场可编辑），
-    子类的硬编码返回值作为回退。
+    CPMS 改造：运行时注入统一走 get_effective_* 方法读取 PromptRegistry。
+    子类方法保留为历史配置适配点，不作为生产提示词降级来源。
 
     实现者只需覆盖想要定制的方法，其余使用基类默认值。
     """
@@ -282,7 +282,7 @@ class ThemeAgent(ABC):
 
     # ─── CPMS 数据驱动支持 ───
 
-    def _get_from_registry(self, method: str, fallback: str = "") -> str:
+    def _get_from_registry(self, method: str) -> str:
         """从 PromptRegistry 获取题材提示词（CPMS 数据驱动）。
 
         命名规则：theme-{genre_key}-{method}
@@ -290,10 +290,8 @@ class ThemeAgent(ABC):
 
         Args:
             method: 方法名（如 "system_persona", "writing_rules"）
-            fallback: 回退文本
-
         Returns:
-            从 Registry 获取的文本，或回退值
+            从 Registry 获取的文本；缺失时返回空字符串，由调用方显式跳过增强。
         """
         try:
             from infrastructure.ai.prompt_registry import get_prompt_registry
@@ -308,7 +306,7 @@ class ThemeAgent(ABC):
                 return user
         except Exception:
             pass
-        return fallback
+        return ""
 
     # ─── 1. 人设注入（_build_prompt 系统消息开头） ───
 
@@ -318,8 +316,7 @@ class ThemeAgent(ABC):
         替换默认的「你是一位专业的网络小说作家」，
         注入题材专项的写作身份和核心写作理念。
 
-        CPMS: 优先从 PromptRegistry 获取（广场可编辑），
-        子类硬编码返回值作为回退。
+        历史扩展点：运行时请使用 get_effective_system_persona()。
 
         Returns:
             人设描述文本。返回空字符串则使用默认人设。
@@ -327,12 +324,8 @@ class ThemeAgent(ABC):
         return ""
 
     def get_effective_system_persona(self) -> str:
-        """获取生效的人设文本（CPMS 统一入口）。
-
-        优先级：PromptRegistry > 子类硬编码 > 默认空值
-        """
-        hardcoded = self.get_system_persona()
-        return self._get_from_registry("system_persona", fallback=hardcoded)
+        """获取生效的人设文本（CPMS 统一入口）。"""
+        return self._get_from_registry("system_persona")
 
     # ─── 2. 写作规则注入（_build_prompt 写作要求部分） ───
 
@@ -342,8 +335,7 @@ class ThemeAgent(ABC):
         追加到默认 8 条写作规则之后。每条规则为一个字符串，
         会自动编号（从 9 开始，或紧跟现有规则）。
 
-        CPMS: 优先从 PromptRegistry 获取（支持换行分隔的多条规则），
-        子类硬编码返回值作为回退。
+        历史扩展点：运行时请使用 get_effective_writing_rules()。
 
         Returns:
             规则列表。空列表则不追加。
@@ -358,7 +350,7 @@ class ThemeAgent(ABC):
             rules = [line.strip() for line in registry_text.split("\n") if line.strip()]
             if rules:
                 return rules
-        return self.get_writing_rules()
+        return []
 
     # ─── 3. 上下文指令注入（_collect_all_slots T0 槽位） ───
 
@@ -391,10 +383,9 @@ class ThemeAgent(ABC):
     ) -> ThemeDirectives:
         """获取生效的上下文指令（CPMS 统一入口）。
 
-        优先从 PromptRegistry 获取各维度文本，
-        子类硬编码返回值作为回退。
+        优先从 PromptRegistry 获取各维度文本；缺失时显式跳过题材上下文增强。
         """
-        base = self.get_context_directives(novel_id, chapter_number, outline)
+        base = ThemeDirectives()
 
         # 逐维度尝试从 Registry 获取
         for field_name in ["world_rules", "atmosphere", "taboos",

@@ -68,6 +68,10 @@
               <MarketTaxonomyPicker
                 v-model:genre="newBook.genre"
                 v-model:worldPreset="newBook.worldPreset"
+                v-model:storyStructure="newBook.storyStructure"
+                v-model:pacingControl="newBook.pacingControl"
+                v-model:writingStyle="newBook.writingStyle"
+                v-model:specialRequirements="newBook.specialRequirements"
                 :disabled="creating"
               />
             </div>
@@ -121,7 +125,7 @@
                 size="large"
                 round
                 :loading="creating"
-                :disabled="!newBook.premise.trim() || !newBook.genre.trim() || !newBook.worldPreset.trim()"
+                :disabled="!newBook.premise.trim() || !newBook.genre.trim() || !newBook.worldPreset.trim() || !newBook.storyStructure.trim() || !newBook.pacingControl.trim() || !newBook.writingStyle.trim() || !newBook.specialRequirements.trim()"
                 @click="handleCreate"
               >
                 <template #icon>
@@ -420,6 +424,15 @@ import { useAppSettingsShellStore } from '@/stores/appSettingsShellStore'
 import MarketTaxonomyPicker from '@/components/taxonomy/MarketTaxonomyPicker.vue'
 import { parseGenreWorldFromPremise } from '@/utils/premisePresets'
 import { useStatsStore } from '@/stores/statsStore'
+import { storageKeys } from '@/config/storageKeys'
+import { readStorageBoolean } from '@/utils/storage'
+import { formatApiError } from '@/utils/apiError'
+import {
+  NOVEL_LENGTH_TIER_OPTIONS,
+  getNovelStageLabel,
+  getNovelStageTagType,
+  type NovelLengthTier,
+} from '@/domain/novel'
 
 // Icons
 const IconSpark = () =>
@@ -470,8 +483,7 @@ const showAdvanced = ref(false)
 const creating = ref(false)
 const loading = ref(false)
 
-const SIDEBAR_COLLAPSED_KEY = 'plotpilot_sidebar_collapsed'
-const sidebarCollapsed = ref(localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true')
+const sidebarCollapsed = ref(readStorageBoolean(storageKeys.statsSidebarCollapsed))
 
 function handleSidebarCollapsedChange(isCollapsed: boolean) {
   sidebarCollapsed.value = isCollapsed
@@ -496,29 +508,17 @@ const newBook = ref({
   premise: '',
   genre: '',
   worldPreset: '',
+  storyStructure: '',
+  pacingControl: '',
+  writingStyle: '',
+  specialRequirements: '',
   chapters: 100,  // 默认 100 章
   words: 2500,
 })
 
 /** V1 目标篇幅档（与高级自定义二选一） */
-const lengthTier = ref<'short' | 'standard' | 'epic'>('standard')
-const lengthTierOptions = [
-  {
-    value: 'short' as const,
-    title: 'A · 短篇快穿 / 脑洞文',
-    hint: '约 30 万字（按约 2000 字/章推导章数）',
-  },
-  {
-    value: 'standard' as const,
-    title: 'B · 标准商业连载',
-    hint: '约 100 万字',
-  },
-  {
-    value: 'epic' as const,
-    title: 'C · 宏大史诗巨著',
-    hint: '约 300 万字',
-  },
-]
+const lengthTier = ref<NovelLengthTier>('standard')
+const lengthTierOptions = NOVEL_LENGTH_TIER_OPTIONS
 
 const filteredBooks = computed(() => {
   if (!searchQuery.value.trim()) {
@@ -577,7 +577,7 @@ const fetchBooks = async () => {
         slug: novel.id,
         title: novel.title,
         stage: novel.stage,
-        stage_label: getStageLabel(novel.stage),
+        stage_label: getNovelStageLabel(novel.stage),
         genre: g,
         chapter_count: novel.chapters?.length || 0,
         word_count: novel.total_word_count,
@@ -588,16 +588,6 @@ const fetchBooks = async () => {
   } finally {
     loading.value = false
   }
-}
-
-const getStageLabel = (stage: string): string => {
-  const labels: Record<string, string> = {
-    planning: '规划中',
-    writing: '写作中',
-    reviewing: '审稿中',
-    completed: '已完成',
-  }
-  return labels[stage] || stage
 }
 
 const formatWordCount = (count: number): string => {
@@ -620,6 +610,10 @@ const handleCreate = async () => {
     message.warning('请填写或确认世界观基调')
     return
   }
+  if (!newBook.value.storyStructure.trim() || !newBook.value.pacingControl.trim() || !newBook.value.writingStyle.trim() || !newBook.value.specialRequirements.trim()) {
+    message.warning('请补全四项写作规则')
+    return
+  }
 
   creating.value = true
   try {
@@ -633,6 +627,10 @@ const handleCreate = async () => {
       premise: newBook.value.premise.trim(),
       genre: newBook.value.genre,
       world_preset: newBook.value.worldPreset,
+      story_structure: newBook.value.storyStructure,
+      pacing_control: newBook.value.pacingControl,
+      writing_style: newBook.value.writingStyle,
+      special_requirements: newBook.value.specialRequirements,
     }
     const result = await novelApi.createNovel(
       showAdvanced.value
@@ -653,8 +651,8 @@ const handleCreate = async () => {
       novelId: result.id,
       targetChapters: result.target_chapters,
     }
-  } catch (error: any) {
-    message.error(error.response?.data?.detail || '创建失败')
+  } catch (error: unknown) {
+    message.error(formatApiError(error, '创建失败'))
   } finally {
     creating.value = false
   }
@@ -694,9 +692,8 @@ const handleDeleteBook = async (slug: string) => {
     books.value = books.value.filter(b => b.slug !== slug)
     selectedBooks.value = selectedBooks.value.filter(s => s !== slug)
     await statsStore.loadGlobalStats(true)
-  } catch (error: any) {
-    const detail = error?.response?.data?.detail
-    message.error(typeof detail === 'string' ? detail : '删除失败')
+  } catch (error: unknown) {
+    message.error(formatApiError(error, '删除失败'))
   } finally {
     deletingSlug.value = null
   }
@@ -764,13 +761,7 @@ const handleRefreshList = async () => {
 }
 
 const getStageType = (stage: string) => {
-  const map: Record<string, string> = {
-    planning: 'info',
-    writing: 'warning',
-    reviewing: 'default',
-    completed: 'success',
-  }
-  return map[stage] || 'default'
+  return getNovelStageTagType(stage)
 }
 
 onMounted(() => {

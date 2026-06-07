@@ -1,0 +1,148 @@
+"""Output bindings for setup-guide Bible AI Invocation nodes."""
+from __future__ import annotations
+
+from typing import Any
+
+from application.ai_invocation.dtos import VariableBinding
+from infrastructure.ai.prompt_keys import BIBLE_CHARACTERS, BIBLE_LOCATIONS, BIBLE_WORLDBUILDING
+
+BIBLE_SETUP_WORLD_NODE = BIBLE_WORLDBUILDING
+BIBLE_SETUP_CHARACTERS_NODE = BIBLE_CHARACTERS
+BIBLE_SETUP_LOCATIONS_NODE = BIBLE_LOCATIONS
+
+OUTPUT_BINDING_SET_BY_NODE = {
+    BIBLE_SETUP_WORLD_NODE: f"{BIBLE_SETUP_WORLD_NODE}:output:v1",
+    BIBLE_SETUP_CHARACTERS_NODE: f"{BIBLE_SETUP_CHARACTERS_NODE}:output:v1",
+    BIBLE_SETUP_LOCATIONS_NODE: f"{BIBLE_SETUP_LOCATIONS_NODE}:output:v1",
+}
+
+
+def bible_setup_output_bindings(node_key: str) -> list[VariableBinding]:
+    if node_key == BIBLE_SETUP_WORLD_NODE:
+        return [
+            VariableBinding(
+                alias="style",
+                variable_key="worldbuilding.style",
+                source_path="style",
+                value_type="string",
+                display_name="文风公约",
+                scope="novel",
+                stage="setup",
+            ),
+            VariableBinding(
+                alias="core_rules",
+                variable_key="worldbuilding.core_rules",
+                source_path="worldbuilding.core_rules",
+                value_type="object",
+                preview_source="continuation",
+                display_name="核心法则",
+                scope="novel",
+                stage="worldbuilding",
+            ),
+            VariableBinding(
+                alias="geography",
+                variable_key="worldbuilding.geography",
+                source_path="worldbuilding.geography",
+                value_type="object",
+                preview_source="continuation",
+                display_name="地理生态",
+                scope="novel",
+                stage="worldbuilding",
+            ),
+            VariableBinding(
+                alias="society",
+                variable_key="worldbuilding.society",
+                source_path="worldbuilding.society",
+                value_type="object",
+                preview_source="continuation",
+                display_name="社会结构",
+                scope="novel",
+                stage="worldbuilding",
+            ),
+            VariableBinding(
+                alias="culture",
+                variable_key="worldbuilding.culture",
+                source_path="worldbuilding.culture",
+                value_type="object",
+                preview_source="continuation",
+                display_name="历史文化",
+                scope="novel",
+                stage="worldbuilding",
+            ),
+            VariableBinding(
+                alias="daily_life",
+                variable_key="worldbuilding.daily_life",
+                source_path="worldbuilding.daily_life",
+                value_type="object",
+                preview_source="continuation",
+                display_name="沉浸感细节",
+                scope="novel",
+                stage="worldbuilding",
+            ),
+            VariableBinding(
+                alias="worldbuilding",
+                variable_key="worldbuilding.content",
+                source_path="worldbuilding",
+                value_type="object",
+                display_name="世界观正文",
+                scope="novel",
+                stage="worldbuilding",
+            ),
+        ]
+    if node_key == BIBLE_SETUP_CHARACTERS_NODE:
+        return [
+            VariableBinding(
+                alias="characters",
+                variable_key="characters.list",
+                source_path="characters",
+                value_type="list",
+                display_name="角色列表",
+                scope="novel",
+                stage="characters",
+            ),
+            VariableBinding(
+                alias="protagonist",
+                variable_key="characters.protagonist",
+                source_path="characters[0]",
+                value_type="object",
+                preview_source="continuation",
+                display_name="主角",
+                scope="novel",
+                stage="characters",
+            ),
+        ]
+    if node_key == BIBLE_SETUP_LOCATIONS_NODE:
+        return [
+            VariableBinding(
+                alias="locations",
+                variable_key="locations.list",
+                source_path="locations",
+                value_type="list",
+                display_name="地点列表",
+                scope="novel",
+                stage="locations",
+            ),
+        ]
+    return []
+
+
+def ensure_bible_setup_output_bindings(repo: Any, node_key: str | None = None) -> None:
+    if repo is None or not hasattr(repo, "set_bindings"):
+        return
+    node_keys = [node_key] if node_key else list(OUTPUT_BINDING_SET_BY_NODE)
+    for key in node_keys:
+        binding_set_id = OUTPUT_BINDING_SET_BY_NODE.get(str(key))
+        bindings = bible_setup_output_bindings(str(key))
+        existing = []
+        if binding_set_id and hasattr(repo, "get_output_bindings"):
+            try:
+                existing = repo.get_output_bindings(binding_set_id, str(key)) or []
+            except Exception:
+                existing = []
+        if binding_set_id and bindings:
+            repo.set_bindings(
+                binding_set_id,
+                str(key),
+                existing or bindings,
+                direction="output",
+            )

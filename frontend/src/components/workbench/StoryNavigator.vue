@@ -12,11 +12,11 @@
           <div class="phase-track">
             <div
               v-for="s in PHASE_STAGES"
-              :key="s.key"
+              :key="s.value"
               class="phase-stage"
               :class="{
-                'phase-stage--active': s.key === phase.phase,
-                'phase-stage--past': isPhasePast(s.key, phase.phase),
+                'phase-stage--active': s.value === currentPhase,
+                'phase-stage--past': isPhasePast(s.value, currentPhase),
               }"
             >
               <div class="stage-dot" />
@@ -83,11 +83,11 @@
                 <n-tooltip v-if="confluenceMap[child.id]" trigger="hover">
                   <template #trigger>
                     <span class="confluence-badge">
-                      {{ confluenceMap[child.id].merge_type === 'reveal' ? '◎' : '▶' }}
+                      {{ getConfluenceMarker(confluenceMap[child.id].merge_type) }}
                       第{{ confluenceMap[child.id].target_chapter }}章
                     </span>
                   </template>
-                  {{ confluenceMap[child.id].merge_type === 'reveal' ? '揭露点' : '汇流至主线' }}：{{ confluenceMap[child.id].context_summary }}
+                  {{ getConfluenceTooltipLabel(confluenceMap[child.id].merge_type) }}：{{ confluenceMap[child.id].context_summary }}
                 </n-tooltip>
               </div>
               <n-text depth="3" style="font-size: 11px; margin-left: 28px">
@@ -139,7 +139,7 @@
         >
           <n-tooltip trigger="hover">
             <template #trigger>
-              <div class="marker-dot">{{ cp.merge_type === 'reveal' ? '◎' : '▶' }}</div>
+              <div class="marker-dot">{{ getConfluenceMarker(cp.merge_type) }}</div>
             </template>
             <div>第{{ cp.target_chapter }}章</div>
             <div>{{ cp.context_summary }}</div>
@@ -256,6 +256,25 @@ import { storyPhaseApi, type StoryPhaseDTO } from '@/api/engineCore'
 import { workflowApi, type StorylineDTO, confluenceApi, type ConfluencePointDTO } from '@/api/workflow'
 import { narrativeEngineApi, type StoryEvolutionReadModel } from '@/api/narrativeEngine'
 import { useWorkbenchRefreshStore } from '@/stores/workbenchRefreshStore'
+import { formatApiError } from '@/utils/apiError'
+import {
+  CONFLUENCE_MERGE_TYPE_OPTIONS,
+  DEFAULT_CONFLUENCE_MERGE_TYPE,
+  DEFAULT_STORYLINE_THEME,
+  STORYLINE_THEME_OPTIONS,
+  STORY_PHASE_STAGES,
+  getConfluenceMarker,
+  getConfluenceTooltipLabel,
+  getStorylineRoleLabel,
+  getStorylineRoleTagType,
+  getStorylineStatusLabel,
+  getStorylineStatusTagType,
+  isMainStoryline,
+  isStoryPhasePast,
+  normalizeStoryPhase,
+  type ConfluenceMergeType,
+  type StorylineRole,
+} from '@/domain/storyline'
 
 interface Props {
   slug: string
@@ -281,15 +300,17 @@ const selectedStorylineId = ref<string | null>(null)
 const showAddModal = ref(false)
 const addSubmitting = ref(false)
 
+const currentPhase = computed(() => phase.value ? normalizeStoryPhase(phase.value.phase) : '')
+
 const addForm = ref({
-  role: 'sub' as 'main' | 'sub' | 'dark',
-  storyline_type: 'general',
+  role: 'sub' as StorylineRole,
+  storyline_type: DEFAULT_STORYLINE_THEME,
   name: '',
   description: '',
   parent_id: null as string | null,
   estimated_chapter_start: 1,
   estimated_chapter_end: 10,
-  confluence_merge_type: 'absorb' as 'intersect' | 'absorb' | 'reveal',
+  confluence_merge_type: DEFAULT_CONFLUENCE_MERGE_TYPE as ConfluenceMergeType,
   confluence_chapter: null as number | null,
   confluence_summary: '',
   pre_reveal_hint: '',
@@ -298,9 +319,9 @@ const addForm = ref({
 
 function resetAddForm() {
   addForm.value = {
-    role: 'sub', storyline_type: 'general', name: '', description: '',
+    role: 'sub', storyline_type: DEFAULT_STORYLINE_THEME, name: '', description: '',
     parent_id: null, estimated_chapter_start: 1, estimated_chapter_end: 10,
-    confluence_merge_type: 'absorb', confluence_chapter: null, confluence_summary: '',
+    confluence_merge_type: DEFAULT_CONFLUENCE_MERGE_TYPE, confluence_chapter: null, confluence_summary: '',
     pre_reveal_hint: '', behavior_guards: [],
   }
 }
@@ -321,27 +342,12 @@ function openAddModal(parentId: string | null) {
   showAddModal.value = true
 }
 
-const themeOptions = [
-  { label: '通用', value: 'general' },
-  { label: '情感', value: 'romance' },
-  { label: '复仇', value: 'revenge' },
-  { label: '悬疑', value: 'mystery' },
-  { label: '成长', value: 'growth' },
-  { label: '政治', value: 'political' },
-  { label: '冒险', value: 'adventure' },
-  { label: '家族', value: 'family' },
-  { label: '友情', value: 'friendship' },
-]
-
-const mergeTypeOptions = [
-  { label: '吸收（支线完结并入主线）', value: 'absorb' },
-  { label: '交叉（两线继续并行）', value: 'intersect' },
-  { label: '揭露（暗线首次显现）', value: 'reveal' },
-]
+const themeOptions = STORYLINE_THEME_OPTIONS
+const mergeTypeOptions = CONFLUENCE_MERGE_TYPE_OPTIONS
 
 const mainlineOptions = computed(() =>
   allStorylines.value
-    .filter(s => s.role === 'main' || s.storyline_type === 'MAIN_PLOT' || s.storyline_type === 'main_plot')
+    .filter(isMainStoryline)
     .map(s => ({ label: s.name || `主线 ${s.id.slice(0, 8)}`, value: s.id }))
 )
 
@@ -360,9 +366,7 @@ const confluenceMap = computed(() => {
 
 // Build tree: main storylines with their children
 const storylineTree = computed(() => {
-  const mains = allStorylines.value.filter(
-    s => s.role === 'main' || s.storyline_type === 'MAIN_PLOT' || s.storyline_type === 'main_plot'
-  )
+  const mains = allStorylines.value.filter(isMainStoryline)
   return mains.map(main => ({
     sl: main,
     children: allStorylines.value.filter(s => s.parent_id === main.id),
@@ -372,8 +376,7 @@ const storylineTree = computed(() => {
 // Storylines without a parent that are not main
 const orphanLines = computed(() =>
   allStorylines.value.filter(s => {
-    const isMain = s.role === 'main' || s.storyline_type === 'MAIN_PLOT' || s.storyline_type === 'main_plot'
-    return !isMain && !s.parent_id
+    return !isMainStoryline(s) && !s.parent_id
   })
 )
 
@@ -415,9 +418,8 @@ async function submitAddStoryline() {
     showAddModal.value = false
     await loadData()
     refreshStore.bumpDesk()
-  } catch (err: any) {
-    const detail = err?.response?.data?.detail
-    message.error(typeof detail === 'string' ? detail : err?.message || '创建失败')
+  } catch (err: unknown) {
+    message.error(formatApiError(err, '创建失败'))
   } finally {
     addSubmitting.value = false
   }
@@ -465,47 +467,12 @@ function selectStoryline(sl: StorylineDTO) {
   })
 }
 
-function getRoleColor(role?: string): 'success' | 'warning' | 'info' | 'default' {
-  const map: Record<string, 'success' | 'warning' | 'info' | 'default'> = {
-    main: 'success', sub: 'warning', dark: 'info',
-    MAIN_PLOT: 'success', SUB_PLOT: 'warning', DARK_LINE: 'info',
-  }
-  return map[role || ''] ?? 'default'
-}
-
-function getRoleLabel(role?: string): string {
-  const map: Record<string, string> = {
-    main: '主线', sub: '支线', dark: '暗线',
-    MAIN_PLOT: '主线', SUB_PLOT: '支线', DARK_LINE: '暗线',
-  }
-  return map[role || ''] || role || '未知'
-}
-
-function getStatusColor(status: string): 'success' | 'warning' | 'default' {
-  const map: Record<string, 'success' | 'warning' | 'default'> = {
-    ACTIVE: 'warning', active: 'warning', COMPLETED: 'success', completed: 'success',
-  }
-  return map[status] ?? 'default'
-}
-
-function getStatusLabel(status: string): string {
-  const map: Record<string, string> = {
-    ACTIVE: '进行中', active: '进行中', COMPLETED: '已完结', completed: '已完结',
-  }
-  return map[status] || status
-}
-
-const PHASE_STAGES = [
-  { key: 'opening', label: '开局' },
-  { key: 'development', label: '发展' },
-  { key: 'convergence', label: '收敛' },
-  { key: 'finale', label: '终局' },
-]
-const PHASE_ORDER = PHASE_STAGES.map(s => s.key)
-
-function isPhasePast(key: string, current: string): boolean {
-  return PHASE_ORDER.indexOf(key) < PHASE_ORDER.indexOf(current)
-}
+const getRoleColor = getStorylineRoleTagType
+const getRoleLabel = getStorylineRoleLabel
+const getStatusColor = getStorylineStatusTagType
+const getStatusLabel = getStorylineStatusLabel
+const PHASE_STAGES = STORY_PHASE_STAGES
+const isPhasePast = isStoryPhasePast
 </script>
 
 <style scoped>

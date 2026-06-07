@@ -7,6 +7,6 @@
 就能做出一个垂直行业的引擎！
 """
 from engine.examples.short_drama_pipeline import ShortDramaPipeline
-from engine.examples.wuxia_pipeline import WuxiaPipeline
+from engine.pipelines.wuxia_pipeline import WuxiaPipeline
 
 __all__ = ["ShortDramaPipeline", "WuxiaPipeline"]

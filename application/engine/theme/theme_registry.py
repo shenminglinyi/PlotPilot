@@ -24,6 +24,39 @@ from application.engine.theme.theme_agent import ThemeAgent
 logger = logging.getLogger(__name__)
 
 
+_CN_GENRE_KEYWORDS = (
+    ("xuanhuan", ("玄幻", "高武世界", "东方玄幻", "异世大陆", "玄幻脑洞")),
+    ("xianxia", ("仙侠", "修仙", "修真", "古典仙侠")),
+    ("wuxia", ("武侠", "江湖", "国术")),
+    ("dushi", ("都市", "校园", "异能")),
+    ("fantasy", ("奇幻", "西幻", "剑与魔法", "蒸汽朋克")),
+    ("history", ("历史", "军事", "架空", "争霸", "权谋")),
+    ("game", ("游戏", "网游", "电竞")),
+    ("scifi", ("科幻", "赛博", "星际", "末世", "废土")),
+    ("suspense", ("悬疑", "灵异", "惊悚", "刑侦", "推理")),
+    ("romance", ("言情", "甜宠", "恋爱")),
+    ("other", ("轻小说", "同人", "种田", "体育")),
+)
+
+
+def normalize_genre_key(genre_key: str) -> str:
+    """Map UI display labels such as ``玄幻 / 高武世界`` to agent keys."""
+    key = (genre_key or "").strip()
+    if not key:
+        return ""
+    lowered = key.lower()
+    builtin_keys = {
+        "xuanhuan", "xianxia", "wuxia", "dushi", "fantasy", "history",
+        "game", "scifi", "suspense", "romance", "other",
+    }
+    if lowered in builtin_keys:
+        return lowered
+    for normalized, needles in _CN_GENRE_KEYWORDS:
+        if any(needle in key for needle in needles):
+            return normalized
+    return key
+
+
 class ThemeAgentRegistry:
     """题材 Agent 注册中心
 
@@ -78,7 +111,7 @@ class ThemeAgentRegistry:
         Returns:
             对应的 ThemeAgent 实例，未注册则返回 None
         """
-        return self._agents.get(genre_key)
+        return self._agents.get(normalize_genre_key(genre_key))
 
     def get_or_default(self, genre_key: str) -> Optional[ThemeAgent]:
         """获取题材 Agent，空 key 返回 None
@@ -94,9 +127,25 @@ class ThemeAgentRegistry:
         Returns:
             对应的 ThemeAgent 实例，或 None
         """
-        if not genre_key:
+        key = normalize_genre_key(genre_key)
+        if not key:
             return None
-        return self._agents.get(genre_key)
+        return self._agents.get(key)
+
+    def get_pipeline_class(self, genre_key: str):
+        """获取题材对应的 BaseStoryPipeline 子类
+
+        优先查 PipelineRegistry；未注册则返回 ThemedStoryPipeline。
+        """
+        from engine.pipelines.registry import get_pipeline_registry
+
+        return get_pipeline_registry().get_pipeline_class(genre_key)
+
+    def create_pipeline(self, genre_key: str):
+        """实例化题材 Pipeline（新内核入口）"""
+        from engine.pipelines.registry import get_pipeline_registry
+
+        return get_pipeline_registry().create_pipeline(genre_key)
 
     def list_genres(self) -> List[Dict[str, str]]:
         """列出所有已注册的题材

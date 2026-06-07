@@ -87,14 +87,7 @@ class PersistencePort(ABC):
 
 # ─── 事件端口 ───
 
-
-@dataclass
-class DomainEvent:
-    """领域事件值对象"""
-    event_type: str
-    payload: Dict[str, Any] = field(default_factory=dict)
-    source: str = ""  # 来源节点/模块
-    trace_id: str = ""  # 溯源ID
+from domain.shared.story_events import StoryDomainEvent as DomainEvent
 
 
 class EventPort(ABC):

@@ -43,6 +43,7 @@ export interface TripleDTO {
   confidence: number
   source_type: string
   chapter_number: number | null
+  is_starred?: boolean
 }
 
 export interface KGStatistics {
@@ -120,6 +121,15 @@ export const knowledgeGraphApi = {
       {},
       kgTimeout,
     ) as Promise<{ success: boolean; data: TripleDTO }>
+  },
+
+  /** PATCH /api/v1/knowledge-graph/novels/{id}/triples/{tripleId}/star */
+  starTriple(novelId: string, tripleId: string, starred: boolean): Promise<{ success: boolean; triple_id: string; starred: boolean }> {
+    return apiClient.patch(
+      `/knowledge-graph/novels/${encodeURIComponent(novelId)}/triples/${encodeURIComponent(tripleId)}/star`,
+      { starred },
+      kgTimeout,
+    ) as Promise<{ success: boolean; triple_id: string; starred: boolean }>
   },
 
   /** DELETE /api/v1/knowledge-graph/triples/{id} */

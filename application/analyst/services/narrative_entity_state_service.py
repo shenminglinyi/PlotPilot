@@ -57,6 +57,6 @@ class NarrativeEntityStateService:
 
         # Step 3: Replay events on base attributes
         base_attributes = entity["core_attributes"]
-        final_state = replay_entity_state(base_attributes, events)
+        final_state = replay_entity_state(base_attributes, events, entity_id)
 
         return final_state

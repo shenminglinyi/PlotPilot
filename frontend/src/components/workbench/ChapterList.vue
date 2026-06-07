@@ -24,7 +24,7 @@
       <div v-if="viewMode === 'flat'">
         <div v-if="!chapters.length" class="sidebar-empty">
           <p>暂无章节</p>
-          <p class="hint">请切换到「托管撰稿」模式，启动全托管自动生成大纲与正文</p>
+          <p class="hint">可在正文区直接生成下一章正文</p>
         </div>
         <template v-else>
           <n-list hoverable clickable>
@@ -40,6 +40,15 @@
                     <n-text depth="3" style="font-size: 12px;">{{ ch.title }}</n-text>
                     <n-tag size="small" :type="ch.word_count > 0 ? 'success' : 'default'" round>
                       {{ ch.word_count > 0 ? '已收稿' : '未收稿' }}
+                    </n-tag>
+                    <n-tag
+                      v-if="props.writingChapterNumber != null && ch.number === props.writingChapterNumber"
+                      size="small"
+                      type="info"
+                      round
+                      class="ch-writing-tag"
+                    >
+                      {{ props.writingPipelineStep ? `步骤${props.writingPipelineStep}·写作中` : '写作中' }}
                     </n-tag>
                   </div>
                 </template>
@@ -59,6 +68,7 @@
         <StoryStructureTree
           ref="storyTreeRef"
           :slug="slug"
+          :chapters="chapters"
           :current-chapter-id="currentChapterId"
           :generation-prefs="generationPrefs"
           @select-chapter="handleChapterClick"
@@ -69,10 +79,10 @@
       </div>
     </n-scrollbar>
 
-    <!-- 引导用户使用全托管 -->
+    <!-- MVP 生文空态提示 -->
     <div v-if="!chapters.length && viewMode === 'flat'" class="sidebar-foot-hint">
       <n-alert type="info" :show-icon="false" style="font-size: 12px">
-        <strong>提示</strong>：切换到「托管撰稿」模式，点击「启动全托管」即可自动生成大纲与正文
+        <strong>提示</strong>：正文区可直接生成正文
       </n-alert>
     </div>
   </aside>
@@ -106,12 +116,16 @@ interface ChapterListProps {
   chapters: Chapter[]
   currentChapterId?: number | null
   generationPrefs?: GenerationPrefsDTO | null
+  writingChapterNumber?: number | null
+  writingPipelineStep?: number | null
 }
 
 const props = withDefaults(defineProps<ChapterListProps>(), {
   chapters: () => [],
   currentChapterId: null,
   generationPrefs: null,
+  writingChapterNumber: null,
+  writingPipelineStep: null,
 })
 
 const emit = defineEmits<{
@@ -263,5 +277,14 @@ const handleTreeLoaded = (hasData: boolean) => {
   padding: 8px 12px;
   text-align: center;
   border-top: 1px solid var(--app-border);
+}
+
+.ch-writing-tag {
+  animation: ch-writing-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes ch-writing-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
 }
 </style>

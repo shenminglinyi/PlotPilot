@@ -1,0 +1,22 @@
+﻿base_policy:
+  fallback_policy: package_file
+  retries: 1
+  observe:
+    log_fallback: true
+    log_contract_error: true
+
+prompt_gateway:
+  missing_package: fail
+  missing_required_variable: fail
+  missing_template_variable: fail
+  output_schema_error: observable_failure
+
+review_gate:
+  allow_fallback: true
+  parse_failure: warning_result
+  max_reported_errors: 6
+
+autopilot:
+  allow_runtime_stop: true
+  stop_on_repeated_contract_error: true
+  max_consecutive_contract_errors: 3

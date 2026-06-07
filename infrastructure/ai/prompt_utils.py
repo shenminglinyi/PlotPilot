@@ -1,38 +1,23 @@
-"""prompt_utils — CPMS prompt fetch utility functions.
-
-Design:
-- All business code uses get_prompt_system() / get_prompt_user_template()
-- Primary source: PromptRegistry (DB-driven)
-- Fallback: hardcoded defaults passed by caller
-- Graceful degradation: system never crashes if Registry is unavailable
-
-Migration pattern (3 steps):
-  Step 1: Register fallback constants
-  Step 2: Business code uses get_prompt_system(key)
-  Step 3: Add prompts to DB (seed JSON or manual entry in Prompt Plaza)
-
-Usage:
-    from infrastructure.ai.prompt_utils import get_prompt_system
-
-    system = get_prompt_system("bible-all", fallback=BIBLE_ALL_SYSTEM)
-"""
+"""prompt_utils — CPMS prompt fetch utility functions."""
 from __future__ import annotations
 
 import logging
 from typing import Any, Dict, Optional
 
+from domain.ai.value_objects.prompt import Prompt
+
 logger = logging.getLogger(__name__)
 
 
-def get_prompt_system(node_key: str, fallback: str = "") -> str:
-    """Get system prompt for a node (CPMS unified entry).
+class PromptTemplateUnavailable(RuntimeError):
+    """Required CPMS prompt node is missing, unavailable, or incomplete."""
 
-    Args:
-        node_key: Prompt node key
-        fallback: Fallback text when Registry is unavailable
 
-    Returns:
-        system prompt text
+def get_optional_prompt_system(node_key: str) -> str:
+    """Get a system prompt for optional, non-generative helpers.
+
+    Missing CPMS returns an empty string. Runtime LLM generation paths should use
+    ``get_required_prompt_system`` or ``render_required_prompt`` instead.
     """
     try:
         from infrastructure.ai.prompt_registry import get_prompt_registry
@@ -43,19 +28,34 @@ def get_prompt_system(node_key: str, fallback: str = "") -> str:
     except Exception as exc:
         logger.debug("PromptRegistry unavailable (node_key=%s): %s", node_key, exc)
 
-    return fallback
+    return ""
 
 
-def get_prompt_user_template(node_key: str, fallback: str = "") -> str:
-    """Get user_template for a node.
+def get_required_prompt_system(node_key: str) -> str:
+    """Get a system prompt from CPMS and fail fast when it is unavailable.
 
-    Args:
-        node_key: Prompt node key
-        fallback: Fallback text
-
-    Returns:
-        user_template text
+    Use this for runtime LLM paths where hidden hardcoded prompt fallback would
+    pollute generated state. Optional/non-LLM degraded behavior should be handled
+    by the caller explicitly after this function fails; do not pass fallback text.
     """
+    try:
+        from infrastructure.ai.prompt_registry import get_prompt_registry
+
+        system = get_prompt_registry().get_system(node_key)
+    except Exception as exc:
+        raise PromptTemplateUnavailable(
+            f"CPMS PromptRegistry 不可用，已阻塞提示词读取: {node_key}"
+        ) from exc
+
+    if not system or not system.strip():
+        raise PromptTemplateUnavailable(
+            f"CPMS prompt node system unavailable or empty: {node_key}"
+        )
+    return system.strip()
+
+
+def get_optional_prompt_user_template(node_key: str) -> str:
+    """Get a user template for optional, non-generative helpers."""
     try:
         from infrastructure.ai.prompt_registry import get_prompt_registry
         registry = get_prompt_registry()
@@ -65,48 +65,22 @@ def get_prompt_user_template(node_key: str, fallback: str = "") -> str:
     except Exception as exc:
         logger.debug("PromptRegistry unavailable (node_key=%s): %s", node_key, exc)
 
-    return fallback
+    return ""
 
 
-def render_prompt(
-    node_key: str,
-    variables: Optional[Dict[str, Any]] = None,
-    fallback_system: str = "",
-    fallback_user: str = "",
-) -> Optional[Dict[str, str]]:
-    """Render prompt and return {"system": ..., "user": ...}.
-
-    CPMS unified render entry with graceful degradation.
-    """
+def render_required_prompt(node_key: str, variables: Optional[Dict[str, Any]] = None) -> Prompt:
+    """Render a complete Prompt from CPMS and fail fast when unavailable."""
     try:
         from infrastructure.ai.prompt_registry import get_prompt_registry
-        registry = get_prompt_registry()
-        result = registry.render(node_key, variables)
-        if result and (result.system or result.user):
-            return {
-                "system": result.system or fallback_system,
-                "user": result.user or fallback_user,
-            }
+
+        prompt = get_prompt_registry().render_to_prompt(node_key, variables or {})
     except Exception as exc:
-        logger.debug("PromptRegistry render failed (node_key=%s): %s", node_key, exc)
+        raise PromptTemplateUnavailable(
+            f"CPMS PromptRegistry 不可用，已阻塞提示词渲染: {node_key}"
+        ) from exc
 
-    # Fallback: simple format_map rendering
-    var_map = variables or {}
-    system = _simple_render(fallback_system, var_map)
-    user = _simple_render(fallback_user, var_map)
-    return {"system": system, "user": user}
-
-
-def _simple_render(template: str, variables: Dict[str, Any]) -> str:
-    """Simple template rendering (fallback mode)."""
-    if not template or not variables:
-        return template
-
-    class SafeDict(dict):
-        def __missing__(self, key: str) -> str:
-            return "{" + key + "}"
-
-    try:
-        return template.format_map(SafeDict(variables))
-    except (KeyError, ValueError, IndexError):
-        return template
+    if not prompt or not prompt.system.strip() or not prompt.user.strip():
+        raise PromptTemplateUnavailable(
+            f"CPMS prompt node unavailable or incomplete: {node_key}"
+        )
+    return prompt

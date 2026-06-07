@@ -8,8 +8,8 @@
 //!   - 打开开发者工具
 
 use crate::backend::BackendManager;
-use tauri::{Manager, State};
 use std::sync::Mutex;
+use tauri::{Manager, State};
 
 /// 获取后端端口号（前端需要这个来构造 API 请求地址）
 ///
@@ -75,18 +75,19 @@ pub fn run_installation(
     manager: State<'_, Mutex<BackendManager>>,
 ) -> Result<InstallationStatus, String> {
     let mgr = manager.lock().map_err(|e| e.to_string())?;
-    
+
     // 检查是否需要安装
     let python_path = mgr.find_python();
     let needs_install = python_path.is_none();
-    
+
     // 尝试提取内嵌 Python
     let embedded_extracted = if needs_install {
         if let Ok(resource_dir) = mgr._app_handle.path().resource_dir() {
-            let zip_path = resource_dir.join("python-3.11.9-embed-amd64.zip");
+            let zip_path = resource_dir.join("python-3.14.5-embed-amd64.zip");
             if zip_path.exists() {
                 let target_python = mgr.project_root.join("tools/python_embed/python.exe");
-                mgr.extract_python_from_zip(&zip_path, &target_python).is_ok()
+                mgr.extract_python_from_zip(&zip_path, &target_python)
+                    .is_ok()
             } else {
                 false
             }
@@ -96,7 +97,7 @@ pub fn run_installation(
     } else {
         true
     };
-    
+
     Ok(InstallationStatus {
         needs_install: !embedded_extracted,
         python_available: python_path.is_some() || embedded_extracted,
@@ -111,19 +112,19 @@ pub fn check_environment(
     manager: State<'_, Mutex<BackendManager>>,
 ) -> Result<EnvironmentInfo, String> {
     let mgr = manager.lock().map_err(|e| e.to_string())?;
-    
+
     let python_available = mgr.find_python().is_some();
     let has_embedded = {
         if let Ok(resource_dir) = mgr._app_handle.path().resource_dir() {
-            resource_dir.join("python-3.11.9-embed-amd64.zip").exists() ||
-            resource_dir.join("python_embed").exists()
+            resource_dir.join("python-3.14.5-embed-amd64.zip").exists()
+                || resource_dir.join("python_embed").exists()
         } else {
             false
         }
     };
-    
+
     let project_root = mgr.project_root.to_string_lossy().to_string();
-    
+
     Ok(EnvironmentInfo {
         python_available,
         has_embedded_python: has_embedded,
@@ -133,15 +134,13 @@ pub fn check_environment(
 
 /// 手动提取内嵌 Python
 #[tauri::command]
-pub fn extract_embedded_python(
-    manager: State<'_, Mutex<BackendManager>>,
-) -> Result<bool, String> {
+pub fn extract_embedded_python(manager: State<'_, Mutex<BackendManager>>) -> Result<bool, String> {
     let mgr = manager.lock().map_err(|e| e.to_string())?;
-    
+
     if let Ok(resource_dir) = mgr._app_handle.path().resource_dir() {
-        let zip_path = resource_dir.join("python-3.11.9-embed-amd64.zip");
+        let zip_path = resource_dir.join("python-3.14.5-embed-amd64.zip");
         let target_python = mgr.project_root.join("tools/python_embed/python.exe");
-        
+
         if zip_path.exists() {
             match mgr.extract_python_from_zip(&zip_path, &target_python) {
                 Ok(()) => Ok(true),

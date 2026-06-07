@@ -2,10 +2,13 @@
   <div class="worldline-dag">
     <!-- Header -->
     <div class="wl-header">
-      <n-text strong style="font-size: 14px">世界线</n-text>
+      <div class="wl-title-block">
+        <n-text strong style="font-size: 14px">世界线版本图</n-text>
+        <span>{{ nodes.length }} 个存档 · {{ graphData.branches.length }} 条分支 · {{ confluencePoints.length }} 个汇流点</span>
+      </div>
       <n-space :size="8">
         <n-button size="small" :loading="saving" @click="handleManualCheckpoint">
-          ＋ 存档
+          创建存档
         </n-button>
         <n-button size="small" :loading="loading" @click="load">刷新</n-button>
       </n-space>
@@ -41,6 +44,24 @@
               :fill="col.color"
             >{{ col.name }}</text>
 
+            <!-- Chapter/time slices are embedded in the same graph, not a separate timeline. -->
+            <g
+              v-for="marker in layout.timeMarkers"
+              :key="'tm-' + marker.key"
+              class="wl-time-marker"
+            >
+              <line
+                :x1="marker.x1"
+                :y1="marker.y"
+                :x2="marker.x2"
+                :y2="marker.y"
+                class="wl-time-line"
+              />
+              <text :x="marker.labelX" :y="marker.y + 4" class="wl-time-label">
+                {{ marker.label }}
+              </text>
+            </g>
+
             <!-- Edges -->
             <line
               v-for="(edge, ei) in layout.edges"
@@ -48,7 +69,30 @@
               :x1="edge.x1" :y1="edge.y1"
               :x2="edge.x2" :y2="edge.y2"
               class="wl-edge"
+              :class="{ 'wl-edge--merge': edge.kind === 'merge' }"
             />
+
+            <g
+              v-for="cp in layout.confluencePositions"
+              :key="'cp-' + cp.id"
+              class="wl-confluence"
+            >
+              <path
+                :d="cp.d"
+                class="wl-confluence-line"
+                :class="{ 'wl-confluence-line--resolved': cp.resolved }"
+              />
+              <rect
+                :x="cp.cx - 9"
+                :y="cp.cy - 9"
+                width="18"
+                height="18"
+                rx="5"
+                class="wl-confluence-node"
+                :class="{ 'wl-confluence-node--resolved': cp.resolved }"
+              />
+              <text :x="cp.cx + 14" :y="cp.cy + 4" class="wl-confluence-label">{{ cp.label }}</text>
+            </g>
 
             <!-- Nodes -->
             <g
@@ -61,26 +105,50 @@
               }"
               @click="selectNode(n.id)"
             >
-              <!-- Outer ring for HEAD -->
-              <circle
-                v-if="n.isHead"
-                :cx="n.cx" :cy="n.cy"
-                :r="NODE_R + 4"
-                class="wl-node-head-ring"
+              <rect
+                :x="n.x"
+                :y="n.y"
+                :width="NODE_W"
+                :height="NODE_H"
+                rx="7"
+                class="wl-node-card"
+                :class="{ 'wl-node-card--head': n.isHead }"
                 :stroke="n.color"
               />
-              <circle
-                :cx="n.cx" :cy="n.cy"
-                :r="NODE_R"
+              <rect
+                :x="n.x"
+                :y="n.y"
+                width="4"
+                :height="NODE_H"
+                rx="2"
                 :fill="n.color"
-                class="wl-node-circle"
+                class="wl-node-accent"
               />
+              <text :x="n.x + 12" :y="n.y + 16" class="wl-node-chapter">
+                {{ n.chapterLabel }}
+              </text>
+              <text :x="n.x + NODE_W - 10" :y="n.y + 16" text-anchor="end" class="wl-node-trigger">
+                {{ n.triggerShort }}
+              </text>
               <text
-                :x="n.cx + NODE_R + 8"
-                :y="n.cy + 4"
-                class="wl-node-label"
-                :class="{ 'wl-node-label--head': n.isHead }"
+                :x="n.x + 12"
+                :y="n.y + 32"
+                class="wl-node-title"
+                :class="{ 'wl-node-title--head': n.isHead }"
               >{{ n.name }}</text>
+              <text :x="n.x + 12" :y="n.y + 47" class="wl-node-meta">
+                {{ n.sliceLabel }}
+              </text>
+              <text :x="n.x + 12" :y="n.y + 62" class="wl-node-meta">
+                {{ n.assetLabel }}
+              </text>
+              <text
+                v-if="n.rollbackLabel"
+                :x="n.x + NODE_W - 10"
+                :y="n.y + 62"
+                text-anchor="end"
+                class="wl-node-rollback"
+              >{{ n.rollbackLabel }}</text>
             </g>
           </svg>
         </div>
@@ -104,9 +172,49 @@
               · {{ selectedNode.branch_name }}
             </template>
           </n-text>
+          <div v-if="selectedNode.world_slice" class="wl-slice">
+            <div class="wl-slice-row">
+              <span>时间</span>
+              <strong>{{ selectedNode.world_slice.time_anchor || '未标定' }}</strong>
+            </div>
+            <div class="wl-slice-row">
+              <span>地点</span>
+              <strong>{{ selectedNode.world_slice.location || '未标定' }}</strong>
+            </div>
+            <div class="wl-slice-row">
+              <span>人物</span>
+              <strong>{{ selectedNode.world_slice.characters?.length || 0 }}</strong>
+            </div>
+            <div class="wl-slice-row">
+              <span>道具</span>
+              <strong>{{ selectedNode.world_slice.items?.length || 0 }}</strong>
+            </div>
+            <div class="wl-mini-list" v-if="selectedNode.world_slice.characters?.length">
+              <span v-for="char in selectedNode.world_slice.characters.slice(0, 4)" :key="char.id">
+                {{ char.name }} · {{ char.status }}
+              </span>
+            </div>
+            <div class="wl-mini-list" v-if="selectedNode.world_slice.items?.length">
+              <span v-for="item in selectedNode.world_slice.items.slice(0, 4)" :key="item.id">
+                {{ item.name }}
+              </span>
+            </div>
+          </div>
 
           <n-space vertical :size="8">
             <!-- Checkout -->
+            <n-button
+              v-if="selectedNode.branch_name !== 'main'"
+              size="small"
+              type="primary"
+              secondary
+              block
+              :loading="actionLoading === 'merge'"
+              @click="handleMergeBranch"
+            >
+              汇入主线
+            </n-button>
+
             <n-button
               size="small"
               type="primary"
@@ -115,7 +223,7 @@
               :loading="actionLoading === 'checkout'"
               @click="handleCheckout"
             >
-              ⎇ Checkout（保留当前）
+              切换到此切片
             </n-button>
 
             <!-- Create Branch from here -->
@@ -125,7 +233,7 @@
               block
               @click="showBranchDialog = true"
             >
-              ⑂ 从此分叉新支线
+              从此分叉
             </n-button>
 
             <!-- Hard Reset -->
@@ -137,7 +245,7 @@
               :loading="actionLoading === 'hard-reset'"
               @click="handleHardReset"
             >
-              ⚠ Hard Reset（破坏性）
+              回滚到此切片
             </n-button>
 
             <!-- Delete -->
@@ -153,7 +261,16 @@
           </n-space>
         </div>
         <div v-else class="wl-detail wl-detail--empty">
-          <n-text depth="3" style="font-size: 12px">点击节点查看操作</n-text>
+          <n-text depth="3" style="font-size: 12px">点击存档查看操作</n-text>
+          <div v-if="confluencePoints.length" class="wl-confluence-list">
+            <n-text strong style="font-size: 12px">计划汇流</n-text>
+            <div v-for="cp in confluencePoints.slice(0, 5)" :key="cp.id" class="wl-confluence-item">
+              <n-tag size="tiny" :type="cp.resolved ? 'success' : 'warning'" :bordered="false">
+                {{ confluenceLabel(cp.merge_type) }}
+              </n-tag>
+              <span>第 {{ cp.target_chapter }} 章 · {{ storylineName(cp.source_storyline_id) }} → {{ storylineName(cp.target_storyline_id) }}</span>
+            </div>
+          </div>
         </div>
       </div>
     </n-spin>
@@ -181,7 +298,9 @@
 import { ref, computed, watch } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
 import { worldlineApi, type CheckpointNode, type WorldlineGraph, type BranchInfo } from '@/api/worldline'
+import { confluenceApi, type ConfluencePointDTO } from '@/api/confluence'
 import { workflowApi, type StorylineDTO } from '@/api/workflow'
+import { getConfluenceLabel } from '@/domain/storyline'
 
 interface Props {
   slug: string
@@ -200,6 +319,7 @@ const showBranchDialog = ref(false)
 const newBranchName = ref('')
 const newBranchStorylineId = ref<string | null>(null)
 const storylines = ref<StorylineDTO[]>([])
+const confluencePoints = ref<ConfluencePointDTO[]>([])
 
 const storylineOptions = computed(() =>
   storylines.value.map(s => ({
@@ -216,6 +336,14 @@ async function loadStorylines() {
     storylines.value = []
   }
 }
+
+async function loadConfluencePoints() {
+  try {
+    confluencePoints.value = await confluenceApi.list(props.slug)
+  } catch {
+    confluencePoints.value = []
+  }
+}
 const graphWrap = ref<HTMLElement | null>(null)
 
 const graphData = ref<WorldlineGraph>({ nodes: [], edges: [], branches: [], head_id: null })
@@ -227,19 +355,28 @@ const selectedNode = computed(() => nodes.value.find(n => n.id === selectedId.va
 
 // ──────────────────────────── Layout ────────────────────────────
 
-const NODE_R = 8
-const COL_W = 180
-const ROW_H = 52
-const TOP_PAD = 32
-const LEFT_PAD = 20
+const NODE_W = 154
+const NODE_H = 68
+const COL_W = 170
+const ROW_H = 88
+const TOP_PAD = 42
+const LEFT_PAD = 66
 
 interface ColInfo { cx: number; name: string; color: string }
 interface NodePos {
-  id: string; cx: number; cy: number; name: string
+  id: string; x: number; y: number; cx: number; cy: number; name: string
   isHead: boolean; color: string; trigger_type: string
   created_at: string; anchor_chapter: number | null; branch_name: string
+  world_slice?: CheckpointNode['world_slice']
+  chapterLabel: string
+  triggerShort: string
+  sliceLabel: string
+  assetLabel: string
+  rollbackLabel: string
 }
-interface EdgePos { x1: number; y1: number; x2: number; y2: number }
+interface EdgePos { x1: number; y1: number; x2: number; y2: number; kind?: string }
+interface ConfluencePos { id: string; cx: number; cy: number; d: string; label: string; resolved: boolean }
+interface TimeMarker { key: string; y: number; x1: number; x2: number; labelX: number; label: string }
 
 const BRANCH_COLORS: Record<number, string> = {
   0: '#1890ff',
@@ -261,10 +398,16 @@ const TRIGGER_COLORS: Record<string, string> = {
   ACT: '#52c41a',
   MILESTONE: '#722ed1',
   AUTO: '#1890ff',
+  MERGE: '#16a34a',
 }
 function nodeColor(triggerType: string, branchIdx: number) {
   if (triggerType === 'STASH' || triggerType === 'PRE_RESET') return TRIGGER_COLORS[triggerType]
   return branchColor(branchIdx)
+}
+
+function compact(value: string, max: number) {
+  if (!value) return ''
+  return value.length > max ? value.slice(0, Math.max(0, max - 1)) + '…' : value
 }
 
 const layout = computed(() => {
@@ -273,7 +416,14 @@ const layout = computed(() => {
   const branches = graphData.value.branches
   const head = graphData.value.head_id
 
-  if (ns.length === 0) return { viewBox: { w: 0, h: 0 }, branchCols: [] as ColInfo[], edges: [] as EdgePos[], nodePositions: [] as NodePos[] }
+  if (ns.length === 0) return {
+    viewBox: { w: 0, h: 0 },
+    branchCols: [] as ColInfo[],
+    edges: [] as EdgePos[],
+    nodePositions: [] as NodePos[],
+    confluencePositions: [] as ConfluencePos[],
+    timeMarkers: [] as TimeMarker[],
+  }
 
   // Assign column index per branch name
   const branchOrder: string[] = []
@@ -289,8 +439,13 @@ const layout = computed(() => {
     return i >= 0 ? i : 0
   }
 
-  // Sort nodes by created_at
-  const sorted = [...ns].sort((a, b) => a.created_at.localeCompare(b.created_at))
+  // Sort nodes by story time first. Created time keeps older records stable when story time is missing.
+  const sorted = [...ns].sort((a, b) => {
+    const ac = Number(a.anchor_chapter || a.world_slice?.chapter_number || 0)
+    const bc = Number(b.anchor_chapter || b.world_slice?.chapter_number || 0)
+    if (ac !== bc) return ac - bc
+    return a.created_at.localeCompare(b.created_at)
+  })
 
   // y per node
   const nodeY: Record<string, number> = {}
@@ -299,46 +454,113 @@ const layout = computed(() => {
   })
 
   const totalCols = Math.max(branchOrder.length, 1)
-  const viewW = LEFT_PAD + totalCols * COL_W
-  const viewH = TOP_PAD + sorted.length * ROW_H + 20
+  const viewW = LEFT_PAD + totalCols * COL_W + 18
+  const viewH = TOP_PAD + sorted.length * ROW_H + 28
 
   const branchCols: ColInfo[] = branchOrder.map((name, i) => ({
-    cx: LEFT_PAD + i * COL_W + NODE_R + 4,
-    name: name === 'main' ? 'main' : name,
+    cx: LEFT_PAD + i * COL_W + NODE_W / 2,
+    name: name === 'main' ? '主线' : name,
     color: branchColor(i),
   }))
 
   const nodeMap: Record<string, NodePos> = {}
   const nodePositions: NodePos[] = sorted.map(n => {
     const bi = branchIdx(n.branch_name)
-    const cx = LEFT_PAD + bi * COL_W + NODE_R + 4
-    const cy = nodeY[n.id]
+    const x = LEFT_PAD + bi * COL_W
+    const y = nodeY[n.id]
+    const cx = x + NODE_W / 2
+    const cy = y + NODE_H / 2
+    const chapter = n.anchor_chapter ?? n.world_slice?.chapter_number ?? null
+    const timeAnchor = n.world_slice?.time_anchor || ''
+    const location = n.world_slice?.location || ''
+    const characters = n.world_slice?.characters?.length || 0
+    const items = n.world_slice?.items?.length || 0
+    const conflicts = n.world_slice?.conflicts_count || 0
     const pos: NodePos = {
       id: n.id,
+      x,
+      y,
       cx,
       cy,
-      name: n.name.length > 18 ? n.name.slice(0, 17) + '…' : n.name,
+      name: compact(n.name, 14),
       isHead: n.id === head,
       color: nodeColor(n.trigger_type, bi),
       trigger_type: n.trigger_type,
       created_at: n.created_at,
       anchor_chapter: n.anchor_chapter,
       branch_name: n.branch_name,
+      world_slice: n.world_slice,
+      chapterLabel: chapter != null ? `第 ${chapter} 章` : '未锚定',
+      triggerShort: triggerLabel(n.trigger_type),
+      sliceLabel: compact([timeAnchor, location].filter(Boolean).join(' / ') || '时间切片未标定', 18),
+      assetLabel: `人物 ${characters} · 道具 ${items}${conflicts ? ` · 风险 ${conflicts}` : ''}`,
+      rollbackLabel: n.rollback_slice?.to_chapter != null ? `回滚→第${n.rollback_slice.to_chapter}章` : '',
     }
     nodeMap[n.id] = pos
     return pos
   })
 
   const edgePositions: EdgePos[] = edges
-    .map(e => {
+    .map((e): EdgePos | null => {
       const from = nodeMap[e.from]
       const to = nodeMap[e.to]
       if (!from || !to) return null
-      return { x1: from.cx, y1: from.cy, x2: to.cx, y2: to.cy }
+      return {
+        x1: from.cx,
+        y1: from.y + NODE_H,
+        x2: to.cx,
+        y2: to.y,
+        kind: e.kind,
+      }
     })
     .filter((e): e is EdgePos => e !== null)
 
-  return { viewBox: { w: viewW, h: viewH }, branchCols, edges: edgePositions, nodePositions }
+  const seenMarkers = new Set<string>()
+  const timeMarkers: TimeMarker[] = []
+  for (const n of sorted) {
+    const chapter = n.anchor_chapter ?? n.world_slice?.chapter_number ?? null
+    const key = chapter != null ? `chapter-${chapter}` : `node-${n.id}`
+    if (seenMarkers.has(key)) continue
+    seenMarkers.add(key)
+    const y = nodeY[n.id] + NODE_H / 2
+    const time = n.world_slice?.time_anchor
+    timeMarkers.push({
+      key,
+      y,
+      x1: LEFT_PAD - 10,
+      x2: viewW - 12,
+      labelX: 8,
+      label: chapter != null ? `第${chapter}章${time ? ` · ${compact(time, 8)}` : ''}` : '未锚定',
+    })
+  }
+
+  const maxChapter = Math.max(
+    1,
+    ...ns.map(n => Number(n.anchor_chapter || 0)),
+    ...confluencePoints.value.map(cp => Number(cp.target_chapter || 0)),
+  )
+  const chapterToY = (chapter: number) => {
+    const ratio = maxChapter <= 1 ? 0 : Math.max(0, Math.min(1, (chapter - 1) / Math.max(1, maxChapter - 1)))
+    return TOP_PAD + ratio * Math.max(ROW_H, sorted.length * ROW_H - ROW_H)
+  }
+  const confluencePositions: ConfluencePos[] = confluencePoints.value.map((cp, index) => {
+    const sourceIdx = Math.max(0, Math.min(branchOrder.length - 1, branchIdx(storylineBranchName(cp.source_storyline_id))))
+    const targetIdx = Math.max(0, Math.min(branchOrder.length - 1, branchIdx(storylineBranchName(cp.target_storyline_id))))
+    const sx = LEFT_PAD + sourceIdx * COL_W + NODE_W / 2
+    const tx = LEFT_PAD + targetIdx * COL_W + NODE_W / 2
+    const cy = chapterToY(cp.target_chapter) + (index % 3) * 10
+    const midX = sx + (tx - sx) * 0.55
+    return {
+      id: cp.id,
+      cx: tx,
+      cy,
+      d: `M ${sx} ${cy - 18} C ${midX} ${cy - 18}, ${midX} ${cy}, ${tx} ${cy}`,
+      label: `Ch.${cp.target_chapter} ${confluenceLabel(cp.merge_type)}`,
+      resolved: !!cp.resolved,
+    }
+  })
+
+  return { viewBox: { w: viewW, h: viewH }, branchCols, edges: edgePositions, nodePositions, confluencePositions, timeMarkers }
 })
 
 // ──────────────────────────── Data ────────────────────────────
@@ -359,6 +581,7 @@ watch(() => props.slug, () => {
   selectedId.value = null
   void load()
   void loadStorylines()
+  void loadConfluencePoints()
 }, { immediate: true })
 
 // ──────────────────────────── Helpers ────────────────────────────
@@ -382,15 +605,27 @@ function formatTime(ts: string): string {
 function triggerLabel(t: string) {
   const map: Record<string, string> = {
     CHAPTER: '章节', MANUAL: '手动', STASH: '暂存', PRE_RESET: '重置前',
-    ACT: '幕', MILESTONE: '里程碑', AUTO: '自动',
+    ACT: '幕', MILESTONE: '里程碑', AUTO: '自动', MERGE: '汇流',
   }
   return map[t] ?? t
+}
+
+const confluenceLabel = getConfluenceLabel
+
+function storylineName(id: string) {
+  const s = storylines.value.find(item => item.id === id)
+  return s?.name || id.slice(0, 6)
+}
+
+function storylineBranchName(storylineId: string) {
+  const branch = graphData.value.branches.find(b => b.storyline_id === storylineId)
+  return branch?.name || 'main'
 }
 
 function triggerTagType(t: string): 'info' | 'warning' | 'default' | 'error' | 'success' {
   const map: Record<string, 'info' | 'warning' | 'default' | 'error' | 'success'> = {
     CHAPTER: 'info', MANUAL: 'warning', STASH: 'default',
-    PRE_RESET: 'error', ACT: 'success', MILESTONE: 'warning', AUTO: 'info',
+    PRE_RESET: 'error', ACT: 'success', MILESTONE: 'warning', AUTO: 'info', MERGE: 'success',
   }
   return map[t] ?? 'default'
 }
@@ -423,7 +658,7 @@ async function handleCheckout() {
   actionLoading.value = 'checkout'
   try {
     const res = await worldlineApi.checkout(props.slug, selectedId.value)
-    message.success(`Checkout 完成（暂存 ID: ${res.stash_id.slice(0, 8)}…，恢复 ${res.restored_chapters} 章）`)
+    message.success(`切换完成（暂存 ${res.stash_id.slice(0, 8)}…，恢复 ${res.restored_chapters} 章）`)
     await load()
     emit('checkpoint-restored')
   } catch (err: unknown) {
@@ -434,18 +669,42 @@ async function handleCheckout() {
   }
 }
 
+async function handleMergeBranch() {
+  const node = selectedNode.value
+  if (!node || node.branch_name === 'main') return
+  const branch = graphData.value.branches.find(b => b.name === node.branch_name)
+  if (!branch) {
+    message.warning('找不到当前分支')
+    return
+  }
+  actionLoading.value = 'merge'
+  try {
+    await worldlineApi.mergeBranch(props.slug, branch.id, {
+      target_branch_name: 'main',
+      name: `${branch.name} 汇入主线`,
+    })
+    message.success('分支已汇入主线')
+    await load()
+  } catch (err: unknown) {
+    const e = err as { message?: string }
+    message.error(e?.message || '分支汇入失败')
+  } finally {
+    actionLoading.value = null
+  }
+}
+
 async function handleHardReset() {
   if (!selectedId.value) return
   dialog.warning({
-    title: '确认 Hard Reset',
-    content: '此操作将删除该 Checkpoint 之后的所有章节，且不可恢复（会自动先存档）。确定继续？',
-    positiveText: '确定 Hard Reset',
+    title: '确认回滚',
+    content: '此操作将删除该切片之后的所有章节，且不可恢复（会自动先存档）。确定继续？',
+    positiveText: '确定回滚',
     negativeText: '取消',
     onPositiveClick: async () => {
       actionLoading.value = 'hard-reset'
       try {
         const res = await worldlineApi.hardReset(props.slug, selectedId.value!)
-        message.warning(`Hard Reset 完成（删除 ${res.deleted_chapters} 章）`)
+        message.warning(`回滚完成（删除 ${res.deleted_chapters} 章）`)
         selectedId.value = null
         await load()
         emit('checkpoint-restored')
@@ -507,7 +766,6 @@ async function handleCreateBranch() {
   flex-direction: column;
   overflow: hidden;
   background: var(--app-surface);
-  border-right: 1px solid var(--plotpilot-split-border);
 }
 
 .wl-header {
@@ -517,6 +775,19 @@ async function handleCreateBranch() {
   padding: 12px 16px;
   border-bottom: 1px solid var(--plotpilot-split-border);
   flex-shrink: 0;
+  background: var(--app-surface-elevated, var(--app-surface));
+}
+
+.wl-title-block {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wl-title-block span {
+  color: var(--app-text-muted, rgba(0, 0, 0, 0.58));
+  font-size: 11px;
 }
 
 .wl-body {
@@ -530,55 +801,140 @@ async function handleCreateBranch() {
 .wl-graph-wrap {
   flex: 1;
   min-width: 0;
-  overflow: auto;
-  padding: 8px 4px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 14px 12px;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--color-primary, #2563eb) 5%, transparent) 1px, transparent 1px),
+    linear-gradient(180deg, color-mix(in srgb, var(--color-primary, #2563eb) 5%, transparent) 1px, transparent 1px);
+  background-size: 28px 28px;
 }
 
 .wl-svg {
   display: block;
   width: 100%;
+  min-width: 0;
   overflow: visible;
 }
 
+.wl-time-line {
+  stroke: color-mix(in srgb, var(--app-text-muted, #64748b) 18%, transparent);
+  stroke-width: 1;
+  stroke-dasharray: 3 8;
+}
+
+.wl-time-label {
+  font-size: 9px;
+  fill: var(--app-text-muted, #64748b);
+  opacity: 0.86;
+  pointer-events: none;
+}
+
 .wl-edge {
-  stroke: var(--n-border-color, #e0e0e0);
-  stroke-width: 2;
-  opacity: 0.7;
+  stroke: color-mix(in srgb, var(--app-text-muted, #64748b) 42%, transparent);
+  stroke-width: 1.7;
+  opacity: 0.75;
+}
+
+.wl-edge--merge {
+  stroke: var(--color-success, #16a34a);
+  stroke-width: 2.2;
+}
+
+.wl-confluence-line {
+  fill: none;
+  stroke: var(--color-warning, #d97706);
+  stroke-width: 1.8;
+  stroke-dasharray: 5 4;
+  opacity: 0.82;
+}
+
+.wl-confluence-line--resolved {
+  stroke: var(--color-success, #16a34a);
+  stroke-dasharray: none;
+}
+
+.wl-confluence-node {
+  fill: color-mix(in srgb, var(--color-warning, #d97706) 18%, var(--app-surface));
+  stroke: var(--color-warning, #d97706);
+  stroke-width: 1.5;
+}
+
+.wl-confluence-node--resolved {
+  fill: color-mix(in srgb, var(--color-success, #16a34a) 18%, var(--app-surface));
+  stroke: var(--color-success, #16a34a);
+}
+
+.wl-confluence-label {
+  font-size: 10px;
+  fill: var(--app-text-muted, #64748b);
+  pointer-events: none;
 }
 
 .wl-node-g {
   cursor: pointer;
 }
 
-.wl-node-g:hover .wl-node-circle {
-  filter: brightness(1.2);
-  stroke: rgba(255,255,255,0.5);
+.wl-node-g:hover .wl-node-card {
+  filter: brightness(1.02);
   stroke-width: 2;
 }
 
-.wl-node-g--selected .wl-node-circle {
-  stroke: white;
-  stroke-width: 2.5;
+.wl-node-g--selected .wl-node-card {
+  stroke: var(--app-text-primary, #111827);
+  stroke-width: 2.2;
 }
 
-.wl-node-head-ring {
-  fill: none;
-  stroke-width: 2;
-  opacity: 0.4;
+.wl-node-card {
+  fill: color-mix(in srgb, var(--app-surface) 94%, var(--color-primary, #2563eb));
+  stroke-width: 1.4;
+  transition: filter 0.15s, stroke-width 0.15s;
+  filter: drop-shadow(0 2px 7px rgba(15, 23, 42, 0.06));
 }
 
-.wl-node-circle {
-  transition: filter 0.15s;
+.wl-node-card--head {
+  fill: color-mix(in srgb, var(--color-primary, #2563eb) 8%, var(--app-surface));
 }
 
-.wl-node-label {
-  font-size: 11px;
-  fill: var(--n-text-color, #333);
+.wl-node-accent {
   pointer-events: none;
 }
 
-.wl-node-label--head {
+.wl-node-chapter,
+.wl-node-trigger,
+.wl-node-title,
+.wl-node-meta,
+.wl-node-rollback {
+  pointer-events: none;
+}
+
+.wl-node-chapter {
+  font-size: 10px;
+  fill: var(--app-text-muted, #64748b);
+}
+
+.wl-node-trigger {
+  font-size: 9px;
+  fill: var(--app-text-muted, #64748b);
+}
+
+.wl-node-title {
+  font-size: 11px;
+  fill: var(--app-text-primary, #333);
+}
+
+.wl-node-title--head {
   font-weight: 700;
+}
+
+.wl-node-meta {
+  font-size: 9.5px;
+  fill: var(--app-text-muted, #64748b);
+}
+
+.wl-node-rollback {
+  font-size: 9px;
+  fill: var(--color-warning, #d97706);
 }
 
 .wl-branch-label {
@@ -588,19 +944,21 @@ async function handleCreateBranch() {
 }
 
 .wl-detail {
-  width: 190px;
+  width: 230px;
   flex-shrink: 0;
-  padding: 14px 12px;
+  padding: 14px;
   border-left: 1px solid var(--plotpilot-split-border);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 0;
+  background: var(--app-surface);
 }
 
 .wl-detail--empty {
   align-items: center;
   justify-content: center;
+  gap: 14px;
 }
 
 .wl-detail-title {
@@ -609,5 +967,67 @@ async function handleCreateBranch() {
   gap: 6px;
   margin-bottom: 6px;
   flex-wrap: wrap;
+}
+
+.wl-slice {
+  display: grid;
+  gap: 7px;
+  padding: 10px;
+  margin: 0 0 12px;
+  border: 1px solid var(--app-border, rgba(0, 0, 0, 0.08));
+  border-radius: 8px;
+  background: var(--app-surface-subtle, rgba(0, 0, 0, 0.03));
+}
+
+.wl-slice-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.wl-slice-row span {
+  color: var(--app-text-muted, rgba(0, 0, 0, 0.58));
+}
+
+.wl-slice-row strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wl-mini-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.wl-mini-list span {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--app-surface);
+  color: var(--app-text-muted, rgba(0, 0, 0, 0.58));
+  font-size: 10px;
+}
+
+.wl-confluence-list {
+  width: 100%;
+  display: grid;
+  gap: 8px;
+}
+
+.wl-confluence-item {
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border-radius: 7px;
+  background: var(--app-surface-subtle, rgba(0, 0, 0, 0.03));
+}
+
+.wl-confluence-item span {
+  color: var(--app-text-muted, rgba(0, 0, 0, 0.58));
+  font-size: 11px;
+  line-height: 1.45;
 }
 </style>

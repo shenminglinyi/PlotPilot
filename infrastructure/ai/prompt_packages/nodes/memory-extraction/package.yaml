@@ -1,0 +1,37 @@
+﻿name: 章节记忆增量提取
+category: extraction
+source: application/engine/services/memory_engine.py::update_from_chapter
+description: 从章节正文提取已完成节拍、已揭露线索和事实锁冲突，维护跨章节一致性账本
+builtin: true
+tags:
+- 记忆引擎
+- 章节状态
+- 一致性
+output_format: json
+variables:
+- name: chapter_content
+  desc: 待分析章节正文
+  type: string
+  required: true
+- name: chapter_number
+  desc: 章节编号
+  type: integer
+  required: true
+- name: outline
+  desc: 章节大纲
+  type: string
+  default: ''
+- name: fact_lock_text
+  desc: 当前事实锁文本
+  type: string
+  default: ''
+- name: existing_beats_summary
+  desc: 已完成节拍摘要，避免重复提取
+  type: string
+  default: ''
+- name: existing_clues_summary
+  desc: 已揭露线索摘要，避免重复提取
+  type: string
+  default: ''
+id: memory-extraction
+sort_order: 12

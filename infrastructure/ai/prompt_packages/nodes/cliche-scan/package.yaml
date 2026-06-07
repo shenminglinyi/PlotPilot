@@ -1,0 +1,16 @@
+name: AI味与套话扫描
+category: review
+source: application/engine/dag/nodes/validation_nodes.py::AntiAINode
+description: 扫描正文中的模板化表达、过度解释和低密度 AI 味痕迹
+builtin: true
+tags:
+- DAG
+- Anti-AI
+output_format: json
+variables:
+- name: content
+  desc: 章节正文
+  type: string
+  required: true
+id: cliche-scan
+sort_order: 106
