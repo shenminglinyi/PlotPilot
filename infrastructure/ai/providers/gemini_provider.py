@@ -43,7 +43,7 @@ class GeminiProvider(BaseProvider):
             self.settings.default_model,
             provider_label="Gemini",
         )
-        payload = self._build_payload(prompt, config)
+        payload = self._build_payload(prompt, config, model_id)
         query = self._build_query()
         url = self._build_url(model_id, 'generateContent')
 
@@ -73,7 +73,7 @@ class GeminiProvider(BaseProvider):
             self.settings.default_model,
             provider_label="Gemini",
         )
-        payload = self._build_payload(prompt, config)
+        payload = self._build_payload(prompt, config, model_id)
         query = self._build_query({'alt': 'sse'})
         url = self._build_url(model_id, 'streamGenerateContent')
 
@@ -114,11 +114,25 @@ class GeminiProvider(BaseProvider):
         headers.update(self.settings.extra_headers or {})
         return headers
 
-    def _build_payload(self, prompt: Prompt, config: GenerationConfig) -> dict[str, Any]:
-        generation_config = {
-            'temperature': config.temperature,
-            'maxOutputTokens': config.max_tokens,
+    def _build_payload(self, prompt: Prompt, config: GenerationConfig, model_id: str) -> dict[str, Any]:
+        is_gemini_3 = 'gemini-3' in model_id.lower()
+
+        max_tokens = config.max_tokens
+        eb = self.settings.extra_body or {}
+
+        # For Gemini 3.x models, if thinking is enabled (not MINIMAL), scale up maxOutputTokens
+        # to prevent thinking tokens from consuming the entire generation budget and causing truncation.
+        if is_gemini_3:
+            thinking_level = eb.get("thinking_level") or eb.get("thinkingLevel")
+            is_minimal = thinking_level and str(thinking_level).upper() == "MINIMAL"
+            if not is_minimal:
+                max_tokens = max(config.max_tokens + 8192, 16384)
+
+        generation_config: dict[str, Any] = {
+            'maxOutputTokens': max_tokens,
         }
+        if not is_gemini_3:
+            generation_config['temperature'] = config.temperature
         # 🔥 response_format 自适应：
         # Gemini 支持 responseMimeType 但不支持 json_schema 结构定义
         # OpenAI 的 json_object → Gemini 的 responseMimeType: application/json
