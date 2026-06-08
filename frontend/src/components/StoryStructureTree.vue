@@ -901,7 +901,10 @@ const renderLabel = ({ option }: { option: any }) => {
   ]
   const kind = nodeKindLabel[option.node_type]
   if (kind) {
-    titleRow.push(h('span', { class: 'node-kind' }, kind))
+    titleRow.push(h('span', { class: 'node-kind', 'aria-label': kind }, kind))
+    titleRow.push(h('span', { class: 'node-separator', 'aria-hidden': 'true' }, '｜'))
+  } else if (option.node_type === 'chapter') {
+    titleRow.push(h('span', { class: 'node-separator', 'aria-hidden': 'true' }, '｜'))
   }
   titleRow.push(h('span', {
     class: 'node-title',
@@ -1293,7 +1296,7 @@ defineExpose({ loadTree })
   align-items: center;
   min-width: 0;
   max-width: 100%;
-  gap: 7px;
+  gap: 6px;
 }
 
 .node-icon {
@@ -1304,7 +1307,7 @@ defineExpose({ loadTree })
   justify-content: center;
   font-size: 14px;
   line-height: 1;
-  opacity: 0.86;
+  opacity: 0.82;
 }
 
 .node-title {
@@ -1321,18 +1324,26 @@ defineExpose({ loadTree })
 
 .node-kind {
   display: inline-flex;
-  flex: 0 0 auto;
+  flex: 0 0 24px;
   align-items: center;
   justify-content: center;
-  min-width: 22px;
+  width: 24px;
   height: 18px;
-  padding: 0 6px;
+  padding: 0;
   border-radius: 4px;
   border: 1px solid rgba(148, 163, 184, 0.18);
   background: rgba(148, 163, 184, 0.08);
   color: var(--tree-faint, var(--app-text-muted));
   font-size: 11px;
   font-weight: 600;
+  line-height: 1;
+}
+
+.node-separator {
+  flex: 0 0 auto;
+  color: rgba(174, 184, 199, 0.74);
+  font-size: 12px;
+  font-weight: 500;
   line-height: 1;
 }
 
@@ -1366,7 +1377,9 @@ defineExpose({ loadTree })
 }
 
 .node-label--act .node-kind {
-  min-width: 20px;
+  border-color: rgba(148, 163, 184, 0.2);
+  background: rgba(148, 163, 184, 0.08);
+  color: #aeb8c7;
 }
 
 .node-label--chapter .node-title {
