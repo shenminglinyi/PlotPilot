@@ -195,30 +195,38 @@ const handleTreeLoaded = (hasData: boolean) => {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: var(--plotpilot-sidebar-pad-y) var(--plotpilot-sidebar-pad-x);
+  padding: 10px 10px 12px;
   background: var(--app-surface);
   border-right: 1px solid var(--plotpilot-split-border);
 }
 
 .sidebar-head {
-  margin-bottom: var(--plotpilot-sidebar-head-gap);
+  margin-bottom: 8px;
 }
 
 .back-btn {
-  margin-bottom: 8px;
-  font-weight: 500;
+  margin-bottom: 10px;
+  padding-left: 2px;
+  color: var(--app-text-muted);
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .ico-arrow {
   font-size: 14px;
-  margin-right: 2px;
+  margin-right: 3px;
+  color: var(--app-text-muted);
 }
 
 .view-mode-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 8px;
+  margin-top: 0;
+  padding: 2px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--app-surface-subtle) 70%, transparent);
+  border: 1px solid color-mix(in srgb, var(--app-border) 55%, transparent);
 }
 
 .sidebar-title-row {
@@ -238,6 +246,7 @@ const handleTreeLoaded = (hasData: boolean) => {
 .sidebar-scroll {
   flex: 1;
   min-height: 0;
+  margin: 0 -2px;
 }
 
 .sidebar-foot-hint {
@@ -259,7 +268,7 @@ const handleTreeLoaded = (hasData: boolean) => {
 }
 
 .sidebar :deep(.n-list-item) {
-  border-radius: 10px;
+  border-radius: 6px;
   margin-bottom: 4px;
   transition: background var(--app-transition), transform 0.15s ease;
 }
@@ -281,6 +290,27 @@ const handleTreeLoaded = (hasData: boolean) => {
 
 .ch-writing-tag {
   animation: ch-writing-pulse 1.4s ease-in-out infinite;
+}
+
+.view-mode-row :deep(.n-base-selection) {
+  --n-border: none !important;
+  --n-border-hover: none !important;
+  --n-border-focus: none !important;
+  --n-box-shadow-focus: none !important;
+  --n-height: 32px !important;
+  background: transparent;
+}
+
+.view-mode-row :deep(.n-base-selection-label) {
+  background: transparent;
+  color: var(--app-text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.view-mode-row :deep(.n-base-selection__border),
+.view-mode-row :deep(.n-base-selection__state-border) {
+  display: none;
 }
 
 @keyframes ch-writing-pulse {
