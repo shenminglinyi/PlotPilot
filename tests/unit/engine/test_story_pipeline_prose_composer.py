@@ -4,7 +4,7 @@ import pytest
 
 from engine.pipeline.base import BaseStoryPipeline
 from engine.pipeline.context import PipelineContext
-from engine.pipeline.prose_composer import ProseCompositionResult
+from engine.pipeline.prose_composer import ChapterProseInvocationComposer, ProseCompositionRequest, ProseCompositionResult
 
 
 class _Pipeline(BaseStoryPipeline):
@@ -21,6 +21,32 @@ class _Composer:
         if request.stream_sink:
             request.stream_sink(self.result.content)
         return self.result
+
+
+def test_chapter_prose_composer_builds_only_core_prompt_variables():
+    composer = ChapterProseInvocationComposer()
+    request = ProseCompositionRequest(
+        novel_id="novel-1",
+        chapter_number=4,
+        outline="七段细纲",
+        context_text="前3章规划",
+        target_words=2000,
+        metadata={
+            "key_plot_points": ["情节点1", "情节点2"],
+            "chapter_characters": ["林渊", "林晚"],
+            "chapter_plan_json": {"unused": True},
+            "previous_summary": "不应进入 prompt",
+            "previous_ending": "不应进入 prompt",
+        },
+    )
+
+    variables = composer._build_variables(request)
+
+    assert variables == {
+        "target_words": 2000,
+        "chapter_outline": "七段细纲",
+        "continuity_context": "前3章规划",
+    }
 
 
 @pytest.mark.asyncio

@@ -9,9 +9,6 @@ tags:
 - Bible
 output_format: json
 variables:
-- name: novel.title
-  desc: 小说名称
-  type: string
 - name: novel.premise
   desc: 故事创意
   type: string
@@ -24,44 +21,13 @@ variables:
 - name: novel.genre_label
   desc: 小说类型字符串
   type: string
-- name: novel.world_preset
-  desc: 世界观基调
-  type: string
-- name: novel.story_structure
-  desc: 剧情结构
-  type: string
-- name: novel.pacing_control
-  desc: 节奏把控
-  type: string
-- name: novel.writing_style
-  desc: 写作风格
-  type: string
-- name: novel.special_requirements
-  desc: 特殊要求
-  type: string
-- name: novel.target_chapters
-  desc: 章节数量
-  type: integer
-  default: 100
-- name: novel.target_words_per_chapter
-  desc: 每章字数
-  type: integer
-  default: 0
 - name: worldbuilding.content
   desc: 结构化世界观
   type: object
   default: {}
-- name: locations.list
-  desc: 已点亮地点
-  type: list
-  default: []
 - name: characters.list
   desc: 上一阶段角色列表
   type: list
   default: []
-- name: characters.protagonist
-  desc: 主角
-  type: object
-  default: {}
 id: bible-locations
 sort_order: 29

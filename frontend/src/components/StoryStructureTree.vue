@@ -822,44 +822,144 @@ const doAddChild = async () => {
   }
 }
 
+const nodeKindLabel: Record<string, string> = {
+  part: '部',
+  volume: '卷',
+  act: '幕',
+}
+
+const summarySplitMarkers: Record<string, string[]> = {
+  part: ['本部', '本阶段', '阶段目标', '主要阻力', '关键选择', '代价是', '回报是'],
+  volume: ['本卷', '卷末', '阶段目标', '主要阻力', '关键选择', '代价是', '回报是'],
+  act: ['本幕', '幕末', '阶段目标', '主要阻力', '关键选择', '代价是', '回报是'],
+}
+
+function normalizeTreeText(value: unknown): string {
+  return String(value ?? '').replace(/\s+/g, ' ').trim()
+}
+
+function splitEmbeddedSummary(title: unknown, nodeType: string): { title: string; summary: string } {
+  const kind = nodeKindLabel[nodeType]
+  const rawText = normalizeTreeText(title)
+  const text = kind ? rawText.replace(new RegExp(`^${kind}(?=\\S)`), '') : rawText
+  if (!text || nodeType === 'chapter') return { title: text, summary: '' }
+
+  const markers = summarySplitMarkers[nodeType] ?? []
+  const splitAt = markers
+    .map((marker) => {
+      const index = text.indexOf(marker)
+      return index >= 2 ? index : -1
+    })
+    .filter((index) => index > 0)
+    .sort((a, b) => a - b)[0]
+
+  if (splitAt == null) {
+    const titleLimit = nodeType === 'part' ? 8 : nodeType === 'volume' ? 10 : 12
+    if (text.length <= titleLimit) return { title: text, summary: '' }
+    const punctuationAt = text.search(/[，。；、:：\s-]/u)
+    if (punctuationAt > 1 && punctuationAt <= titleLimit + 4) {
+      return {
+        title: text.slice(0, punctuationAt).trim(),
+        summary: text.slice(punctuationAt + 1).trim(),
+      }
+    }
+    return {
+      title: `${text.slice(0, titleLimit)}…`,
+      summary: text.slice(titleLimit).trim(),
+    }
+  }
+
+  const cleanTitle = text
+    .slice(0, splitAt)
+    .replace(/[，。；、:：\s-]+$/u, '')
+    .trim()
+  const summary = text.slice(splitAt).trim()
+
+  return {
+    title: cleanTitle || text,
+    summary: cleanTitle ? summary : '',
+  }
+}
+
+function buildNodeSummary(node: StoryNode, embeddedSummary: string): string {
+  const description = normalizeTreeText(node.description)
+  if (!embeddedSummary) return description
+  if (!description || description === embeddedSummary) return embeddedSummary
+  if (description.includes(embeddedSummary) || embeddedSummary.includes(description)) {
+    return embeddedSummary.length >= description.length ? embeddedSummary : description
+  }
+  return `${embeddedSummary} ${description}`
+}
+
 // 渲染节点标签
 const renderLabel = ({ option }: { option: any }) => {
-  const elements: any[] = [
-    h('span', { class: 'node-icon' }, option.icon),
-    h('span', { class: 'node-title' }, option.display_name),
+  const node = option as StoryNode
+  const titleParts = splitEmbeddedSummary(option.display_name, option.node_type)
+  const summary = buildNodeSummary(node, titleParts.summary)
+  const titleRow: any[] = [
+    h('span', { class: 'node-icon', 'aria-hidden': 'true' }, option.icon),
   ]
+  const kind = nodeKindLabel[option.node_type]
+  if (kind) {
+    titleRow.push(h('span', { class: 'node-kind', 'aria-label': kind }, kind))
+    titleRow.push(h('span', { class: 'node-separator', 'aria-hidden': 'true' }, '｜'))
+  } else if (option.node_type === 'chapter') {
+    titleRow.push(h('span', { class: 'node-separator', 'aria-hidden': 'true' }, '｜'))
+  }
+  titleRow.push(h('span', {
+    class: 'node-title',
+    title: normalizeTreeText(option.display_name),
+    style: {
+      display: 'inline-block',
+      maxWidth: option.node_type === 'part' ? '150px' : option.node_type === 'volume' ? '170px' : '190px',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
+      verticalAlign: 'bottom',
+    },
+  }, titleParts.title))
+
   if (option.node_type === 'chapter') {
     const st = (option as StoryNode & { status?: string }).status
     const hasContent =
       (option.word_count && option.word_count > 0) || st === 'completed'
-    elements.push(
+    titleRow.push(
       h(NTag, {
-        size: 'small',
+        size: 'tiny',
         type: hasContent ? 'success' : 'default',
         round: true,
-        style: { marginLeft: '8px' },
+        class: 'node-status-tag',
       }, () => (hasContent ? '已收稿' : '未收稿'))
     )
   }
-  return h('span', { class: 'node-label' }, elements)
+
+  const children: any[] = [
+    h('span', { class: 'node-title-row' }, titleRow),
+  ]
+  if (
+    summary &&
+    ['part', 'volume'].includes(node.node_type)
+  ) {
+    children.push(h('span', {
+      class: 'node-description',
+      title: summary,
+      style: {
+        display: 'block',
+        maxWidth: '360px',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+      },
+    }, summary))
+  }
+
+  return h('span', { class: ['node-label', `node-label--${option.node_type}`] }, children)
 }
 
 // 渲染节点后缀
 const renderSuffix = ({ option }: { option: any }) => {
   const elements: any[] = []
   const node = option as StoryNode
-  // 「幕」节点仅显示标题（如第 n 幕），不显示后端附带的内容小结，避免树形一行过长
-  if (
-    node.description &&
-    ['part', 'volume'].includes(node.node_type)
-  ) {
-    elements.push(
-      h('span', {
-        class: 'node-description',
-        style: { color: '#999', fontSize: '12px', marginLeft: '8px' },
-      }, node.description)
-    )
-  }
   if (node.node_type === 'chapter' && node.word_count) {
     elements.push(h('span', { class: 'node-range' }, `${node.word_count}字`))
   }
@@ -902,7 +1002,7 @@ defineExpose({ loadTree })
   height: 100%;
   display: flex;
   flex-direction: column;
-  padding: 8px 0;
+  padding: 4px 0 8px;
 }
 .structure-body {
   flex: 1;
@@ -911,6 +1011,7 @@ defineExpose({ loadTree })
 
 .structure-tree-inner {
   min-height: 100%;
+  padding: 2px 2px 8px;
 }
 
 .macro-preview-ribbon {
@@ -1111,20 +1212,221 @@ defineExpose({ loadTree })
   }
 }
 
+.story-structure :deep(.n-tree) {
+  --tree-title-1: #eef3f8;
+  --tree-title-2: #c7d0dd;
+  --tree-title-3: #aeb8c7;
+  --tree-title-4: #9aa6b7;
+  --tree-muted: #8a94a6;
+  --tree-faint: #657084;
+  --tree-hover: rgba(148, 163, 184, 0.08);
+  --tree-active: rgba(59, 130, 246, 0.12);
+  --tree-line: rgba(148, 163, 184, 0.16);
+}
+
+.story-structure :deep(.n-tree-node) {
+  position: relative;
+  padding: 2px 0;
+}
+
+.story-structure :deep(.n-tree-node-content) {
+  min-height: 30px;
+  align-items: flex-start;
+  padding: 5px 7px;
+  border-radius: 6px;
+  transition:
+    background-color 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.story-structure :deep(.n-tree-node-content:hover) {
+  background: var(--tree-hover);
+}
+
+.story-structure :deep(.n-tree-node-content.n-tree-node-content--selected) {
+  background: var(--tree-active);
+  box-shadow: inset 2px 0 0 var(--n-primary-color);
+}
+
+.story-structure :deep(.n-tree-node-content__prefix) {
+  margin-top: 3px;
+}
+
+.story-structure :deep(.n-tree-node-switcher) {
+  width: 20px;
+  height: 28px;
+  color: var(--tree-faint);
+}
+
+.story-structure :deep(.n-tree-node-wrapper) {
+  position: relative;
+}
+
+.story-structure :deep(.n-tree-node-wrapper::before) {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 10px;
+  width: 1px;
+  background: var(--tree-line);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.story-structure :deep(.n-tree-node-wrapper:first-child::before) {
+  top: 16px;
+}
+
+.story-structure :deep(.n-tree-node-indent) {
+  width: 18px;
+}
+
 .node-label {
   display: flex;
+  min-width: 0;
+  width: 100%;
+  flex-direction: column;
+  gap: 3px;
+  padding: 1px 0;
+}
+
+.node-title-row {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  gap: 6px;
 }
-.node-icon { font-size: 16px; }
-.node-title { font-size: 13px; }
-.node-range {
+
+.node-icon {
+  display: inline-flex;
+  width: 18px;
+  flex: 0 0 18px;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.82;
+}
+
+.node-title {
+  min-width: 0;
+  max-width: min(360px, 62vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.45;
+  letter-spacing: 0;
+}
+
+.node-kind {
+  display: inline-flex;
+  flex: 0 0 24px;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 18px;
+  padding: 0;
+  border-radius: 4px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(148, 163, 184, 0.08);
+  color: var(--tree-faint, var(--app-text-muted));
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.node-separator {
+  flex: 0 0 auto;
+  color: rgba(174, 184, 199, 0.74);
   font-size: 12px;
-  color: #999;
-  margin-left: 8px;
+  font-weight: 500;
+  line-height: 1;
 }
-.node-level-1 { font-weight: 600; }
-.node-level-2 { font-weight: 500; }
-.node-level-3 { font-weight: normal; }
-.node-level-4 { font-weight: normal; font-size: 13px; }
+
+.node-label--part .node-title {
+  color: var(--tree-title-1, var(--app-text-primary));
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.node-label--part .node-kind {
+  border-color: rgba(96, 165, 250, 0.24);
+  background: rgba(59, 130, 246, 0.12);
+  color: #9ec5ff;
+}
+
+.node-label--volume .node-title {
+  color: var(--tree-title-2, var(--app-text-secondary));
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.node-label--volume .node-kind {
+  border-color: rgba(212, 168, 83, 0.25);
+  background: rgba(212, 168, 83, 0.1);
+  color: #d5b26b;
+}
+
+.node-label--act .node-title {
+  color: var(--tree-title-3, var(--app-text-secondary));
+  font-size: 13px;
+}
+
+.node-label--act .node-kind {
+  border-color: rgba(148, 163, 184, 0.2);
+  background: rgba(148, 163, 184, 0.08);
+  color: #aeb8c7;
+}
+
+.node-label--chapter .node-title {
+  color: var(--tree-title-4, var(--app-text-muted));
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.node-description {
+  display: block;
+  max-width: min(520px, 68vw);
+  overflow: hidden;
+  color: var(--tree-muted, var(--app-text-muted));
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0;
+  opacity: 0.82;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-label--part .node-description {
+  color: var(--tree-muted, var(--app-text-muted));
+  opacity: 0.78;
+}
+
+.node-status-tag {
+  flex: 0 0 auto;
+  margin-left: 2px;
+  opacity: 0.9;
+}
+
+.node-range {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  margin-left: 8px;
+  color: var(--tree-faint, var(--app-text-muted));
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.node-level-1 { font-weight: 650; }
+.node-level-2 { font-weight: 600; }
+.node-level-3 { font-weight: 500; }
+.node-level-4 { font-weight: 500; font-size: 13px; }
 </style>

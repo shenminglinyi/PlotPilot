@@ -125,7 +125,7 @@ def get_service() -> ContinuousPlanningService:
     chapter_element_repo = ChapterElementRepository(db_path)
 
     # 使用统一的动态 LLM 服务（支持 OpenAI 兼容模型）
-    from interfaces.api.dependencies import get_llm_service, get_bible_repository
+    from interfaces.api.dependencies import get_llm_service, get_bible_repository, get_novel_repository
     llm_service = get_llm_service()
 
     from application.world.services.bible_service import BibleService
@@ -137,6 +137,7 @@ def get_service() -> ContinuousPlanningService:
         llm_service,
         bible_service,
         chapter_repository=SqliteChapterRepository(get_database()),
+        novel_repository=get_novel_repository(),
     )
 
 

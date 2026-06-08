@@ -69,18 +69,19 @@ class PlanningPreciseRepairVariables(BaseModel):
 class PlanningActVariables(BaseModel):
     context: str = Field(min_length=1)
     chapter_count: int = Field(ge=1)
+    genre_label: str = ""
+    world_preset: str = ""
+    story_structure: str = ""
+    pacing_control: str = ""
+    writing_style: str = ""
+    special_requirements: str = ""
 
 
 class PlanningChapterPreplanVariables(BaseModel):
     chapter_number: int = Field(ge=1)
     chapter_title: str = Field(min_length=1)
     act_chapter_plan: str = Field(min_length=1)
-    continuity_ledger: str = "暂无近章台账。"
-    previous_ending: str = ""
-    recent_chapters: str = ""
-    character_state: str = ""
-    unresolved_threads: str = ""
-    legacy_chapter_plan: str = ""
+    continuity_context: str = "暂无前3章规划大纲。"
 
 
 class ContinuousPlanningNextActVariables(BaseModel):

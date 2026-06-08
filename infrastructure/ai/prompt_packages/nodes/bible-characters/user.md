@@ -1,31 +1,23 @@
-【故事创意】
+【小说设定】
+故事创意/原始设定：
 {{ novel.premise }}
 
-【小说设定】
-名称：{{ novel.title }}
 大类：{{ novel.genre_major }}
 主题：{{ novel.genre_theme }}
 类型：{{ novel.genre_label }}
 基调：{{ novel.world_preset }}
-剧情结构：{{ novel.story_structure }}
-节奏把控：{{ novel.pacing_control }}
 写作风格：{{ novel.writing_style }}
 特殊要求：{{ novel.special_requirements }}
-章节数量：{{ novel.target_chapters }}
-每章字数：{{ novel.target_words_per_chapter }}
 
-【剧本语态基调】
+【文风内容】
 {{ worldbuilding.style }}
 
 【结构化世界观】
 {{ worldbuilding.content }}
 
-【已有角色】
-{{ characters.list }}
-
----
-
 请基于以上世界观生成主要角色阵容。人物不是标签卡，而是写文引擎的角色锁：必须包含核心信念、禁忌、声线、创伤触发和 POV 防火墙信息。
+
+先从【故事创意/原始设定】中抽取已经出现的人物、人名、关系、身份、创伤事件、季节节点和关键意象；这些内容是硬约束，必须保留，不得改名、换关系、换职业时代或改写为无关套路。世界观只用于补全空白和解释人物所处社会生态，不能覆盖原始设定。
 
 直接输出 JSON（不要包在代码块里）：
 

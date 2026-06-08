@@ -468,7 +468,31 @@ class BaseStoryPipeline(ABC):
             len(outline),
             ctx.target_word_count,
         )
+        self._attach_chapter_preplan_metadata(ctx)
         return StepResult.ok()
+
+    def _attach_chapter_preplan_metadata(self, ctx: PipelineContext) -> None:
+        """Expose one structured preplan source to prose generation."""
+        node_meta = getattr(ctx.chapter_node, "metadata", {}) if ctx.chapter_node is not None else {}
+        if not isinstance(node_meta, dict):
+            node_meta = {}
+        preplan = node_meta.get("chapter_preplan")
+        if not isinstance(preplan, dict):
+            preplan = {}
+
+        continuity_context = str(preplan.get("continuity_context") or "").strip()
+        if not continuity_context:
+            try:
+                from application.blueprint.services.chapter_continuity_ledger import ChapterContinuityLedgerService
+
+                continuity_context = ChapterContinuityLedgerService(
+                    chapter_repository=ctx.chapter_repository,
+                    story_node_repo=ctx.story_node_repo,
+                ).build_for_chapter(ctx.novel_id, ctx.chapter_number).to_planning_context_text()
+            except Exception:
+                continuity_context = ""
+
+        ctx.metadata["continuity_context"] = continuity_context
 
     async def _step_generate(self, ctx: PipelineContext) -> StepResult:
         composer = ctx.get_dep("prose_composer")

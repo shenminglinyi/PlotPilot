@@ -2,29 +2,15 @@
 {{ novel.premise }}
 
 【小说设定】
-名称：{{ novel.title }}
 大类：{{ novel.genre_major }}
 主题：{{ novel.genre_theme }}
 类型：{{ novel.genre_label }}
-基调：{{ novel.world_preset }}
-剧情结构：{{ novel.story_structure }}
-节奏把控：{{ novel.pacing_control }}
-写作风格：{{ novel.writing_style }}
-特殊要求：{{ novel.special_requirements }}
-章节数量：{{ novel.target_chapters }}
-每章字数：{{ novel.target_words_per_chapter }}
 
 【结构化世界观】
 {{ worldbuilding.content }}
 
-【已点亮锚点】
-{{ locations.list }}
-
-【上一阶段人物设定】
-{{ characters.list }}
-
 【主角】
-{{ characters.protagonist }}
+{{ characters.list[0] }}
 
 ---
 

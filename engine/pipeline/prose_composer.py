@@ -57,11 +57,15 @@ class ChapterProseInvocationComposer:
     """
 
     def _build_variables(self, request: ProseCompositionRequest) -> dict[str, Any]:
+        metadata = request.metadata or {}
+        continuity_context = (
+            str(metadata.get("continuity_context") or "").strip()
+            or str(request.context_text or "").strip()
+        )
         return {
             "target_words": int(request.target_words or 2500),
             "chapter_outline": request.outline,
-            "previous_summary": str(request.metadata.get("previous_summary") or ""),
-            "previous_ending": str(request.metadata.get("previous_ending") or ""),
+            "continuity_context": continuity_context,
         }
 
     @staticmethod

@@ -611,6 +611,35 @@ async def _sse_bible_generator(
         yield _sse_fmt("error", {"message": f"获取小说信息失败: {e}"})
         return
 
+    if stage in _BIBLE_SETUP_NODE_BY_STAGE:
+        try:
+            payload = await _create_bible_setup_invocation(
+                novel_id=novel_id,
+                stage=stage,
+                novel=novel,
+                bible_generator=bible_generator,
+            )
+            session = payload.get("session") or {}
+            session_id = str(session.get("id") or "")
+            if session_id:
+                yield _sse_fmt(
+                    "data",
+                    {
+                        "type": "approval_required",
+                        "session_id": session_id,
+                        "status": session.get("status", ""),
+                        "next_action": payload.get("next_action", ""),
+                        "stage": stage,
+                    },
+                )
+                return
+            yield _sse_fmt("error", {"message": "AI 审阅会话创建失败"})
+            return
+        except Exception as e:
+            logger.exception("Bible setup invocation stream failed for %s stage=%s", novel_id, stage)
+            yield _sse_fmt("error", {"message": f"AI 审阅会话创建失败: {e}"})
+            return
+
     # 确保Bible记录存在
     try:
         existing_bible = bible_generator.bible_service.get_bible_by_novel(novel_id)

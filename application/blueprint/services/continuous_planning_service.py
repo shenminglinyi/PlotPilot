@@ -18,7 +18,9 @@ from domain.structure.chapter_element import ChapterElement, ElementType, Relati
 from domain.novel.entities.chapter import Chapter, ChapterStatus
 from domain.novel.value_objects.novel_id import NovelId
 from domain.novel.value_objects.chapter_id import ChapterId
+from domain.novel.value_objects.generation_preferences import GenerationPreferences
 from domain.novel.repositories.chapter_repository import ChapterRepository
+from domain.novel.repositories.novel_repository import NovelRepository
 from infrastructure.persistence.database.story_node_repository import StoryNodeRepository
 from infrastructure.persistence.database.chapter_element_repository import ChapterElementRepository
 from domain.ai.services.llm_service import LLMService, GenerationConfig
@@ -473,12 +475,14 @@ class ContinuousPlanningService:
         llm_service: LLMService,
         bible_service=None,
         chapter_repository: Optional[ChapterRepository] = None,
+        novel_repository: Optional[NovelRepository] = None,
     ):
         self.story_node_repo = story_node_repo
         self.chapter_element_repo = chapter_element_repo
         self.llm_service = llm_service
         self.bible_service = bible_service
         self.chapter_repository = chapter_repository
+        self.novel_repository = novel_repository
 
     # CPMS 提示词渲染
 
@@ -2563,8 +2567,33 @@ class ContinuousPlanningService:
             {
                 "context": "\n\n".join(context_parts),
                 "chapter_count": chapter_count,
+                **self._build_act_contract_variables(act_node.novel_id),
             },
         )
+
+    def _build_act_contract_variables(self, novel_id: str) -> Dict[str, str]:
+        """Collect locked narrative contract fields for CPMS rendering."""
+        prefs = self._get_generation_preferences(novel_id)
+        if not prefs:
+            return {}
+        return {
+            "genre_label": prefs.locked_genre,
+            "world_preset": prefs.locked_world_preset,
+            "story_structure": prefs.locked_story_structure,
+            "pacing_control": prefs.locked_pacing_control,
+            "writing_style": prefs.locked_writing_style,
+            "special_requirements": prefs.locked_special_requirements,
+        }
+
+    def _get_generation_preferences(self, novel_id: str) -> Optional[GenerationPreferences]:
+        if self.novel_repository is None:
+            return None
+        try:
+            novel = self.novel_repository.get_by_id(NovelId(novel_id))
+        except Exception as exc:
+            logger.debug("[ActPlanning] 读取小说题材偏好失败 novel=%s: %s", novel_id, exc)
+            return None
+        return getattr(novel, "generation_prefs", None) if novel is not None else None
 
     async def _get_previous_acts_summary(self, act_node: StoryNode) -> Optional[str]:
         """获取前面幕的摘要"""

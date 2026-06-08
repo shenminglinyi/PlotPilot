@@ -9,6 +9,7 @@ from typing import Any, Mapping, Sequence
 class ChapterPlanningPolicy:
     recent_chapter_limit: int = 3
     previous_ending_chars: int = 700
+    recent_outline_chars: int = 700
     required_act_plan_fields: tuple[str, ...] = (
         "number",
         "title",
@@ -19,6 +20,22 @@ class ChapterPlanningPolicy:
 
 
 DEFAULT_CHAPTER_PLANNING_POLICY = ChapterPlanningPolicy()
+
+
+CHAPTER_EXECUTION_PLAN_MARKERS = (
+    "一、开篇切入点",
+    "二、场景转换列表",
+    "三、关键对话",
+    "四、剧情事件链",
+    "五、角色关键决策",
+    "六、爽点/反转设计",
+    "七、主角状态变化",
+)
+
+CHAPTER_EXECUTION_PLAN_FORBIDDEN_MARKERS = (
+    "故事单元检查",
+    "情绪变化节点",
+)
 
 
 def _is_blank(value: Any) -> bool:
@@ -68,16 +85,13 @@ def has_rendered_chapter_execution_plan(text: str | None) -> bool:
     value = (text or "").strip()
     if not value:
         return False
-    markers = (
-        "一、开篇切入点",
-        "二、场景转换列表",
-        "三、关键对话",
-        "四、剧情事件链",
-        "五、角色关键决策",
-        "六、爽点/反转设计",
-        "七、主角状态变化",
-    )
-    return sum(1 for marker in markers if marker in value) >= 5
+    if any(marker in value for marker in CHAPTER_EXECUTION_PLAN_FORBIDDEN_MARKERS):
+        return False
+
+    positions = [value.find(marker) for marker in CHAPTER_EXECUTION_PLAN_MARKERS]
+    if any(position < 0 for position in positions):
+        return False
+    return positions == sorted(positions) and len(set(positions)) == len(positions)
 
 
 def truncate_text(text: str | None, limit: int) -> str:
