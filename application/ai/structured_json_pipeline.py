@@ -28,7 +28,7 @@ DEFAULT_MAX_RETRIES = LLM_MAX_TOTAL_ATTEMPTS - 1
 
 
 def _is_retryable_llm_error(exc: Exception) -> bool:
-    """识别上游临时故障，避免 429/5xx/超时直接短路。"""
+    """识别上游临时故障，避免 429/5xx/超时/空响应直接短路。"""
     message = str(exc).lower()
     retryable_markers = (
         "overloaded_error",
@@ -37,6 +37,8 @@ def _is_retryable_llm_error(exc: Exception) -> bool:
         "temporar",
         "connection reset",
         "service unavailable",
+        "empty content",
+        "empty non-stream content",
     )
     retryable_statuses = (" 429", " 500", " 502", " 503", " 504", " 529")
     return any(marker in message for marker in retryable_markers) or any(
