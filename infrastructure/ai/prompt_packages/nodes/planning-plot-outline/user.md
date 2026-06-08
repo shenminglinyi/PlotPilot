@@ -13,19 +13,26 @@
 - 特殊要求：{{ novel.special_requirements }}
 - 目标篇幅：{{ novel.target_chapters }} 章，每章约 {{ novel.target_words_per_chapter }} 字
 
-【主角】
-{{ characters.protagonist }}
-
 【角色列表】
 {{ characters.list }}
 
 【地点列表】
 {{ locations.list }}
 
-【文风公约】
-{{ worldbuilding.style }}
-
 【结构化世界观】
 {{ worldbuilding.content }}
 
-请输出仅包含 `plot_outline` 的 JSON 对象。`stage_plan` 的每个阶段必须包含按 {{ novel.target_chapters }} 章换算后的 `chapter_start` 与 `chapter_end`。
+请按照 JSON 结构输出，可被 Python `json.loads` 直接解析。不要输出解释文字。
+
+{
+    "outline_main": "字符串，200-500字：全书主线概括，主角出身、金手指、核心目标、完整成长线、故事核心卖点",
+    "stage_plan": {
+        "stage_opening_1_15": "开篇阶段1%-15%：世界观搭建、主角登场、金手指初次启用、首个核心矛盾落地",
+        "stage_develop_15_40": "发展阶段15%-40%：冲突升级、资源争夺、多方势力博弈、连续阶段性小高潮",
+        "stage_deepen_40_70": "深化阶段40%-70%：世界观真相挖掘、主角实力蜕变、关键强敌登场、局势反转",
+        "stage_climax_70_90": "高潮阶段70%-90%：终极矛盾爆发、巅峰决战、长线伏笔集中回收",
+        "stage_end_90_100": "收尾阶段90%-100%：全线索收拢、恩怨了结、各大角色落地归宿"
+    },
+    "ending_expect": "字符串：明确全书最终走向、主角最终地位、敌对势力结局、整体世界格局",
+    "core_conflict": "字符串：提炼全书核心矛盾，势力/宿命/恩怨/阶级等底层冲突，全书剧情驱动根源"
+}
