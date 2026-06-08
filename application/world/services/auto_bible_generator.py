@@ -123,9 +123,13 @@ class BiblePromptTemplateUnavailable(RuntimeError):
 def _render_required_bible_prompt(node_key: str, variables: Dict[str, Any]) -> Prompt:
     """只从 CPMS 渲染 Bible prompt；缺失时阻塞，禁止硬编码提示词降级。"""
     try:
+        from application.ai_invocation.prompt_variables import aliases_with_dotted_variables
         from infrastructure.ai.prompt_registry import get_prompt_registry
 
-        prompt = get_prompt_registry().render_to_prompt(node_key, variables)
+        prompt = get_prompt_registry().render_to_prompt(
+            node_key,
+            aliases_with_dotted_variables(variables or {}),
+        )
     except Exception as exc:
         raise BiblePromptTemplateUnavailable(
             f"CPMS PromptRegistry 不可用，已阻塞 Bible 生成: {node_key}"
@@ -1119,8 +1123,11 @@ class AutoBibleGenerator:
             BIBLE_CHARACTERS,
             {
                 **wb_fields,
+                "novel.premise": premise,
                 "premise": premise,
                 "target_chapters": target_chapters,
+                "worldbuilding.content": worldbuilding or {},
+                "worldbuilding.style": "",
                 "style_guide": "",
                 "existing_characters": "",
             },
@@ -1151,8 +1158,11 @@ class AutoBibleGenerator:
             BIBLE_CHARACTERS,
             {
                 **wb_fields,
+                "novel.premise": premise,
                 "premise": premise,
                 "target_chapters": target_chapters,
+                "worldbuilding.content": worldbuilding or {},
+                "worldbuilding.style": "",
                 "style_guide": "",
                 "existing_characters": "",
             },

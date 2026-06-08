@@ -1,4 +1,5 @@
 from application.ai_invocation.variable_hub import VariableWrite
+from application.ai_invocation.prompt_assembler import CPMSPromptAssembler
 from application.world.services.bible_setup_invocation import (
     BIBLE_SETUP_CHARACTERS_NODE,
     BIBLE_SETUP_LOCATIONS_NODE,
@@ -114,6 +115,39 @@ def test_bible_setup_character_resolver_allows_missing_optional_existing_charact
     assert plan.ok
     assert plan.aliases["characters.list"] == []
     assert "characters.list" not in plan.required_missing
+
+
+def test_bible_setup_character_prompt_renders_author_premise():
+    resolver = build_bible_setup_variable_resolver()
+    repo = resolver._repository
+    context_key = "novel_id:novel-1"
+    premise = "大三那年的春天，苏念唯一的亲人奶奶走了。沈屿在春末最后一场雨之前出现。"
+    repo.set_value(VariableWrite(key="novel.title", value="新书", context_key=context_key))
+    repo.set_value(VariableWrite(key="novel.premise", value=premise, context_key=context_key))
+    repo.set_value(VariableWrite(key="novel.target_chapters", value=100, context_key=context_key))
+    repo.set_value(VariableWrite(key="novel.target_words_per_chapter", value=2500, context_key=context_key))
+    repo.set_value(VariableWrite(key="worldbuilding.style", value="细腻写实", context_key=context_key))
+    repo.set_value(
+        VariableWrite(
+            key="worldbuilding.content",
+            value={"society": {"class_system": "校园和都市职场并行"}},
+            context_key=context_key,
+        )
+    )
+
+    spec = bible_setup_characters_spec()
+    plan = resolver.resolve(
+        spec=spec,
+        explicit_variables={},
+        context={"novel_id": "novel-1"},
+    )
+
+    prompt = CPMSPromptAssembler().compile(spec=spec, variable_plan=plan).prompt
+
+    assert plan.ok
+    assert "故事创意/原始设定" in prompt.user
+    assert "苏念唯一的亲人奶奶走了" in prompt.user
+    assert "沈屿在春末最后一场雨之前出现" in prompt.user
 
 
 def test_bible_setup_location_resolver_reads_character_outputs_from_variable_hub():

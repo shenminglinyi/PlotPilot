@@ -8,6 +8,9 @@ tags:
 - Bible
 output_format: json
 variables:
+- name: novel.premise
+  desc: 作者原始设定/故事创意
+  type: string
 - name: novel.genre_major
   desc: 小说大类
   type: string
