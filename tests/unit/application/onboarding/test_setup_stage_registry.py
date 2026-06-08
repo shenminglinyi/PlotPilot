@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import application.blueprint.services.setup_plot_outline_invocation as setup_plot_outline_invocation
 from application.blueprint.services.setup_plot_outline_invocation import (
     SETUP_PLOT_OUTLINE_NODE,
@@ -7,6 +9,15 @@ from application.onboarding.setup_stage_definitions import (
     find_onboarding_stage_definition,
     get_onboarding_stage_definition,
     get_onboarding_stage_registry,
+)
+
+_PLOT_OUTLINE_PACKAGE_DIR = (
+    Path(__file__).resolve().parents[4]
+    / "infrastructure"
+    / "ai"
+    / "prompt_packages"
+    / "nodes"
+    / "planning-plot-outline"
 )
 
 
@@ -38,7 +49,9 @@ def test_plot_outline_input_contract_uses_variable_center_keys():
     assert "worldbuilding_full" not in bindings
     assert "plot.main_options" not in bindings
     assert bindings["novel.premise"].variable_key == "novel.premise"
-    assert bindings["characters.protagonist"].variable_key == "characters.protagonist"
+    assert "characters.protagonist" not in bindings
+    assert "worldbuilding.style" not in bindings
+    assert bindings["characters.list"].variable_key == "characters.list"
     assert bindings["locations.list"].variable_key == "locations.list"
 
 
@@ -55,6 +68,21 @@ def test_plot_outline_input_contract_normalizes_structured_variable_access(monke
     assert "worldbuilding.content.core_rules" not in bindings
     assert bindings["characters.list"].variable_key == "characters.list"
     assert bindings["worldbuilding.content"].variable_key == "worldbuilding.content"
+
+
+def test_plot_outline_prompt_package_keeps_source_settings_as_priority():
+    system = (_PLOT_OUTLINE_PACKAGE_DIR / "system.md").read_text(encoding="utf-8")
+    user = (_PLOT_OUTLINE_PACKAGE_DIR / "user.md").read_text(encoding="utf-8")
+    combined = f"{system}\n{user}"
+
+    assert "characters.protagonist" not in combined
+    assert "characters.list[0]" not in combined
+    assert "【人物设定（首位为主角）】" in user
+    assert "金手指初次启用" not in combined
+    assert "主角实力蜕变" not in combined
+    assert "巅峰决战" not in combined
+    assert "只有原设明确存在时" in combined
+    assert "现实校园、都市、职场" in combined
 
 
 def test_onboarding_output_contracts_use_novel_scope_and_expected_stage():
