@@ -110,22 +110,72 @@ async function initTauriConnection(): Promise<void> {
 const TAURI_BACKEND_POLL_MS = 200
 const TAURI_BACKEND_WAIT_MS = 30_000  // 30秒，避免长时间卡住
 
+function sleep(ms: number): Promise<void> {
+  return new Promise<void>(resolve => {
+    setTimeout(resolve, ms)
+  })
+}
+
+function remainingWaitMs(deadline: number): number {
+  return Math.max(0, deadline - Date.now())
+}
+
+function createFetchTimeoutSignal(timeoutMs: number): { signal?: AbortSignal; cleanup: () => void } {
+  if (typeof AbortSignal !== 'undefined') {
+    const abortSignal = AbortSignal as typeof AbortSignal & { timeout?: (milliseconds: number) => AbortSignal }
+    if (typeof abortSignal.timeout === 'function') {
+      return { signal: abortSignal.timeout(timeoutMs), cleanup: () => undefined }
+    }
+  }
+  if (typeof AbortController === 'undefined') {
+    return { cleanup: () => undefined }
+  }
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  return {
+    signal: controller.signal,
+    cleanup: () => clearTimeout(timer),
+  }
+}
+
 async function waitForTauriBackendPort(
   invoke: (cmd: string) => Promise<number>,
-  maxWaitMs: number,
+  deadline: number,
   intervalMs: number,
 ): Promise<number | null> {
-  const deadline = Date.now() + maxWaitMs
-  while (Date.now() < deadline) {
+  while (remainingWaitMs(deadline) > 0) {
     const p = await invoke('get_backend_port')
     if (p > 0) {
       return p
     }
-    await new Promise<void>(resolve => {
-      setTimeout(resolve, intervalMs)
-    })
+    await sleep(Math.min(intervalMs, remainingWaitMs(deadline)))
   }
   return null
+}
+
+async function waitForTauriBackendHealth(
+  port: number,
+  deadline: number,
+  intervalMs: number,
+): Promise<boolean> {
+  const healthUrl = `http://127.0.0.1:${port}/health`
+  while (remainingWaitMs(deadline) > 0) {
+    const { signal, cleanup } = createFetchTimeoutSignal(
+      Math.min(5000, Math.max(1, remainingWaitMs(deadline))),
+    )
+    try {
+      const response = await fetch(healthUrl, { method: 'GET', signal })
+      if (response.ok) {
+        return true
+      }
+    } catch {
+      // 后端端口已分配但 HTTP 服务仍在启动，继续等待
+    } finally {
+      cleanup()
+    }
+    await sleep(Math.min(intervalMs, remainingWaitMs(deadline)))
+  }
+  return false
 }
 
 /**
@@ -133,16 +183,18 @@ async function waitForTauriBackendPort(
  */
 export async function initApiClient(): Promise<void> {
   let port: number | null = null
+  const tauri = isTauri()
+  const deadline = Date.now() + TAURI_BACKEND_WAIT_MS
   try {
     const { invoke } = await import('@tauri-apps/api/core')
     const first = await invoke<number>('get_backend_port')
     if (first > 0) {
       port = first
-    } else if (isTauri()) {
+    } else if (tauri) {
       console.log('[API] 等待后端就绪...')
       port = await waitForTauriBackendPort(
         cmd => invoke<number>(cmd),
-        TAURI_BACKEND_WAIT_MS,
+        deadline,
         TAURI_BACKEND_POLL_MS,
       )
     }
@@ -150,26 +202,24 @@ export async function initApiClient(): Promise<void> {
     console.warn('[API] Tauri IPC 调用失败:', e)
   }
 
+  if (port == null && tauri) {
+    port = 8005
+    console.warn('[API] Tauri 下未能通过 IPC 取得端口，回退 8005')
+  }
+
   if (port != null && port > 0) {
     const newBaseURL = `http://127.0.0.1:${port}/api/v1`
     axiosInstance.defaults.baseURL = newBaseURL
     console.log(`[API] 桌面模式 baseURL: ${newBaseURL}`)
 
-    // 验证后端是否真的响应
-    try {
-      const healthCheck = await fetch(`http://127.0.0.1:${port}/health`, {
-        method: 'GET',
-        signal: AbortSignal.timeout(5000)
-      })
-      if (!healthCheck.ok) {
-        console.warn('[API] 后端健康检查失败，状态码:', healthCheck.status)
-      }
-    } catch (e) {
-      console.warn('[API] 后端健康检查异常:', e)
+    const healthy = await waitForTauriBackendHealth(
+      port,
+      deadline,
+      TAURI_BACKEND_POLL_MS,
+    )
+    if (!healthy) {
+      console.warn('[API] 后端健康检查超时，首屏请求可能暂时失败')
     }
-  } else if (isTauri()) {
-    axiosInstance.defaults.baseURL = 'http://127.0.0.1:8005/api/v1'
-    console.warn('[API] Tauri 下未能通过 IPC 取得端口，回退 8005')
   }
 
   syncLegacyRootsFromV1()
