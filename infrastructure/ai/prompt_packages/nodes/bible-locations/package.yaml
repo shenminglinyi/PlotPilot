@@ -15,12 +15,27 @@ variables:
 - name: novel.genre_major
   desc: 小说大类
   type: string
+  default: ''
 - name: novel.genre_theme
   desc: 小说主题
   type: string
+  default: ''
 - name: novel.genre_label
   desc: 小说类型字符串
   type: string
+  default: ''
+- name: novel.world_preset
+  desc: 世界观基调
+  type: string
+  default: ''
+- name: novel.writing_style
+  desc: 写作风格
+  type: string
+  default: ''
+- name: novel.special_requirements
+  desc: 特殊要求
+  type: string
+  default: ''
 - name: worldbuilding.content
   desc: 结构化世界观
   type: object
