@@ -15,6 +15,7 @@ from domain.novel.value_objects.novel_id import NovelId
 @dataclass
 class ContinuityLedger:
     recent_events: list[dict[str, Any]] = field(default_factory=list)
+    recent_planning_outlines: list[dict[str, Any]] = field(default_factory=list)
     previous_ending: str = ""
     previous_handoff: str = ""
     unresolved_threads: list[str] = field(default_factory=list)
@@ -43,6 +44,19 @@ class ContinuityLedger:
                 summary = item.get("summary") or ""
                 lines.append(f"- 第{number}章《{title}》：{summary}")
         return "\n".join(lines).strip() or "暂无近章台账。"
+
+    def to_planning_context_text(self) -> str:
+        """Render recent planning outlines as continuity context for planning and prose."""
+        if not self.recent_planning_outlines:
+            return "暂无前3章规划大纲。"
+        lines = ["最近3章规划大纲："]
+        for item in self.recent_planning_outlines:
+            number = item.get("number") or "?"
+            title = item.get("title") or "未命名"
+            outline = str(item.get("outline") or "").strip()
+            if outline:
+                lines.append(f"第{number}章《{title}》\n{outline}")
+        return "\n\n".join(lines).strip() or "暂无前3章规划大纲。"
 
 
 class ChapterContinuityLedgerService:
@@ -79,6 +93,16 @@ class ChapterContinuityLedgerService:
                 }
                 for item in recent
                 if int(item.get("number") or 0) < chapter_number
+            ],
+            recent_planning_outlines=[
+                {
+                    "number": item.get("number"),
+                    "title": item.get("title"),
+                    "outline": self._chapter_outline(item, self.policy.recent_outline_chars),
+                }
+                for item in recent
+                if int(item.get("number") or 0) < chapter_number
+                and str(item.get("outline") or "").strip()
             ],
             previous_ending=previous_ending,
             previous_handoff=previous_handoff,
@@ -159,3 +183,8 @@ class ChapterContinuityLedgerService:
             return truncate_text(content, 180)
         outline = str(item.get("outline") or "").strip()
         return truncate_text(outline, 180)
+
+    @staticmethod
+    def _chapter_outline(item: dict[str, Any], limit: int) -> str:
+        outline = str(item.get("outline") or "").strip()
+        return truncate_text(outline, limit)

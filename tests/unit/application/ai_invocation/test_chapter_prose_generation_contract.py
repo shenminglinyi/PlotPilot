@@ -285,16 +285,13 @@ def test_chapter_prose_inputs_are_materialized_to_variable_hub():
     assert session.metadata["input_variable_materialization"]["written"]
 
 
-def test_chapter_prose_input_bindings_use_novel_scope_for_story_setup_fields():
+def test_chapter_prose_input_bindings_stay_minimal_for_prose_prompt():
     bindings = {binding.alias: binding for binding in _input_bindings()}
 
-    assert bindings["novel_title"].scope == "novel"
-    assert bindings["novel_title"].stage == "setup"
-    assert bindings["genre"].scope == "novel"
-    assert bindings["genre"].stage == "setup"
-    assert bindings["style_guide"].scope == "novel"
-    assert bindings["style_guide"].stage == "setup"
-    assert bindings["world_context"].scope == "novel"
+    assert set(bindings) == {"target_words", "chapter_outline", "continuity_context"}
+    assert bindings["target_words"].variable_key == "chapter.target_words"
+    assert bindings["chapter_outline"].variable_key == "chapter.outline"
+    assert bindings["continuity_context"].variable_key == "chapter.continuity_context"
 
 
 class _FakeNode:
@@ -381,11 +378,13 @@ def test_chapter_prose_prompt_does_not_auto_inject_setup_context():
     assert "变量中心设定" not in snapshot.prompt.user
 
 
-def test_chapter_prose_binds_title_and_genre_to_setup_guide_variables():
+def test_chapter_prose_does_not_bind_story_setup_variables():
     bindings = {binding.alias: binding for binding in _input_bindings()}
 
-    assert bindings["novel_title"].variable_key == "novel.setup.title"
-    assert bindings["genre"].variable_key == "novel.setup.genre_label"
+    assert "novel_title" not in bindings
+    assert "genre" not in bindings
+    assert "style_guide" not in bindings
+    assert "world_context" not in bindings
 
 
 def test_prompt_declared_dotted_variable_becomes_binding_and_render_alias():

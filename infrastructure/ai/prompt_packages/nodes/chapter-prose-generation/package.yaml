@@ -18,13 +18,8 @@ variables:
     desc: 正文细纲
     type: string
     required: true
-  - name: previous_summary
-    desc: 前章摘要
-    type: string
-    required: false
-    default: ''
-  - name: previous_ending
-    desc: 前章结尾
+  - name: continuity_context
+    desc: 连续性上下文，默认使用前3章规划大纲压缩
     type: string
     required: false
     default: ''
