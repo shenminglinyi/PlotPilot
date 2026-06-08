@@ -466,6 +466,31 @@ def test_prompt_declared_variable_key_child_access_does_not_define_new_variable(
     assert {binding.alias for binding in bindings} == {"characters.list"}
 
 
+def test_prompt_declared_legacy_public_aliases_do_not_define_new_required_variables():
+    bindings, added = prompt_declared_input_bindings(
+        existing_bindings=[
+            VariableBinding(alias="novel.premise", variable_key="novel.premise", required=True),
+            VariableBinding(alias="novel.genre_label", variable_key="novel.genre_label", required=False, default=""),
+            VariableBinding(alias="novel.genre_major", variable_key="novel.genre_major", required=False, default=""),
+            VariableBinding(alias="novel.genre_theme", variable_key="novel.genre_theme", required=False, default=""),
+            VariableBinding(alias="novel.world_preset", variable_key="novel.world_preset", required=False, default=""),
+            VariableBinding(alias="novel.special_requirements", variable_key="novel.special_requirements", required=False, default=""),
+        ],
+        system_template="",
+        user_template="{premise}\n{genre_label}\n{genre_major}\n{genre_theme}\n{world_preset}\n{special_requirements}",
+    )
+
+    assert added == []
+    assert {binding.alias for binding in bindings} == {
+        "novel.premise",
+        "novel.genre_label",
+        "novel.genre_major",
+        "novel.genre_theme",
+        "novel.world_preset",
+        "novel.special_requirements",
+    }
+
+
 def test_prompt_render_variables_keep_projection_text_and_structured_access():
     variables = build_prompt_render_variables(
         aliases={
