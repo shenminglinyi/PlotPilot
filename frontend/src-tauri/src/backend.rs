@@ -238,7 +238,10 @@ impl BackendManager {
         if !path.exists() {
             return None;
         }
-        let output = Command::new(path).arg("--version").output().ok()?;
+        let mut cmd = Command::new(path);
+        cmd.arg("--version");
+        suppress_child_console(&mut cmd);
+        let output = cmd.output().ok()?;
         let text = format!(
             "{}{}",
             String::from_utf8_lossy(&output.stdout),
@@ -396,10 +399,7 @@ impl BackendManager {
                 .env("HF_DATASETS_OFFLINE", "1")
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
-            #[cfg(target_os = "windows")]
-            {
-                c.creation_flags(windows_subsystem_flag());
-            }
+            suppress_child_console(&mut c);
             c
         } else {
             let python = self.find_python().ok_or_else(|| {
@@ -424,10 +424,7 @@ impl BackendManager {
                 .env("HF_DATASETS_OFFLINE", "1")
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
-            #[cfg(target_os = "windows")]
-            {
-                c.creation_flags(windows_subsystem_flag());
-            }
+            suppress_child_console(&mut c);
             c
         };
 
@@ -700,10 +697,7 @@ impl BackendManager {
                 // /F 强制终止 /T 包含子进程
                 let mut kill_cmd = Command::new("taskkill");
                 kill_cmd.args(["/F", "/T", "/PID", &pid.to_string()]);
-                #[cfg(target_os = "windows")]
-                {
-                    kill_cmd.creation_flags(windows_subsystem_flag());
-                }
+                suppress_child_console(&mut kill_cmd);
                 let kill_result = kill_cmd.output();
 
                 match kill_result {
@@ -756,3 +750,11 @@ fn windows_subsystem_flag() -> u32 {
 fn windows_subsystem_flag() -> u32 {
     0
 }
+
+#[cfg(target_os = "windows")]
+fn suppress_child_console(cmd: &mut Command) {
+    cmd.creation_flags(windows_subsystem_flag());
+}
+
+#[cfg(not(target_os = "windows"))]
+fn suppress_child_console(_cmd: &mut Command) {}

@@ -282,27 +282,47 @@ export async function consumeBibleGenerateStream(
   const dec = new TextDecoder()
   let buf = ''
 
+  function takeNextSseBlock(buffer: string): { block: string; rest: string } | null {
+    const lfIdx = buffer.indexOf('\n\n')
+    const crlfIdx = buffer.indexOf('\r\n\r\n')
+    let sep = -1
+    let sepLen = 2
+    if (lfIdx !== -1 && (crlfIdx === -1 || lfIdx <= crlfIdx)) {
+      sep = lfIdx
+      sepLen = 2
+    } else if (crlfIdx !== -1) {
+      sep = crlfIdx
+      sepLen = 4
+    }
+    if (sep < 0) return null
+    return {
+      block: buffer.slice(0, sep),
+      rest: buffer.slice(sep + sepLen),
+    }
+  }
+
   /** 解析 SSE 块中的 event + data 行 */
   function parseSseBlock(block: string): { event: string; data: string } | null {
     let event = ''
-    let data = ''
-    for (const line of block.split('\n')) {
-      if (line.startsWith('event: ')) {
-        event = line.slice(7).trim()
-      } else if (line.startsWith('data: ')) {
-        data = line.slice(6)
+    const dataLines: string[] = []
+    for (const line of block.split(/\r?\n/)) {
+      if (line.startsWith('event:')) {
+        event = line.startsWith('event: ') ? line.slice(7).trim() : line.slice(6).trim()
+      } else if (line.startsWith('data:')) {
+        dataLines.push(line.startsWith('data: ') ? line.slice(6) : line.slice(5).replace(/^\s/, ''))
       }
     }
+    const data = dataLines.join('\n')
     if (!event && !data) return null
     return { event, data }
   }
 
   try {
     const drainCompleteFrames = (): boolean => {
-      let sep: number
-      while ((sep = buf.indexOf('\n\n')) >= 0) {
-        const block = buf.slice(0, sep)
-        buf = buf.slice(sep + 2)
+      let next: { block: string; rest: string } | null
+      while ((next = takeNextSseBlock(buf))) {
+        const block = next.block
+        buf = next.rest
 
         const parsed = parseSseBlock(block)
         if (!parsed) continue

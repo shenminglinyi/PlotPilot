@@ -15,6 +15,8 @@ from interfaces.api.settings import BackendSettings, get_backend_settings
 
 logger = logging.getLogger(__name__)
 
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+
 
 @dataclass(frozen=True)
 class DaemonStatus:
@@ -174,6 +176,7 @@ Get-CimInstance Win32_Process | ForEach-Object {
             encoding="utf-8",
             errors="replace",
             timeout=15,
+            creationflags=NO_WINDOW,
         )
         if result.returncode != 0:
             return []
@@ -200,6 +203,7 @@ Get-CimInstance Win32_Process | ForEach-Object {
             capture_output=True,
             text=True,
             timeout=8,
+            creationflags=NO_WINDOW,
         )
         if result.returncode != 0:
             return []
@@ -245,6 +249,7 @@ Get-CimInstance Win32_Process | ForEach-Object {
                     ["taskkill", "/F", "/PID", str(pid)],
                     capture_output=True,
                     timeout=5,
+                    creationflags=NO_WINDOW,
                 )
                 killed_count += 1
             except Exception as exc:
@@ -404,6 +409,7 @@ class AutopilotDaemonManager:
                     ["taskkill", "/F", "/T", "/PID", str(daemon_pid)],
                     capture_output=True,
                     timeout=3,
+                    creationflags=NO_WINDOW,
                 )
                 self._logger.info("Windows: 已通过 taskkill 终止守护进程 PID=%s", daemon_pid)
             except Exception as exc:

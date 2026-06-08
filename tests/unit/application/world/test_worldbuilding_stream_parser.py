@@ -96,6 +96,43 @@ def test_parser_emits_fields_after_complete_dimension_closes():
     assert any(e["type"] == "dimension" for e in events)
 
 
+def test_parser_accepts_bare_current_dimension_object():
+    parser = WorldbuildingStreamIncrementalParser(root_dimension="core_rules")
+    events = []
+
+    events.extend(parser.feed('{"power_system": "玩家通过神经同步驱动剑气与身法，依靠非标准连招绕开职业模板", '))
+    assert [e["type"] for e in events] == ["dimension_start"]
+    assert events[0]["key"] == "core_rules"
+
+    events.extend(parser.feed(
+        '"physics_rules": "游戏内时间流速可调至现实的一点五倍，但大脑仍按现实时间消耗能量", '
+        '"magic_tech": "训练舱通过神经接口把操作意图转译为角色动作，同步率越高越容易留下认知错乱"}'
+    ))
+
+    fields = [e for e in events if e["type"] == "field"]
+    assert {e["field"] for e in fields} == {"power_system", "physics_rules", "magic_tech"}
+    dim = next(e for e in events if e["type"] == "dimension")
+    assert dim["key"] == "core_rules"
+    assert dim["content"]["power_system"].startswith("玩家通过")
+
+
+def test_parse_full_worldbuilding_accepts_bare_current_dimension_object():
+    parser = WorldbuildingStreamIncrementalParser(root_dimension="geography")
+    parser.feed(json.dumps(
+        {
+            "terrain": "主城、赛场和训练基地围绕服务器节点分布，地下网吧藏在监管薄弱的旧城区",
+            "climate": "赛季天气由服务器动态渲染，雨战会放大身法误差，雪图则压低远程视野",
+            "resources": "高阶材料集中在联赛副本和训练服隐藏节点，普通玩家只能靠活动兑换碎片",
+            "ecology": "野区机关与镜像怪会模拟职业队常用压迫路线，逼迫选手在移动中完成判断",
+        },
+        ensure_ascii=False,
+    ))
+
+    got = parser.parse_full_worldbuilding()
+    assert "geography" in got
+    assert got["geography"]["terrain"].startswith("主城、赛场")
+
+
 def test_parser_does_not_push_items_before_dimension_closes():
     parser = WorldbuildingStreamIncrementalParser()
     events = []

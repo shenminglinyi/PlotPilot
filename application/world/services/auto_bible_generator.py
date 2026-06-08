@@ -1029,7 +1029,7 @@ class AutoBibleGenerator:
 
             for attempt in range(1, max_attempts + 1):
                 dim_emitted = False
-                parser = WorldbuildingStreamIncrementalParser()
+                parser = WorldbuildingStreamIncrementalParser(root_dimension=dim_key)
                 prompt = self._worldbuilding_dimension_prompt(
                     dim_key=dim_key,
                     premise=premise,
