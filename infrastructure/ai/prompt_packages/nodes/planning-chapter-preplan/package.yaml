@@ -1,7 +1,7 @@
 name: 章前执行剧本规划
 category: planning
 source: application/blueprint/services/chapter_preplanning_service.py
-description: 在正文写作前，将单章轻量主事件链和近章连续性台账落地为章节执行剧本。
+description: 在正文写作前，将单章轻量主事件链和近章连续性台账落地为七段章节执行剧本。
 builtin: true
 tags:
 - 规划

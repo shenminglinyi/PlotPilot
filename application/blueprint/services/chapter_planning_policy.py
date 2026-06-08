@@ -64,11 +64,11 @@ def validate_lightweight_act_plan(
 
 
 def has_rendered_chapter_execution_plan(text: str | None) -> bool:
-    """Detect a rendered chapter execution script used by the prose pipeline."""
+    """Detect the seven-section execution script used by the prose pipeline."""
     value = (text or "").strip()
     if not value:
         return False
-    legacy_markers = (
+    markers = (
         "一、开篇切入点",
         "二、场景转换列表",
         "三、关键对话",
@@ -77,21 +77,7 @@ def has_rendered_chapter_execution_plan(text: str | None) -> bool:
         "六、爽点/反转设计",
         "七、主角状态变化",
     )
-    story_unit_markers = (
-        "一、开篇切入点",
-        "二、故事单元检查",
-        "三、场景转换列表",
-        "四、情绪变化节点",
-        "五、关键对话",
-        "六、剧情事件链",
-        "七、角色关键决策",
-        "八、爽点/反转设计",
-        "九、主角状态变化",
-    )
-    return (
-        sum(1 for marker in legacy_markers if marker in value) >= 5
-        or sum(1 for marker in story_unit_markers if marker in value) >= 6
-    )
+    return sum(1 for marker in markers if marker in value) >= 5
 
 
 def truncate_text(text: str | None, limit: int) -> str:

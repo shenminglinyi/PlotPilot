@@ -55,7 +55,7 @@ class ChapterPreplanningService:
         current_outline: str = "",
         target_words: int | None = None,
     ) -> str:
-        """Return a rendered chapter execution plan, generating it when needed."""
+        """Return a seven-section execution plan, generating it when needed."""
         outline = (current_outline or "").strip()
         if has_rendered_chapter_execution_plan(outline):
             return outline
@@ -96,7 +96,7 @@ class ChapterPreplanningService:
         if not rendered and has_rendered_chapter_execution_plan(outline_from_model):
             rendered = outline_from_model
         if not has_rendered_chapter_execution_plan(rendered):
-            raise ValueError("chapter_preplan_requires_rendered_execution_plan")
+            raise ValueError("chapter_preplan_requires_seven_section_execution_plan")
 
         await self._persist_outline(novel_id, chapter_number, node, rendered, chapter_plan)
         logger.info(

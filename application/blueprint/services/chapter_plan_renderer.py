@@ -40,41 +40,6 @@ def format_scene_transition(item: Any, index: int) -> str:
     return f"{scene} → {location} | {cast} | {purpose}".strip()
 
 
-def format_story_unit(value: Any) -> List[str]:
-    if not isinstance(value, dict):
-        text = stringify_plan_value(value)
-        return [text] if text else []
-
-    labels = [
-        ("dilemma", "当前困境"),
-        ("chapter_goal", "本章目标"),
-        ("core_obstacle", "核心阻碍"),
-        ("action_path", "行动路径"),
-        ("reader_expectation", "读者期待"),
-        ("chapter_payoff", "阶段性回报"),
-        ("ending_hook", "章尾牵引"),
-    ]
-    lines: List[str] = []
-    for key, label in labels:
-        text = stringify_plan_value(value.get(key))
-        if text:
-            lines.append(f"{label}：{text}")
-    return lines
-
-
-def format_emotional_beat(item: Any, index: int) -> str:
-    if not isinstance(item, dict):
-        text = stringify_plan_value(item)
-        return f"情绪节点{index}：{text}" if text and not text.startswith("情绪节点") else text
-    beat = stringify_plan_value(item.get("beat") or item.get("name") or item.get("stage")) or f"情绪节点{index}"
-    trigger = stringify_plan_value(item.get("trigger") or item.get("cause") or item.get("event"))
-    shift = stringify_plan_value(item.get("emotion_shift") or item.get("shift") or item.get("change"))
-    effect = stringify_plan_value(item.get("reader_effect") or item.get("effect") or item.get("payoff"))
-    anchor = stringify_plan_value(item.get("text_anchor") or item.get("anchor") or item.get("detail"))
-    parts = [part for part in (trigger, shift, effect, anchor) if part]
-    return f"{beat}：" + " | ".join(parts)
-
-
 def format_dialogue(item: Any, index: int) -> str:
     if not isinstance(item, dict):
         text = stringify_plan_value(item)
@@ -147,13 +112,6 @@ def render_chapter_execution_plan(chapter_plan: Any) -> str:
         chapter_plan.get("scene_transitions") or chapter_plan.get("scenes"),
         format_scene_transition,
     )
-    story_unit = format_story_unit(
-        chapter_plan.get("story_unit") or chapter_plan.get("story_check") or chapter_plan.get("chapter_unit")
-    )
-    emotional_beats = render_list_section(
-        chapter_plan.get("emotional_beats") or chapter_plan.get("emotion_beats") or chapter_plan.get("emotion_arc"),
-        format_emotional_beat,
-    )
     dialogues = render_list_section(
         chapter_plan.get("key_dialogues") or chapter_plan.get("dialogues"),
         format_dialogue,
@@ -183,14 +141,12 @@ def render_chapter_execution_plan(chapter_plan: Any) -> str:
 
     sections = [
         ("一、开篇切入点：", [opening] if opening else []),
-        ("二、故事单元检查：", story_unit),
-        ("三、场景转换列表：", scenes),
-        (f"四、情绪变化节点（{len(emotional_beats)}组）：", emotional_beats),
-        (f"五、关键对话（{len(dialogues)}组）：", dialogues),
-        (f"六、剧情事件链（{len(events)}个事件）：", events),
-        ("七、角色关键决策：", decisions),
-        ("八、爽点/反转设计：", payoffs),
-        ("九、主角状态变化：", state_lines),
+        ("二、场景转换列表：", scenes),
+        (f"三、关键对话（{len(dialogues)}组）：", dialogues),
+        (f"四、剧情事件链（{len(events)}个事件）：", events),
+        ("五、角色关键决策：", decisions),
+        ("六、爽点/反转设计：", payoffs),
+        ("七、主角状态变化：", state_lines),
     ]
     rendered: list[str] = []
     for title, lines in sections:

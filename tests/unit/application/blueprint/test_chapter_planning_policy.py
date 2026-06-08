@@ -48,24 +48,6 @@ def test_detects_existing_seven_section_execution_script():
     assert has_rendered_chapter_execution_plan(outline)
 
 
-def test_detects_story_unit_execution_script():
-    outline = "\n".join(
-        [
-            "一、开篇切入点：",
-            "二、故事单元检查：",
-            "三、场景转换列表：",
-            "四、情绪变化节点（4组）：",
-            "五、关键对话（4组）：",
-            "六、剧情事件链（6个事件）：",
-            "七、角色关键决策：",
-            "八、爽点/反转设计：",
-            "九、主角状态变化：",
-        ]
-    )
-
-    assert has_rendered_chapter_execution_plan(outline)
-
-
 def test_review_gate_prefers_act_plan_over_macro_ready_flag():
     gate = review_gate_from_status(
         {
