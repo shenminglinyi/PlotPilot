@@ -1,4 +1,7 @@
 from application.ai_invocation.autopilot.review_gate import review_gate_from_status
+from application.blueprint.services.chapter_plan_renderer import (
+    render_lightweight_act_chapter_outline,
+)
 from application.blueprint.services.chapter_planning_policy import (
     has_rendered_chapter_execution_plan,
     validate_lightweight_act_plan,
@@ -78,6 +81,13 @@ def test_rejects_incomplete_execution_script_even_with_five_markers():
     )
 
     assert not has_rendered_chapter_execution_plan(outline)
+
+
+def test_lightweight_outline_labels_first_chapter_as_opening_entry():
+    outline = render_lightweight_act_chapter_outline(_chapter(1))
+
+    assert "开篇入口：承接前章后果" in outline
+    assert "承接上一章：承接前章后果" not in outline
 
 
 def test_review_gate_prefers_act_plan_over_macro_ready_flag():

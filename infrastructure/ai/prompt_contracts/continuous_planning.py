@@ -69,6 +69,12 @@ class PlanningPreciseRepairVariables(BaseModel):
 class PlanningActVariables(BaseModel):
     context: str = Field(min_length=1)
     chapter_count: int = Field(ge=1)
+    genre_label: str = ""
+    world_preset: str = ""
+    story_structure: str = ""
+    pacing_control: str = ""
+    writing_style: str = ""
+    special_requirements: str = ""
 
 
 class PlanningChapterPreplanVariables(BaseModel):
