@@ -29,28 +29,5 @@ variables:
 - name: special_requirements
   desc: 特殊要求
   type: string
-- name: target_chapters
-  desc: 章节数量
-  type: integer
-  default: 100
-- name: target_words_per_chapter
-  desc: 每章字数
-  type: integer
-  default: 0
-- name: fields_desc
-  desc: 世界观五维字段 JSON 模板片段
-  type: string
-- name: genre_opening_profile
-  desc: 生成上下文与已完成维度
-  type: object
-  default: {}
-- name: genre_reader_contract
-  desc: 读者契约
-  type: object
-  default: {}
-- name: genre_rhythm_constraints
-  desc: 节奏约束
-  type: object
-  default: {}
 id: bible-worldbuilding
 sort_order: 27
