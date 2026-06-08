@@ -1118,11 +1118,21 @@ class AutoBibleGenerator:
         prompt = _render_required_bible_prompt(
             BIBLE_CHARACTERS,
             {
-                **wb_fields,
-                "premise": premise,
-                "target_chapters": target_chapters,
-                "style_guide": "",
-                "existing_characters": "",
+                "novel.premise": premise,
+                "novel.title": "",
+                "novel.genre_major": "",
+                "novel.genre_theme": "",
+                "novel.genre_label": "",
+                "novel.world_preset": "",
+                "novel.story_structure": "",
+                "novel.pacing_control": "",
+                "novel.writing_style": "",
+                "novel.special_requirements": "",
+                "novel.target_chapters": target_chapters,
+                "novel.target_words_per_chapter": 0,
+                "worldbuilding.style": "",
+                "worldbuilding.content": wb_fields.get("worldbuilding_full", ""),
+                "characters.list": [],
             },
         )
 
@@ -1150,11 +1160,21 @@ class AutoBibleGenerator:
         prompt = _render_required_bible_prompt(
             BIBLE_CHARACTERS,
             {
-                **wb_fields,
-                "premise": premise,
-                "target_chapters": target_chapters,
-                "style_guide": "",
-                "existing_characters": "",
+                "novel.premise": premise,
+                "novel.title": "",
+                "novel.genre_major": "",
+                "novel.genre_theme": "",
+                "novel.genre_label": "",
+                "novel.world_preset": "",
+                "novel.story_structure": "",
+                "novel.pacing_control": "",
+                "novel.writing_style": "",
+                "novel.special_requirements": "",
+                "novel.target_chapters": target_chapters,
+                "novel.target_words_per_chapter": 0,
+                "worldbuilding.style": "",
+                "worldbuilding.content": wb_fields.get("worldbuilding_full", ""),
+                "characters.list": [],
             },
         )
         config = GenerationConfig(max_tokens=4096, temperature=0.7)
@@ -1195,17 +1215,27 @@ class AutoBibleGenerator:
         from application.world.services.narrative_contract_text import build_worldbuilding_prompt_fields
 
         wb_fields = build_worldbuilding_prompt_fields(worldbuilding_slices=worldbuilding)
-        wb_summary = wb_fields.get("worldbuilding_full", "")
-        char_summary = "\n".join([f"- {c['name']}: {c['description'][:50]}..." for c in characters])
+        protagonist = next((c for c in characters if c.get("role") == "主角"), characters[0] if characters else {})
 
         prompt = _render_required_bible_prompt(
             BIBLE_LOCATIONS,
             {
-                **wb_fields,
-                "premise": premise,
-                "target_chapters": target_chapters,
-                "existing_locations": "",
-                "character_context": char_summary,
+                "novel.premise": premise,
+                "novel.title": "",
+                "novel.genre_major": "",
+                "novel.genre_theme": "",
+                "novel.genre_label": "",
+                "novel.world_preset": "",
+                "novel.story_structure": "",
+                "novel.pacing_control": "",
+                "novel.writing_style": "",
+                "novel.special_requirements": "",
+                "novel.target_chapters": target_chapters,
+                "novel.target_words_per_chapter": 0,
+                "worldbuilding.content": wb_fields.get("worldbuilding_full", ""),
+                "locations.list": [],
+                "characters.list": characters,
+                "characters.protagonist": protagonist,
             },
         )
 
@@ -1228,16 +1258,26 @@ class AutoBibleGenerator:
         from application.world.services.narrative_contract_text import build_worldbuilding_prompt_fields
 
         wb_fields = build_worldbuilding_prompt_fields(worldbuilding_slices=worldbuilding)
-        wb_summary = wb_fields.get("worldbuilding_full", "")
-        char_summary = "\n".join([f"- {c['name']}: {c.get('description', '')[:50]}..." for c in characters])
+        protagonist = next((c for c in characters if c.get("role") == "主角"), characters[0] if characters else {})
         prompt = _render_required_bible_prompt(
             BIBLE_LOCATIONS,
             {
-                **wb_fields,
-                "premise": premise,
-                "target_chapters": target_chapters,
-                "existing_locations": "",
-                "character_context": char_summary,
+                "novel.premise": premise,
+                "novel.title": "",
+                "novel.genre_major": "",
+                "novel.genre_theme": "",
+                "novel.genre_label": "",
+                "novel.world_preset": "",
+                "novel.story_structure": "",
+                "novel.pacing_control": "",
+                "novel.writing_style": "",
+                "novel.special_requirements": "",
+                "novel.target_chapters": target_chapters,
+                "novel.target_words_per_chapter": 0,
+                "worldbuilding.content": wb_fields.get("worldbuilding_full", ""),
+                "locations.list": [],
+                "characters.list": characters,
+                "characters.protagonist": protagonist,
             },
         )
         config = GenerationConfig(max_tokens=4096, temperature=0.7)

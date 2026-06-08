@@ -471,6 +471,29 @@ class PromptTemplateEngine:
 
     # ─── 内部方法 ───
 
+    @staticmethod
+    def _unflatten_variables(variables: Dict[str, Any]) -> Dict[str, Any]:
+        """把扁平点号 key 展开为嵌套 dict，供 Jinja2 点号属性访问使用。
+
+        {"novel.title": "x", "novel.premise": "y"} →
+        {"novel": {"title": "x", "premise": "y"}}
+
+        无点号的 key 原样保留；若展开结果与已有 key 冲突，已有 key 优先。
+        """
+        result: Dict[str, Any] = {}
+        for key, value in variables.items():
+            if "." not in key:
+                result[key] = value
+                continue
+            parts = key.split(".")
+            d = result
+            for part in parts[:-1]:
+                if part not in d or not isinstance(d[part], dict):
+                    d[part] = {}
+                d = d[part]
+            d[parts[-1]] = value
+        return result
+
     def _render_template(
         self,
         template: str,
@@ -489,15 +512,16 @@ class PromptTemplateEngine:
 
         if self._use_jinja2 and self._jinja2_env is not None:
             safe_template = _prepare_template_for_jinja2(template)
+            jinja_vars = self._unflatten_variables(variables)
 
             try:
                 tmpl = self._jinja2_env.from_string(safe_template)
-                rendered_text = tmpl.render(**variables)
+                rendered_text = tmpl.render(**jinja_vars)
 
                 # 检测哪些变量被渲染（不在输出中保留 {{ name }} 形式）
                 all_vars = self.extract_variables(template)
                 for var in all_vars:
-                    if var in variables and variables[var] is not None:
+                    if var in variables and variables[var] is not None or var in jinja_vars and jinja_vars[var] is not None:
                         rendered.append(var)
                     else:
                         # 检查输出中是否仍有 {{ var }} 占位符

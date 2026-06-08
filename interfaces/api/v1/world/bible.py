@@ -906,27 +906,27 @@ async def _sse_bible_generator(
                         "index": idx,
                         "content": loc_data,
                     })
-                    # 即时落库
-                    prepared = bible_generator._prepare_locations_for_save(novel_id, [loc_data])
-                    for pd in prepared:
-                        try:
-                            bible_generator.bible_service.add_location(
-                                novel_id=novel_id,
-                                location_id=pd["location_id"],
-                                name=pd["name"],
-                                description=pd["description"],
-                                location_type=pd["location_type"],
-                                connections=pd.get("connections", []),
-                                parent_id=pd.get("parent_id"),
-                            )
-                            location_ids.append((pd["location_id"], pd))
-                        except Exception:
-                            pass
                 elif item["type"] == "chunk":
                     yield _sse_fmt("data", {
                         "type": "location_chunk",
                         "chunk": item["text"],
                     })
+
+            # 流式收集完毕后批量落库，保证 raw_to_final 映射完整，parent_id 层级正确
+            for pd in bible_generator._prepare_locations_for_save(novel_id, locs_payload):
+                try:
+                    bible_generator.bible_service.add_location(
+                        novel_id=novel_id,
+                        location_id=pd["location_id"],
+                        name=pd["name"],
+                        description=pd["description"],
+                        location_type=pd["location_type"],
+                        connections=pd.get("connections", []),
+                        parent_id=pd.get("parent_id"),
+                    )
+                    location_ids.append((pd["location_id"], pd))
+                except Exception:
+                    pass
 
             # 生成地点关系三元组
             if bible_generator.triple_repository and location_ids:
