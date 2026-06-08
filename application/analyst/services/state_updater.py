@@ -280,28 +280,38 @@ class StateUpdater:
                 storyline_name = advanced_data.get("storyline_name")
                 progress_summary = advanced_data.get("progress_summary", "")
 
+                storyline = None
                 if storyline_id:
-                    # 通过 ID 查找
                     storyline = self.storyline_repository.get_by_id(storyline_id)
-                    if storyline:
-                        storyline.update_progress(chapter_number, progress_summary)
-                        self.storyline_repository.save(storyline)
-                        logger.debug(f"Updated storyline {storyline_id}: {progress_summary[:50]}")
-                    else:
-                        logger.warning(f"Storyline {storyline_id} not found")
+                    if not storyline:
+                        logger.warning(f"Storyline {storyline_id} not found by ID, trying name fallback")
+
+                if storyline is None and storyline_name:
+                    storyline = self._resolve_storyline_by_name(novel_id_obj, storyline_name)
+
+                if storyline is not None:
+                    storyline.update_progress(chapter_number, progress_summary)
+                    self.storyline_repository.save(storyline)
+                    logger.debug(f"Updated storyline '{storyline.name or storyline.id}': {progress_summary[:50]}")
                 elif storyline_name:
-                    # 通过名称查找（需要遍历）
-                    storylines = self.storyline_repository.get_by_novel_id(novel_id_obj)
-                    found = False
-                    for sl in storylines:
-                        if sl.name == storyline_name:
-                            sl.update_progress(chapter_number, progress_summary)
-                            self.storyline_repository.save(sl)
-                            logger.debug(f"Updated storyline '{storyline_name}': {progress_summary[:50]}")
-                            found = True
-                            break
-                    if not found:
-                        logger.warning(f"Storyline '{storyline_name}' not found")
+                    # 自动创建缺失的故事线
+                    logger.warning(
+                        "Storyline '%s' not found, auto-creating", storyline_name
+                    )
+                    auto_storyline = Storyline(
+                        id=str(uuid.uuid4()),
+                        novel_id=novel_id_obj,
+                        storyline_type=StorylineType.GROWTH,
+                        status=StorylineStatus.ACTIVE,
+                        estimated_chapter_start=chapter_number,
+                        estimated_chapter_end=chapter_number + 50,
+                        name=storyline_name,
+                        description=progress_summary[:200] if progress_summary else "",
+                        last_active_chapter=chapter_number,
+                        progress_summary=progress_summary,
+                    )
+                    self.storyline_repository.save(auto_storyline)
+                    logger.info("Auto-created storyline '%s' (id=%s)", storyline_name, auto_storyline.id)
 
             # 创建新故事线
             for new_data in chapter_state.new_storylines:
@@ -339,6 +349,67 @@ class StateUpdater:
         # 写入 chapter_elements（角色出场信息）
         if chapter_state.has_new_characters() and self.db_connection:
             self._write_chapter_elements(novel_id, chapter_number, chapter_state.new_characters)
+
+    def _resolve_storyline_by_name(
+        self,
+        novel_id: NovelId,
+        target_name: str,
+    ) -> Optional[Storyline]:
+        """通过名称模糊匹配故事线。
+
+        查找策略（按优先级）：
+        1. 精确匹配 name 字段
+        2. 归一化后精确匹配（去除空格、大小写）
+        3. 子串包含匹配（唯一匹配时返回）
+        4. 无法确定时返回 None
+
+        Args:
+            novel_id: 小说 ID
+            target_name: LLM 提取的故事线名称
+
+        Returns:
+            匹配到的 Storyline 或 None
+        """
+        storylines = self.storyline_repository.get_by_novel_id(novel_id)
+        if not storylines:
+            return None
+
+        normalized_target = _normalize_text(target_name)
+
+        # 1. 精确匹配
+        for sl in storylines:
+            if sl.name == target_name:
+                return sl
+
+        # 2. 归一化后精确匹配
+        for sl in storylines:
+            if _normalize_text(sl.name) == normalized_target:
+                return sl
+
+        # 3. 子串包含匹配（必须唯一）
+        substring_matches: list[Storyline] = []
+        for sl in storylines:
+            sl_norm = _normalize_text(sl.name)
+            if not sl_norm:
+                continue
+            if normalized_target in sl_norm or sl_norm in normalized_target:
+                substring_matches.append(sl)
+
+        if len(substring_matches) == 1:
+            logger.info(
+                "Storyline '%s' fuzzy-matched to '%s' (id=%s)",
+                target_name,
+                substring_matches[0].name,
+                substring_matches[0].id,
+            )
+            return substring_matches[0]
+        if len(substring_matches) > 1:
+            logger.warning(
+                "Ambiguous storyline resolution for %r, candidates=%s",
+                target_name,
+                [s.name for s in substring_matches],
+            )
+        return None
 
     def _resolve_foreshadowing_id(
         self,
