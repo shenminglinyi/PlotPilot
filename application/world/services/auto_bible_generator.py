@@ -120,15 +120,38 @@ class BiblePromptTemplateUnavailable(RuntimeError):
     """Bible 生成所需 CPMS 节点缺失或不可渲染。"""
 
 
+def _with_cpms_variable_defaults(node_key: str, variables: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge prompt-node declared defaults before rendering.
+
+    Defaults live in CPMS package metadata (package.yaml). Call sites only pass
+    runtime facts; optional empty values remain owned by the prompt contract.
+    """
+    from infrastructure.ai.prompt_registry import get_prompt_registry
+
+    merged = dict(variables or {})
+    node = get_prompt_registry().get_node(node_key)
+    if node is None:
+        return merged
+    for spec in getattr(node, "variables", None) or []:
+        if not isinstance(spec, dict):
+            continue
+        name = str(spec.get("name") or "").strip()
+        if not name or name in merged or "default" not in spec:
+            continue
+        merged[name] = spec.get("default")
+    return merged
+
+
 def _render_required_bible_prompt(node_key: str, variables: Dict[str, Any]) -> Prompt:
     """只从 CPMS 渲染 Bible prompt；缺失时阻塞，禁止硬编码提示词降级。"""
     try:
         from application.ai_invocation.prompt_variables import aliases_with_dotted_variables
         from infrastructure.ai.prompt_registry import get_prompt_registry
 
+        render_variables = _with_cpms_variable_defaults(node_key, variables or {})
         prompt = get_prompt_registry().render_to_prompt(
             node_key,
-            aliases_with_dotted_variables(variables or {}),
+            aliases_with_dotted_variables(render_variables),
         )
     except Exception as exc:
         raise BiblePromptTemplateUnavailable(
@@ -846,7 +869,27 @@ class AutoBibleGenerator:
             bible = self.bible_service.get_bible_by_novel(novel_id)
             if bible is None:
                 return []
-            return [{"name": c.name, "description": c.description} for c in bible.characters]
+            return [
+                {
+                    "name": c.name,
+                    "description": c.description,
+                    "gender": getattr(c, "gender", "") or "",
+                    "age": getattr(c, "age", "") or "",
+                    "appearance": getattr(c, "appearance", "") or "",
+                    "personality": getattr(c, "personality", "") or "",
+                    "background": getattr(c, "background", "") or "",
+                    "core_motivation": getattr(c, "core_motivation", "") or "",
+                    "inner_lack": getattr(c, "inner_lack", "") or "",
+                    "public_profile": getattr(c, "public_profile", "") or "",
+                    "hidden_profile": getattr(c, "hidden_profile", "") or "",
+                    "mental_state": getattr(c, "mental_state", "") or "",
+                    "mental_state_reason": getattr(c, "mental_state_reason", "") or "",
+                    "core_belief": getattr(c, "core_belief", "") or "",
+                    "relationships": list(getattr(c, "relationships", None) or []),
+                    "active_wounds": list(getattr(c, "active_wounds", None) or []),
+                }
+                for c in bible.characters
+            ]
         except Exception:
             return []
 
@@ -1202,20 +1245,12 @@ class AutoBibleGenerator:
 
     async def _generate_locations(self, premise: str, target_chapters: int, worldbuilding: Dict[str, Any], characters: list) -> Dict[str, Any]:
         """基于世界观和人物生成地点"""
-        from application.world.services.narrative_contract_text import build_worldbuilding_prompt_fields
-
-        wb_fields = build_worldbuilding_prompt_fields(worldbuilding_slices=worldbuilding)
-        wb_summary = wb_fields.get("worldbuilding_full", "")
-        char_summary = "\n".join([f"- {c['name']}: {c['description'][:50]}..." for c in characters])
-
         prompt = _render_required_bible_prompt(
             BIBLE_LOCATIONS,
             {
-                **wb_fields,
-                "premise": premise,
-                "target_chapters": target_chapters,
-                "existing_locations": "",
-                "character_context": char_summary,
+                "novel.premise": premise,
+                "worldbuilding.content": worldbuilding or {},
+                "characters.list": characters or [],
             },
         )
 
@@ -1235,19 +1270,12 @@ class AutoBibleGenerator:
 
         Yields: 同 _stream_generate_characters，type 为 location
         """
-        from application.world.services.narrative_contract_text import build_worldbuilding_prompt_fields
-
-        wb_fields = build_worldbuilding_prompt_fields(worldbuilding_slices=worldbuilding)
-        wb_summary = wb_fields.get("worldbuilding_full", "")
-        char_summary = "\n".join([f"- {c['name']}: {c.get('description', '')[:50]}..." for c in characters])
         prompt = _render_required_bible_prompt(
             BIBLE_LOCATIONS,
             {
-                **wb_fields,
-                "premise": premise,
-                "target_chapters": target_chapters,
-                "existing_locations": "",
-                "character_context": char_summary,
+                "novel.premise": premise,
+                "worldbuilding.content": worldbuilding or {},
+                "characters.list": characters or [],
             },
         )
         config = GenerationConfig(max_tokens=4096, temperature=0.7)

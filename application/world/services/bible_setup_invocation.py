@@ -89,7 +89,6 @@ _OPTIONAL_KEYS_BY_NODE = {
         "novel.writing_style",
         "novel.special_requirements",
         "novel.target_words_per_chapter",
-        "locations.list",
     },
 }
 
@@ -140,8 +139,6 @@ _FALLBACK_KEYS_BY_NODE = {
         "novel.target_words_per_chapter",
         "worldbuilding.content",
         "characters.list",
-        "characters.protagonist",
-        "locations.list",
     },
 }
 

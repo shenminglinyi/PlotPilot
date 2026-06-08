@@ -70,14 +70,11 @@ def setup_plot_outline_input_bindings() -> list[VariableBinding]:
         "novel.special_requirements": "特殊要求",
         "novel.target_chapters": "目标章节数",
         "novel.target_words_per_chapter": "每章目标字数",
-        "characters.protagonist": "主角",
         "characters.list": "角色列表",
         "locations.list": "地点列表",
-        "worldbuilding.style": "文风公约",
         "worldbuilding.content": "世界观",
     }
     value_types = {
-        "characters.protagonist": "object",
         "characters.list": "list",
         "locations.list": "list",
         "worldbuilding.content": "object",
