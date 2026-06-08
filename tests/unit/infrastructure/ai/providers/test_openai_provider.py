@@ -145,7 +145,45 @@ class TestOpenAIProviderLegacy:
             assert mock_create.await_args.kwargs["stream"] is True
 
     @pytest.mark.anyio
-    async def test_generate_empty_content_raises(self, provider):
+    @patch("infrastructure.ai.providers.openai_provider.asyncio.sleep", new_callable=AsyncMock)
+    async def test_generate_empty_content_raises_after_retries(self, mock_sleep, provider):
+        """空响应经过多次重试后仍为空，最终抛出 RuntimeError。"""
+        prompt = Prompt(system="You are helpful", user="Hello")
+        config = GenerationConfig(model="test-model")
+        empty_response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=None))],
+            usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5),
+        )
+
+        def _make_empty_stream():
+            return _FakeStream([
+                SimpleNamespace(
+                    choices=[SimpleNamespace(delta=SimpleNamespace(content=None))],
+                    usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5),
+                ),
+            ])
+
+        # 3 次尝试（首次 + 2 次重试），每次都是 non-stream 空 → stream 空
+        side_effects = []
+        for _ in range(3):
+            side_effects.extend([empty_response, _make_empty_stream()])
+
+        with patch.object(provider.async_client.chat.completions, "create", new_callable=AsyncMock) as mock_create:
+            mock_create.side_effect = side_effects
+
+            with pytest.raises(RuntimeError, match="empty content"):
+                await provider.generate(prompt, config)
+
+            # 每次尝试：1 次 non-stream + 1 次 stream fallback = 2 次调用
+            # 共 3 次尝试 = 6 次调用
+            assert mock_create.await_count == 6
+            # 重试间应调用 asyncio.sleep（2 次重试间隔）
+            assert mock_sleep.await_count == 2
+
+    @pytest.mark.anyio
+    @patch("infrastructure.ai.providers.openai_provider.asyncio.sleep", new_callable=AsyncMock)
+    async def test_generate_empty_content_retries_then_succeeds(self, mock_sleep, provider):
+        """空响应自动重试后，后续请求返回正常内容，应成功返回。"""
         prompt = Prompt(system="You are helpful", user="Hello")
         config = GenerationConfig(model="test-model")
         empty_response = SimpleNamespace(
@@ -158,12 +196,22 @@ class TestOpenAIProviderLegacy:
                 usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5),
             ),
         ])
+        good_response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="Recovered!"))],
+            usage=SimpleNamespace(prompt_tokens=12, completion_tokens=8),
+        )
 
         with patch.object(provider.async_client.chat.completions, "create", new_callable=AsyncMock) as mock_create:
-            mock_create.side_effect = [empty_response, empty_stream]
+            # 第 1 次尝试：non-stream 空 → stream 空 → RuntimeError → 触发重试
+            # 第 2 次尝试：non-stream 返回正常内容
+            mock_create.side_effect = [empty_response, empty_stream, good_response]
 
-            with pytest.raises(RuntimeError, match="empty content"):
-                await provider.generate(prompt, config)
+            result = await provider.generate(prompt, config)
+
+            assert result.content == "Recovered!"
+            assert mock_create.await_count == 3
+            # 仅重试了 1 次
+            assert mock_sleep.await_count == 1
 
     def test_missing_api_key(self):
         with pytest.raises(ValueError, match="API key is required"):
@@ -276,7 +324,8 @@ class TestOpenAIProviderResponses:
             assert mock_create.await_args.kwargs["stream"] is True
 
     @pytest.mark.anyio
-    async def test_generate_empty_responses_raises(self, provider):
+    @patch("infrastructure.ai.providers.openai_provider.asyncio.sleep", new_callable=AsyncMock)
+    async def test_generate_empty_responses_raises(self, mock_sleep, provider):
         prompt = Prompt(system="You are helpful", user="Hello")
         config = GenerationConfig(model="test-model")
         response = SimpleNamespace(
@@ -289,6 +338,11 @@ class TestOpenAIProviderResponses:
 
             with pytest.raises(RuntimeError, match="empty content"):
                 await provider.generate(prompt, config)
+
+            # 3 次尝试（首次 + 2 次重试），每次返回空 output
+            assert mock_create.await_count == 3
+            # 重试间应调用 asyncio.sleep
+            assert mock_sleep.await_count == 2
 
 
 class TestProfilePassthrough:

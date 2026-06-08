@@ -1,4 +1,5 @@
 """OpenAI LLM 提供商实现"""
+import asyncio
 import logging
 import openai
 import httpx
@@ -14,6 +15,11 @@ from .base import BaseProvider
 from .model_resolution import require_resolved_model_id
 
 logger = logging.getLogger(__name__)
+
+# 空响应自动重试次数（不含首次调用）
+_EMPTY_CONTENT_MAX_RETRIES = 2
+# 空响应重试基础延迟（秒），实际延迟 = 基础延迟 * 2^attempt
+_EMPTY_CONTENT_BASE_DELAY = 1.0
 
 
 class OpenAIProvider(BaseProvider):
@@ -71,28 +77,56 @@ class OpenAIProvider(BaseProvider):
             base_url = self.settings.base_url or "https://api.openai.com/v1"
             use_responses = not self._use_legacy and base_url not in self.__class__._fallback_to_chat_cache
 
-            if use_responses:
+            last_empty_exc: Exception | None = None
+            for attempt in range(1 + _EMPTY_CONTENT_MAX_RETRIES):
                 try:
-                    return await self._generate_via_responses(prompt, config)
-                except (openai.NotFoundError, openai.BadRequestError) as e:
-                    logger.info(f"Responses API unsupported for {base_url}, falling back to chat completions: {str(e)}")
-                    self.__class__._fallback_to_chat_cache.add(base_url)
-                except Exception as e:
-                    # 某些网关在路径错误时可能不抛严格的 404 而是抛出其他错误，如果消息含有明确路径错误也尝试降级
-                    if "404" in str(e) or "Not Found" in str(e) or "400" in str(e) or "Account invalid" in str(e) or "INVALID_ARGUMENT" in str(e):
-                        logger.info(f"Gateway returned error for Responses API ({base_url}), falling back: {str(e)}")
-                        self.__class__._fallback_to_chat_cache.add(base_url)
-                    else:
-                        raise
+                    if use_responses:
+                        try:
+                            return await self._generate_via_responses(prompt, config)
+                        except (openai.NotFoundError, openai.BadRequestError) as e:
+                            logger.info(f"Responses API unsupported for {base_url}, falling back to chat completions: {str(e)}")
+                            self.__class__._fallback_to_chat_cache.add(base_url)
+                        except Exception as e:
+                            # 某些网关在路径错误时可能不抛严格的 404 而是抛出其他错误，如果消息含有明确路径错误也尝试降级
+                            if "404" in str(e) or "Not Found" in str(e) or "400" in str(e) or "Account invalid" in str(e) or "INVALID_ARGUMENT" in str(e):
+                                logger.info(f"Gateway returned error for Responses API ({base_url}), falling back: {str(e)}")
+                                self.__class__._fallback_to_chat_cache.add(base_url)
+                            else:
+                                raise
 
-            # 使用降级的 Chat Completions API
-            return await self._generate_via_chat(prompt, config)
+                    # 使用降级的 Chat Completions API
+                    return await self._generate_via_chat(prompt, config)
+                except RuntimeError as e:
+                    if self._is_empty_content_error(e) and attempt < _EMPTY_CONTENT_MAX_RETRIES:
+                        last_empty_exc = e
+                        delay = _EMPTY_CONTENT_BASE_DELAY * (2 ** attempt)
+                        logger.warning(
+                            "LLM 返回空内容，%.1f 秒后自动重试 (attempt=%d/%d): %s",
+                            delay, attempt + 1, _EMPTY_CONTENT_MAX_RETRIES, e,
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+                    raise
+
+            # 所有重试均失败（理论上不会到这里，但做兜底）
+            if last_empty_exc is not None:
+                raise last_empty_exc
+            raise RuntimeError("LLM generate exhausted empty-content retries")
         except RuntimeError:
             raise
         except ValueError:
             raise
         except Exception as e:
             raise RuntimeError(f"Failed to generate text: {str(e)}") from e
+
+    @staticmethod
+    def _is_empty_content_error(exc: Exception) -> bool:
+        """判断异常是否为空响应导致的错误，用于自动重试决策。"""
+        msg = str(exc).lower()
+        return (
+            "empty content" in msg
+            or "empty non-stream content" in msg
+        )
 
     async def _generate_via_chat(self, prompt: Prompt, config: GenerationConfig) -> GenerationResult:
         """Chat Completions API 非流式生成
@@ -124,9 +158,12 @@ class OpenAIProvider(BaseProvider):
         content = self._extract_text_from_response(response)
 
         if not content:
+            # 记录原始响应以便排查：含 choices 数量、message 结构、finish_reason
+            raw_preview = self._summarize_raw_response(response)
             logger.warning(
                 "OpenAI-compatible response returned empty non-stream content; "
-                "falling back to streaming aggregation"
+                "falling back to streaming aggregation. raw_preview=%s",
+                raw_preview,
             )
             content, token_usage = await self._generate_via_stream(request_kwargs)
             return GenerationResult(content=content, token_usage=token_usage)
@@ -350,6 +387,37 @@ class OpenAIProvider(BaseProvider):
             return "\n".join(parts).strip()
 
         return str(content).strip()
+
+    @staticmethod
+    def _summarize_raw_response(response: Any) -> str:
+        """生成原始响应的摘要字符串，用于空响应时的诊断日志。"""
+        try:
+            choices = getattr(response, "choices", None)
+            n_choices = len(choices) if choices else 0
+            parts = [f"choices={n_choices}"]
+            if choices:
+                msg = getattr(choices[0], "message", None)
+                content = getattr(msg, "content", None) if msg else None
+                finish = getattr(choices[0], "finish_reason", None)
+                parts.append(f"finish_reason={finish}")
+                if content is None:
+                    parts.append("content=None")
+                elif isinstance(content, str):
+                    parts.append(f"content_len={len(content)}")
+                else:
+                    parts.append(f"content_type={type(content).__name__}")
+                reasoning = getattr(msg, "reasoning_content", None) if msg else None
+                if reasoning:
+                    parts.append(f"has_reasoning=True(len={len(reasoning)})")
+            usage = getattr(response, "usage", None)
+            if usage:
+                parts.append(
+                    f"tokens(prompt={getattr(usage, 'prompt_tokens', '?')},"
+                    f"completion={getattr(usage, 'completion_tokens', '?')})"
+                )
+            return ", ".join(parts)
+        except Exception:
+            return "(summarize failed)"
 
     @staticmethod
     def _extract_text_from_response(response: Any) -> str:
