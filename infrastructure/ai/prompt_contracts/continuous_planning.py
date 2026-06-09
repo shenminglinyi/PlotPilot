@@ -21,6 +21,8 @@ class PlanningQuickMacroVariables(BaseModel):
     premise: str = ""
     target_chapters: int = Field(ge=1)
     worldview: str = ""
+    worldbuilding: dict[str, Any] = Field(default_factory=dict)
+    locations: dict[str, Any] = Field(default_factory=dict)
     characters: str = ""
     genre_opening_profile: dict[str, Any] = Field(default_factory=dict)
     genre_reader_contract: dict[str, Any] = Field(default_factory=dict)

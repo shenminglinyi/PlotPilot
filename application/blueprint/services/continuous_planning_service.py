@@ -2279,6 +2279,50 @@ class ContinuousPlanningService:
         return "\n\n".join(blocks) if blocks else f"【世界观与人物】\n{empty_hint}"
 
     @staticmethod
+    def _format_locations_context(bible_context: Dict, *, limit: int = 5) -> str:
+        locations = bible_context.get("locations") or []
+        if not locations:
+            return ""
+        lines = []
+        for loc in locations[:limit]:
+            name = loc.get("name", "Unknown")
+            desc = loc.get("description", "")
+            significance = loc.get("significance", "")
+            line = f"- {name}: {desc}".strip()
+            if significance:
+                line = f"{line}\n  叙事意义：{significance}"
+            lines.append(line)
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_worldbuilding_context(bible_context: Dict, *, limit: int = 5) -> str:
+        blocks: List[str] = []
+
+        worldview = bible_context.get("worldview") or ""
+        if worldview:
+            blocks.append(str(worldview))
+
+        world_settings = bible_context.get("world_settings") or []
+        if world_settings:
+            lines = []
+            for item in world_settings[:limit]:
+                name = item.get("name", "未命名设定")
+                desc = item.get("description", "")
+                lines.append(f"- {name}: {desc}")
+            blocks.append("\n".join(lines))
+
+        timeline_notes = bible_context.get("timeline_notes") or []
+        if timeline_notes:
+            lines = []
+            for note in timeline_notes[:limit]:
+                event = note.get("event", "")
+                desc = note.get("description", "")
+                lines.append(f"- {event}: {desc}")
+            blocks.append("\n".join(lines))
+
+        return "\n\n".join(block for block in blocks if block.strip())
+
+    @staticmethod
     def _pick_premise_from_context(bible_context: Dict) -> str:
         """从 Bible 上下文中提取宏观规划可用的核心梗概。"""
         for key in ("premise", "summary", "logline", "title"):
@@ -2320,6 +2364,8 @@ class ContinuousPlanningService:
             planning_depth = "full"
 
         story_context = self._format_bible_context(bible_context, character_limit=5, location_limit=5)
+        worldbuilding_context = self._format_worldbuilding_context(bible_context, limit=5)
+        locations_context = self._format_locations_context(bible_context, limit=5)
         character_context = self._format_bible_context(
             {"characters": bible_context.get("characters", []), "relationships": bible_context.get("relationships", [])},
             character_limit=5,
@@ -2329,6 +2375,8 @@ class ContinuousPlanningService:
             "premise": self._pick_premise_from_context(bible_context),
             "target_chapters": target_chapters,
             "worldview": story_context,
+            "worldbuilding": {"content": worldbuilding_context or story_context},
+            "locations": {"list": locations_context},
             "characters": character_context,
             "planning_depth": planning_depth,
             "rec_parts": rec_parts,

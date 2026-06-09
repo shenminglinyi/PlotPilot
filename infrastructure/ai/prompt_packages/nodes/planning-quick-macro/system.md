@@ -13,7 +13,7 @@
 每卷建议接近 {rec_chapters_per_act}×{rec_acts_per_volume} 章，但可按剧情容量微调。
 {% elif planning_depth == "partial" %}
 当前模式：长篇渐进式部分规划。
-输出全书「部」和「卷」的完整结构，只为开篇前导卷展开 acts；后续卷的 acts 必须为空数组。
+输出全书「部」和「卷」的完整结构，只为开篇前导卷规划幕节点；后续卷的幕节点留给写作过程中动态生成，acts 必须为空数组。
 所有卷的 estimated_chapters 之和必须精确等于 {target_chapters}；每部的 estimated_chapters 必须等于其下所有卷之和。
 已展开 acts 的 estimated_chapters 之和必须等于其所属卷的 estimated_chapters。每卷建议约 {rec_acts_per_volume} 幕，每幕约 {rec_chapters_per_act} 章。
 {% else %}

@@ -23,6 +23,9 @@ use std::os::windows::process::CommandExt;
 #[cfg(target_os = "windows")]
 use win32job::Job;
 
+const DEFAULT_BACKEND_PORT_START: u16 = 8005;
+const BACKEND_PORT_SCAN_LIMIT: u16 = 100;
+
 /// 子进程若使用 `Stdio::piped()`，父进程必须持续读取，否则管道缓冲区满后子进程会在下一次写日志时**永久阻塞**。
 /// 开发版多在终端直接 `uvicorn`（输出到控制台，无管道）；安装包由 Tauri `spawn` 且此前未消费管道，**挂一晚上日志一多就会整后端假死**，表现成「只有安装包会坏」。
 fn spawn_stdio_drainers(mut child: Child) -> Child {
@@ -229,9 +232,19 @@ impl BackendManager {
             .unwrap_or_else(|_| PathBuf::from("."))
     }
 
-    /// 从指定端口开始，找到一个可用端口
-    fn pick_free_port(start: u16) -> Option<u16> {
-        (start..start + 100).find(|&port| std::net::TcpListener::bind(("127.0.0.1", port)).is_ok())
+    fn configured_port_start() -> u16 {
+        std::env::var("PLOTPILOT_BACKEND_PORT_START")
+            .ok()
+            .and_then(|raw| raw.parse::<u16>().ok())
+            .filter(|port| *port > 0 && *port < u16::MAX - BACKEND_PORT_SCAN_LIMIT)
+            .unwrap_or(DEFAULT_BACKEND_PORT_START)
+    }
+
+    /// 从配置端口开始，找到一个可用端口
+    fn pick_free_port() -> Option<u16> {
+        let start = Self::configured_port_start();
+        (start..start + BACKEND_PORT_SCAN_LIMIT)
+            .find(|&port| std::net::TcpListener::bind(("127.0.0.1", port)).is_ok())
     }
 
     fn python_version(path: &PathBuf) -> Option<String> {
@@ -383,7 +396,7 @@ impl BackendManager {
     /// 仅启动子进程并写入端口（快速返回，不阻塞健康检查）。
     /// 用于在独立线程中先释放 `Mutex<BackendManager>`，避免与关窗逻辑长时间争锁。
     pub fn spawn_only(&mut self) -> Result<u16, String> {
-        let port = Self::pick_free_port(8005).ok_or("无法分配空闲端口")?;
+        let port = Self::pick_free_port().ok_or("无法分配空闲端口")?;
         log::info!("🔌 分配端口: {}", port);
 
         let frozen = Self::find_frozen_backend_exe(&self._app_handle);

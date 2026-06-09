@@ -15,7 +15,7 @@ use tauri::{Manager, State};
 ///
 /// 必须来自 `BackendManager`：`spawn_only` 成功后即写入真实端口。
 /// 历史遗留的独立 `State<Mutex<u16>>` 仅在 `wait_for_ready` 成功后才更新，
-/// 会导致健康检查稍慢或失败时 IPC 恒为 0，前端误回退到 8005。
+/// 会导致健康检查稍慢或失败时 IPC 恒为 0，前端误回退到固定端口。
 #[tauri::command]
 pub fn get_backend_port(manager: State<'_, Mutex<BackendManager>>) -> Result<u16, String> {
     let mgr = manager.lock().map_err(|e| e.to_string())?;
@@ -53,20 +53,37 @@ pub async fn restart_backend(manager: State<'_, Mutex<BackendManager>>) -> Resul
 /// 在系统浏览器中打开 URL
 #[tauri::command]
 pub fn open_in_browser(url: String) -> Result<(), String> {
+    let trimmed = url.trim();
+    if trimmed != url || trimmed.chars().any(|ch| ch.is_control()) {
+        return Err("URL 含非法空白或控制字符".to_string());
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    if !(lower.starts_with("https://") || lower.starts_with("http://")) {
+        return Err("仅允许打开 http/https URL".to_string());
+    }
     webbrowser::open(&url).map_err(|e| format!("打开浏览器失败: {}", e))
 }
 
 /// 🔥 打开开发者工具（F12 或前端调用）
 #[tauri::command]
 pub fn toggle_devtools(app: tauri::AppHandle) -> Result<(), String> {
-    if let Some(win) = app.get_webview_window("main") {
-        if win.is_devtools_open() {
-            win.close_devtools();
-        } else {
-            win.open_devtools();
+    #[cfg(debug_assertions)]
+    {
+        if let Some(win) = app.get_webview_window("main") {
+            if win.is_devtools_open() {
+                win.close_devtools();
+            } else {
+                win.open_devtools();
+            }
         }
+        Ok(())
     }
-    Ok(())
+
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = app;
+        Err("生产构建不开放开发者工具".to_string())
+    }
 }
 
 /// 运行安装流程

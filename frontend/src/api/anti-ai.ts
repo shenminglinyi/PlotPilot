@@ -9,25 +9,19 @@ import type {
   AllowlistUpdateRequest,
   AntiAIStats,
 } from '../types/anti-ai'
+import { fetchJson, type FetchJsonOptions } from './http'
 
 const API_BASE = '/api/v1/anti-ai'
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  })
-  if (!res.ok) {
-    throw new Error(`Anti-AI API error: ${res.status} ${res.statusText}`)
-  }
-  return res.json()
+function request<T>(path: string, options?: FetchJsonOptions): Promise<T> {
+  return fetchJson<T>(`${API_BASE}${path}`, options)
 }
 
 /** 扫描章节 AI 味 */
 export function scanChapter(content: string, chapterId?: string): Promise<ScanResult> {
   return request<ScanResult>('/scan', {
     method: 'POST',
-    body: JSON.stringify({ content, chapter_id: chapterId || '' }),
+    body: { content, chapter_id: chapterId || '' },
   })
 }
 
@@ -50,7 +44,7 @@ export function getAllowlistScenes(): Promise<AllowlistScene[]> {
 export function updateAllowlist(data: AllowlistUpdateRequest): Promise<{ status: string; scene_type: string }> {
   return request('/allowlist', {
     method: 'POST',
-    body: JSON.stringify(data),
+    body: data,
   })
 }
 

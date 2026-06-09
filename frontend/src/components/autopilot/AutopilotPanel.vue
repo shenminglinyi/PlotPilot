@@ -67,7 +67,7 @@
       :show-icon="true"
       class="ap-inline-alert"
     >
-      无法连接写作后端（开发约定 <code>127.0.0.1:8005</code>）。已自动拉长轮询间隔，请启动 API 后再试。
+      无法连接写作后端。已自动拉长轮询间隔，请确认桌面后端或开发 API 已启动后再试。
     </n-alert>
 
     <section v-if="status" class="ap-kpi-grid" aria-label="关键指标">
