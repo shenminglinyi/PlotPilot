@@ -174,6 +174,7 @@ import { useStatsStore } from '@/stores/statsStore'
 import GlobalLLMEntryButton from '@/components/global/GlobalLLMEntryButton.vue'
 import PromptPlazaEntryButton from '@/components/global/PromptPlazaEntryButton.vue'
 import { storageKeys } from '@/config/storageKeys'
+import { runtimePerformance } from '@/config/performance'
 import { readStorageBoolean, writeStorageBoolean } from '@/utils/storage'
 import { getNovelStageLabel } from '@/domain/novel'
 const emit = defineEmits<{
@@ -207,7 +208,7 @@ onMounted(async () => {
   // Update time display every minute
   updateInterval = window.setInterval(() => {
     lastUpdateTime.value = new Date()
-  }, 60000)
+  }, runtimePerformance.stats.sidebarClockTickMs)
 })
 
 onUnmounted(() => {

@@ -29,6 +29,9 @@ from infrastructure.persistence.database.sqlite_chapter_repository import Sqlite
 from domain.ai.services.llm_service import LLMService
 from application.paths import get_db_path
 from interfaces.api.dependencies import get_database
+from interfaces.api.v1.blueprint.planning_runtime_settings import (
+    get_planning_runtime_settings,
+)
 
 
 router = APIRouter(prefix="/planning", tags=["continuous-planning"])
@@ -162,6 +165,7 @@ async def stream_macro_plan_sse(
         return f"event: {event}\ndata: {_json.dumps(data, ensure_ascii=False)}\n\n"
 
     async def _generate():
+        runtime_settings = get_planning_runtime_settings()
         # ─── 读取 target_chapters ───────────────────────────────────
         target_chapters = 100
         try:
@@ -192,7 +196,7 @@ async def stream_macro_plan_sse(
         last_msg = ""
         last_stream_len = 0
         while not task.done():
-            await asyncio.sleep(0.4)
+            await asyncio.sleep(runtime_settings.macro_generation_poll_seconds)
             prog = get_macro_plan_progress(novel_id)
             stream_full = prog.get("llm_stream_text") or ""
             if len(stream_full) > last_stream_len:
@@ -251,7 +255,7 @@ async def stream_macro_plan_sse(
                 "title": part.get("title", ""),
                 "description": part.get("description", ""),
             })
-            await asyncio.sleep(0.09)
+            await asyncio.sleep(runtime_settings.macro_part_node_delay_seconds)
             for vi, vol in enumerate(part.get("volumes", [])):
                 yield _sse("node", {
                     "type": "volume",
@@ -260,7 +264,7 @@ async def stream_macro_plan_sse(
                     "title": vol.get("title", ""),
                     "description": vol.get("description", ""),
                 })
-                await asyncio.sleep(0.06)
+                await asyncio.sleep(runtime_settings.macro_volume_node_delay_seconds)
                 for ai, act in enumerate(vol.get("acts", [])):
                     yield _sse("node", {
                         "type": "act",
@@ -272,7 +276,7 @@ async def stream_macro_plan_sse(
                         "estimated_chapters": act.get("estimated_chapters", 0),
                         "narrative_goal": act.get("narrative_goal", ""),
                     })
-                    await asyncio.sleep(0.04)
+                    await asyncio.sleep(runtime_settings.macro_act_node_delay_seconds)
 
         yield _sse("done", {
             "structure": parts,
@@ -363,11 +367,12 @@ async def watch_macro_plan_progress_sse(novel_id: str):
         return f"event: {event}\ndata: {_json.dumps(data, ensure_ascii=False)}\n\n"
 
     async def _watch():
+        runtime_settings = get_planning_runtime_settings()
         t0 = _time.monotonic()
         last_len = 0
         last_sig: tuple[str, str] | None = None
         tick = 0
-        max_seconds = 3600.0
+        max_seconds = runtime_settings.macro_watch_max_seconds
         chunk_events = 0
         emitted_macro_nodes = 0
 
@@ -379,7 +384,7 @@ async def watch_macro_plan_progress_sse(novel_id: str):
                 yield _sse("terminal", {"status": "timeout", "message": "宏观规划观摩流超时"})
                 break
 
-            await asyncio.sleep(0.32)
+            await asyncio.sleep(runtime_settings.macro_watch_poll_seconds)
             prog = get_macro_plan_progress(novel_id)
             stream_full = prog.get("llm_stream_text") or ""
             st = prog.get("status") or "idle"
@@ -438,10 +443,10 @@ async def watch_macro_plan_progress_sse(novel_id: str):
                         body["act_index"] = pl["act_index"]
                     yield _sse("node", body)
                     emitted_macro_nodes += 1
-                    await asyncio.sleep(0.028)
+                    await asyncio.sleep(runtime_settings.macro_watch_node_delay_seconds)
 
             tick += 1
-            if tick % 10 == 0:
+            if tick % runtime_settings.macro_watch_heartbeat_every_ticks == 0:
                 yield _sse("heartbeat", {"tick": tick})
                 logger.debug(
                     "[MacroSSEWatch] novel=%s heartbeat tick=%d stream_status=%s llm_buffer_chars=%d",
@@ -578,6 +583,7 @@ async def stream_act_chapters_sse(
         return f"event: {event}\ndata: {_json.dumps(data, ensure_ascii=False)}\n\n"
 
     async def _generate():
+        runtime_settings = get_planning_runtime_settings()
         try:
             expected = await service.resolve_act_planning_chapter_count(
                 act_id, chapter_count
@@ -605,7 +611,7 @@ async def stream_act_chapters_sse(
         tick = 0
         last_stream_len = 0
         while not task.done():
-            await asyncio.sleep(0.4)
+            await asyncio.sleep(runtime_settings.act_generation_poll_seconds)
             tick += 1
             stream_full = get_act_chapters_llm_stream(act_id)
             if len(stream_full) > last_stream_len:
@@ -619,7 +625,14 @@ async def stream_act_chapters_sse(
                     "phase": "generating",
                     "message": "正在生成本幕章节大纲（调用 AI）…",
                     "expected_chapters": expected,
-                    "percent": min(8 + (tick % 10) * 3, 88),
+                    "percent": min(
+                        runtime_settings.act_generation_progress_base_percent
+                        + (
+                            tick % runtime_settings.act_generation_progress_cycle_ticks
+                        )
+                        * runtime_settings.act_generation_progress_step_percent,
+                        runtime_settings.act_generation_progress_max_percent,
+                    ),
                 },
             )
 
@@ -666,7 +679,7 @@ async def stream_act_chapters_sse(
             row = ch if isinstance(ch, dict) else {}
             payload = {"index": i, **row}
             yield _sse("chapter", payload)
-            await asyncio.sleep(0.045)
+            await asyncio.sleep(runtime_settings.act_chapter_node_delay_seconds)
 
         yield _sse(
             "done",

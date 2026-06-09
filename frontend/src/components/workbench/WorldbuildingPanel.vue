@@ -290,12 +290,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import {
   FlashOutline, EarthOutline, PeopleOutline, LibraryOutline, LayersOutline, BulbOutline,
 } from '@vicons/ionicons5'
 import { worldbuildingApi } from '@/api/worldbuilding'
+import { runtimePerformance } from '@/config/performance'
 import { formatApiError } from '@/utils/apiError'
 
 interface Props { slug: string }
@@ -406,8 +407,9 @@ const loadWorldbuilding = async () => {
   } finally {
     loading.value = false
     dataLoaded.value = true
-    // Reset dirty after data settles (watch fires synchronously before finally)
-    setTimeout(() => { isDirty.value = false }, 0)
+    // Reset dirty after form data has propagated through the deep watcher.
+    await nextTick()
+    isDirty.value = false
   }
 }
 
@@ -421,7 +423,9 @@ const save = async () => {
     lastSavedAt.value = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
     message.success('世界观已保存')
     if (savedTimer) clearTimeout(savedTimer)
-    savedTimer = setTimeout(() => { lastSavedAt.value = '' }, 8000)
+    savedTimer = setTimeout(() => {
+      lastSavedAt.value = ''
+    }, runtimePerformance.workbench.worldbuildingSavedNoticeMs)
   } catch (error: unknown) {
     message.error(formatApiError(error, '保存失败'))
   } finally {

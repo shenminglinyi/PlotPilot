@@ -6,6 +6,7 @@ import { ref, computed } from 'vue'
 import type { DAGRunResult, DAGStatusResponse, NodeEvent, NodeStatus } from '@/types/dag'
 import { dagApi } from '@/api/dag'
 import { autopilotApi } from '@/api/autopilot'
+import { runtimePerformance } from '@/config/performance'
 
 export type DAGRunStatus = 'idle' | 'running' | 'stopping' | 'completed' | 'error'
 
@@ -28,6 +29,7 @@ export const useDAGRunStore = defineStore('dagRun', () => {
   const sseError = ref<string | null>(null)
   let _eventSource: EventSource | null = null
   let _reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  let _reconnectAttempts = 0
 
   // ─── 计算属性 ───
   const isRunning = computed(() => runStatus.value === 'running')
@@ -85,23 +87,27 @@ export const useDAGRunStore = defineStore('dagRun', () => {
 
   // ─── SSE 事件连接 ───
 
-  function connectSSE(novelId: string) {
-    disconnectSSE()
+  function connectSSE(novelId: string, options: { resetReconnect?: boolean } = {}) {
+    disconnectSSE({ resetReconnect: options.resetReconnect ?? true })
 
     // 构建 SSE URL（由 dagApi 兼容 Tauri 桌面模式）
     const url = dagApi.eventsUrl(novelId)
 
     try {
-      _eventSource = new EventSource(url)
-      sseConnected.value = true
+      const source = new EventSource(url)
+      _eventSource = source
+      sseConnected.value = false
       sseError.value = null
 
-      _eventSource.onopen = () => {
+      source.onopen = () => {
+        if (_eventSource !== source) return
         sseConnected.value = true
         sseError.value = null
+        _reconnectAttempts = 0
       }
 
-      _eventSource.onmessage = (event) => {
+      source.onmessage = (event) => {
+        if (_eventSource !== source) return
         try {
           const data = JSON.parse(event.data) as NodeEvent
           handleSSEMessage(data)
@@ -111,35 +117,42 @@ export const useDAGRunStore = defineStore('dagRun', () => {
       }
 
       // 监听特定事件类型
-      _eventSource.addEventListener('node_status_change', (event) => {
+      source.addEventListener('node_status_change', (event) => {
+        if (_eventSource !== source) return
         try {
           const data = JSON.parse((event as MessageEvent).data) as NodeEvent
           handleNodeStatusChange(data)
         } catch { /* ignore */ }
       })
 
-      _eventSource.addEventListener('node_output', (event) => {
+      source.addEventListener('node_output', (event) => {
+        if (_eventSource !== source) return
         try {
           const data = JSON.parse((event as MessageEvent).data) as NodeEvent
           handleNodeOutput(data)
         } catch { /* ignore */ }
       })
 
-      _eventSource.addEventListener('edge_data_flow', (event) => {
+      source.addEventListener('edge_data_flow', (event) => {
+        if (_eventSource !== source) return
         try {
           const data = JSON.parse((event as MessageEvent).data) as NodeEvent
           handleEdgeFlow(data)
         } catch { /* ignore */ }
       })
 
-      _eventSource.addEventListener('dag_run_complete', (event) => {
+      source.addEventListener('dag_run_complete', (event) => {
+        if (_eventSource !== source) return
         try {
           const data = JSON.parse((event as MessageEvent).data) as DAGRunResult
           handleDAGRunComplete(data)
         } catch { /* ignore */ }
       })
 
-      _eventSource.onerror = () => {
+      source.onerror = () => {
+        if (_eventSource !== source) return
+        source.close()
+        _eventSource = null
         sseConnected.value = false
         // 自动重连
         scheduleReconnect(novelId)
@@ -150,7 +163,7 @@ export const useDAGRunStore = defineStore('dagRun', () => {
     }
   }
 
-  function disconnectSSE() {
+  function disconnectSSE(options: { resetReconnect?: boolean } = {}) {
     if (_eventSource) {
       _eventSource.close()
       _eventSource = null
@@ -159,17 +172,26 @@ export const useDAGRunStore = defineStore('dagRun', () => {
       clearTimeout(_reconnectTimer)
       _reconnectTimer = null
     }
+    if (options.resetReconnect ?? true) {
+      _reconnectAttempts = 0
+    }
     sseConnected.value = false
   }
 
   function scheduleReconnect(novelId: string) {
     if (_reconnectTimer) return
+    _reconnectAttempts += 1
+    const perf = runtimePerformance.dagSse
+    const delayMs = Math.min(
+      perf.reconnectBaseDelayMs * (2 ** (_reconnectAttempts - 1)),
+      perf.reconnectMaxDelayMs,
+    )
     _reconnectTimer = setTimeout(() => {
       _reconnectTimer = null
       if (runStatus.value === 'running') {
-        connectSSE(novelId)
+        connectSSE(novelId, { resetReconnect: false })
       }
-    }, 3000) // 3秒后重连
+    }, delayMs)
   }
 
   // ─── SSE 事件处理回调 ───

@@ -92,6 +92,7 @@
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { NTag } from 'naive-ui'
 import { autopilotApi } from '@/api/autopilot'
+import { runtimePerformance } from '@/config/performance'
 
 const props = defineProps<{ novelId: string }>()
 
@@ -138,6 +139,7 @@ const expandedRows = ref<Set<string>>(new Set())
 /** 程序设置 scrollTop 时仍会触发 scroll；此期间忽略 onScroll，避免误判为「用户离开底部」 */
 let scrollingProgrammatically = false
 let scrollLockToken = 0
+let scrollUnlockTimer: number | null = null
 
 /** 当前阶段（英文 key，用于 tag 配色） */
 const behaviorStageKey = ref('')
@@ -237,21 +239,23 @@ let eventSource: EventSource | null = null
 let reconnectTimer: number | null = null
 /** 日志 SSE 重连退避（onerror 在部分浏览器上较频繁，避免打满连接） */
 let logStreamReconnectFailCount = 0
-const LOG_STREAM_MAX_BACKOFF_MS = 30_000
 
-// 🔥 desk-refresh 去抖：300ms 内多次事件只触发一次 emit，避免短时间内连续 loadDesk
+// desk-refresh 去抖：短时间内多次事件只触发一次 emit，避免连续 loadDesk。
 let deskRefreshDebounceTimer: number | null = null
 function scheduleDeskRefresh() {
   if (deskRefreshDebounceTimer != null) return  // 已有待执行的，跳过
   deskRefreshDebounceTimer = window.setTimeout(() => {
     deskRefreshDebounceTimer = null
     emit('desk-refresh')
-  }, 300)
+  }, runtimePerformance.autopilotPanel.terminalDeskRefreshDebounceMs)
 }
 
 function scheduleLogStreamReconnect() {
   logStreamReconnectFailCount = Math.min(logStreamReconnectFailCount + 1, 12)
-  const delay = Math.min(3000 * 2 ** (logStreamReconnectFailCount - 1), LOG_STREAM_MAX_BACKOFF_MS)
+  const delay = Math.min(
+    runtimePerformance.autopilotPanel.terminalReconnectBaseDelayMs * 2 ** (logStreamReconnectFailCount - 1),
+    runtimePerformance.autopilotPanel.terminalReconnectMaxDelayMs,
+  )
   reconnectTimer = window.setTimeout(() => {
     reconnectTimer = null
     connect()
@@ -260,6 +264,23 @@ function scheduleLogStreamReconnect() {
 
 const pending: Array<{ data: Record<string, unknown> }> = []
 let flushScheduled = false
+
+function clearScrollUnlockTimer() {
+  if (scrollUnlockTimer != null) {
+    window.clearTimeout(scrollUnlockTimer)
+    scrollUnlockTimer = null
+  }
+}
+
+function scheduleScrollUnlock(token: number) {
+  clearScrollUnlockTimer()
+  scrollUnlockTimer = window.setTimeout(() => {
+    scrollUnlockTimer = null
+    if (token === scrollLockToken) {
+      scrollingProgrammatically = false
+    }
+  }, runtimePerformance.autopilotPanel.terminalScrollUnlockDelayMs)
+}
 
 function formatTime(iso: string) {
   try {
@@ -542,11 +563,7 @@ function scrollToBottom() {
   el.scrollTop = el.scrollHeight
   nextTick(() => {
     el.scrollTop = el.scrollHeight
-    window.setTimeout(() => {
-      if (token === scrollLockToken) {
-        scrollingProgrammatically = false
-      }
-    }, 220)
+    scheduleScrollUnlock(token)
   })
 }
 
@@ -558,11 +575,7 @@ function scrollToBottomManual() {
   scrollingProgrammatically = true
   nextTick(() => {
     el.scrollTop = el.scrollHeight
-    window.setTimeout(() => {
-      if (token === scrollLockToken) {
-        scrollingProgrammatically = false
-      }
-    }, 220)
+    scheduleScrollUnlock(token)
   })
 }
 
@@ -702,6 +715,9 @@ onUnmounted(() => {
     clearTimeout(deskRefreshDebounceTimer)
     deskRefreshDebounceTimer = null
   }
+  clearScrollUnlockTimer()
+  scrollLockToken += 1
+  scrollingProgrammatically = false
 })
 </script>
 

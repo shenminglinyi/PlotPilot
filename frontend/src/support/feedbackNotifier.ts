@@ -19,13 +19,9 @@ import {
   serializeIncidentsPlain,
   wasErrorFeedbackEmitted,
 } from './feedbackIncident'
+import { runtimePerformance } from '../config/performance'
 
-const RING_CAP = 30
 const dedupeHits = new Map<string, number>()
-const DEDUPE_MS = 4500
-
-/** 同一时间窗内多起 Axios 异常合并为一则通知（避免并行 502 刷屏） */
-const AXIOS_AGG_SILENCE_MS = 520
 
 const ringBuffer: FeedbackIncidentPayload[] = []
 
@@ -40,16 +36,40 @@ const { notification } = createDiscreteApi(['notification'], {
 })
 
 function pushRing(inc: FeedbackIncidentPayload) {
+  const cap = Math.max(0, Math.floor(runtimePerformance.feedback.incidentRingCap))
+  if (cap <= 0) return
   ringBuffer.unshift(inc)
-  if (ringBuffer.length > RING_CAP) ringBuffer.pop()
+  while (ringBuffer.length > cap) ringBuffer.pop()
 }
 
 function shouldSkipNotify(key: string): boolean {
   const now = Date.now()
   const last = dedupeHits.get(key)
-  if (last != null && now - last < DEDUPE_MS) return true
+  if (last != null && now - last < runtimePerformance.feedback.dedupeMs) return true
   dedupeHits.set(key, now)
+  pruneDedupeHits(now)
   return false
+}
+
+function pruneDedupeHits(now: number): void {
+  const maxKeys = Math.max(1, Math.floor(runtimePerformance.feedback.dedupeMaxKeys))
+  if (dedupeHits.size <= maxKeys) return
+
+  const ttl = Math.max(runtimePerformance.feedback.dedupeMs * 2, runtimePerformance.feedback.dedupeMs + 1)
+  for (const [key, ts] of dedupeHits) {
+    if (now - ts > ttl) {
+      dedupeHits.delete(key)
+    }
+  }
+  if (dedupeHits.size <= maxKeys) return
+
+  const overflow = dedupeHits.size - maxKeys
+  let removed = 0
+  for (const key of dedupeHits.keys()) {
+    dedupeHits.delete(key)
+    removed += 1
+    if (removed >= overflow) break
+  }
 }
 
 function incidentDedupeKey(inc: FeedbackIncidentPayload): string {
@@ -126,7 +146,10 @@ function scheduleAxiosAggregateFlush(): void {
   if (_axiosAggTimer != null) {
     window.clearTimeout(_axiosAggTimer)
   }
-  _axiosAggTimer = window.setTimeout(flushAxiosAggregateBuffer, AXIOS_AGG_SILENCE_MS)
+  _axiosAggTimer = window.setTimeout(
+    flushAxiosAggregateBuffer,
+    runtimePerformance.feedback.axiosAggregateSilenceMs,
+  )
 }
 
 function enqueueAxiosAggregation(payload: FeedbackIncidentPayload): void {
@@ -162,8 +185,8 @@ export function exportRecentFeedbackBundle(): void {
   void (async () => {
     const mod = await import('../api/feedbackDiagnostic')
     const appendix = await mod.fetchBackendFeedbackAppendix({
-      max_lines: 900,
-      ring_limit: 300,
+      max_lines: runtimePerformance.feedback.exportBackendMaxLines,
+      ring_limit: runtimePerformance.feedback.exportBackendRingLimit,
     })
     const bundle = buildDiagnosticBundle(ringBuffer.slice(), appendix)
     downloadText(
@@ -176,7 +199,10 @@ export function exportRecentFeedbackBundle(): void {
 
 async function dispatchPrimary(payload: FeedbackIncidentPayload) {
   const { fetchBackendFeedbackAppendix } = await import('../api/feedbackDiagnostic')
-  const appendix = await fetchBackendFeedbackAppendix({ max_lines: 700, ring_limit: 200 })
+  const appendix = await fetchBackendFeedbackAppendix({
+    max_lines: runtimePerformance.feedback.actionBackendMaxLines,
+    ring_limit: runtimePerformance.feedback.actionBackendRingLimit,
+  })
   const fullPlain = serializeIncidentsPlain([payload], appendix)
   const bundleStr = serializeDiagnosticBundle(buildDiagnosticBundle([payload], appendix))
   const preferDl = preferDownloadForDetail(payload.detail) || preferDownloadForDetail(fullPlain)
@@ -202,7 +228,10 @@ async function dispatchPrimary(payload: FeedbackIncidentPayload) {
 
 async function dispatchCopyStructured(payload: FeedbackIncidentPayload) {
   const { fetchBackendFeedbackAppendix } = await import('../api/feedbackDiagnostic')
-  const appendix = await fetchBackendFeedbackAppendix({ max_lines: 700, ring_limit: 200 })
+  const appendix = await fetchBackendFeedbackAppendix({
+    max_lines: runtimePerformance.feedback.actionBackendMaxLines,
+    ring_limit: runtimePerformance.feedback.actionBackendRingLimit,
+  })
   const bundleStr = serializeDiagnosticBundle(buildDiagnosticBundle([payload], appendix))
   const ok = await copyTextFallback(bundleStr)
   notification.success({

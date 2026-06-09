@@ -331,6 +331,7 @@ import { novelApi } from '../../api/novel'
 import { buildAutopilotStagePresentation } from '../../constants/autopilotStagePresentation'
 import { useAIInvocationStore } from '../../stores/aiInvocationStore'
 import { featureFlags } from '../../config/features'
+import { runtimePerformance } from '../../config/performance'
 
 const props = defineProps({
   novelId: String,
@@ -346,6 +347,7 @@ const emit = defineEmits([
 ])
 const message = useMessage()
 const aiInvocationStore = useAIInvocationStore()
+const panelPerformance = runtimePerformance.autopilotPanel
 
 const status = ref(null)
 const toggling = ref(false)
@@ -368,8 +370,12 @@ let reconnectAttempts = 0
 /** 递增后忽略旧连接的 onDisconnected / onStreamEnd，避免 stop→abort 与重连竞态 */
 let chapterStreamSession = 0
 let lastChapterStreamStartMs = 0
-const MAX_RECONNECT_ATTEMPTS = 5
-const MIN_CHAPTER_STREAM_RESTART_MS = 3000
+const MAX_RECONNECT_ATTEMPTS = panelPerformance.maxChapterStreamReconnectAttempts
+const MIN_CHAPTER_STREAM_RESTART_MS = panelPerformance.minChapterStreamRestartMs
+const HEARTBEAT_GRACE_SECONDS = panelPerformance.daemonHeartbeatGraceSeconds
+const STAGE_TRANSITION_DELAY_MS = panelPerformance.stageTransitionDelayMs
+const CHAPTER_STREAM_CONTENT_MAX_LENGTH = panelPerformance.chapterStreamContentMaxLength
+const STREAM_RETRY_COOLDOWN_MULTIPLIER = panelPerformance.streamRetryCooldownMultiplier
 
 // 写作内容状态
 const writingContent = ref('')
@@ -377,7 +383,7 @@ const writingChapterNumber = ref(0)
 const writingBeatIndex = ref(0)
 let chapterChunkEmitTimer = null
 let pendingChapterChunk = null
-const CHAPTER_CHUNK_EMIT_INTERVAL_MS = 120
+const CHAPTER_CHUNK_EMIT_INTERVAL_MS = panelPerformance.chapterChunkEmitIntervalMs
 
 function flushChapterChunkEmit() {
   if (chapterChunkEmitTimer) {
@@ -402,7 +408,7 @@ function emitChapterChunkThrottled(payload, immediate = false) {
 // 🔥 新增：操作节流保护——防止用户快速连续点击导致请求堆积
 // toggling 为 true 时按钮已禁用，但需要额外保护异步操作的竞态
 let lastToggleTime = 0
-const TOGGLE_THROTTLE_MS = 1000  // 1 秒内不允许重复操作
+const TOGGLE_THROTTLE_MS = panelPerformance.toggleThrottleMs
 
 function isToggleThrottled() {
   const now = Date.now()
@@ -415,6 +421,7 @@ function isToggleThrottled() {
 
 // 状态轮询
 let statusPollTimer = null
+let statusPollDisposed = false
 const statusPollDisabled = ref(false)
 // /status：新请求开始前取消上一轮，减轻后端堆积；序号用于忽略已被替代的 AbortError
 let statusFetchSeq = 0
@@ -557,9 +564,7 @@ const daemonAlive = computed(() => {
   if (status.value?.daemon_alive) return true
   if (status.value?.daemon_heartbeat_at) {
     const age = (Date.now() / 1000) - status.value.daemon_heartbeat_at
-    // 🔥 放宽心跳超时：30→60秒，给守护进程更多宽容
-    // 场景：LLM调用可能持续30-60秒，期间心跳更新间隔较长
-    return age < 60
+    return age < HEARTBEAT_GRACE_SECONDS
   }
   // 🔥 如果 autopilot_status=running 但没有心跳也没有共享内存，
   // 可能是首次轮询或守护进程正在启动中，给更长的宽容期
@@ -634,16 +639,23 @@ const prevStage = ref(null)
 const stageTransitioning = ref(false)
 let stageTransitionTimer = null
 
+function clearStageTransitionTimer() {
+  if (stageTransitionTimer) {
+    clearTimeout(stageTransitionTimer)
+    stageTransitionTimer = null
+  }
+}
+
 watch(
   () => status.value?.current_stage,
   (newStage, oldStage) => {
     if (oldStage && newStage && oldStage !== newStage) {
       // 阶段变了，触发骨架 loading 过渡
       stageTransitioning.value = true
-      if (stageTransitionTimer) clearTimeout(stageTransitionTimer)
+      clearStageTransitionTimer()
       stageTransitionTimer = setTimeout(() => {
         stageTransitioning.value = false
-      }, 2000) // 2 秒后自动消失
+      }, STAGE_TRANSITION_DELAY_MS)
     }
     prevStage.value = newStage
   }
@@ -741,10 +753,8 @@ function formatWords(n) {
   return n >= 10000 ? `${(n / 10000).toFixed(1)}万` : String(n)
 }
 
-// 🔥 优化：缩短超时从 25s → 10s，减少前端等待时间
-// 后端 /status 已改为纯共享内存读取（纳秒级响应），10s 已非常宽裕
-// 如果 10s 还没返回，说明后端事件循环被阻塞，继续等也没意义
-const STATUS_FETCH_TIMEOUT_MS = 10_000
+// 后端 /status 已改为纯共享内存读取；超时由运行性能配置统一管理。
+const STATUS_FETCH_TIMEOUT_MS = panelPerformance.statusFetchTimeoutMs
 
 // 🔥 新增：请求去重——如果上一次 fetchStatus 还没返回，不重复发起
 let statusFetchInFlight = false
@@ -789,7 +799,7 @@ async function fetchStatus() {
       !chapterStreamCtrl &&
       !sseReconnecting.value &&
       reconnectAttempts >= MAX_RECONNECT_ATTEMPTS &&
-      Date.now() - lastChapterStreamStartMs >= MIN_CHAPTER_STREAM_RESTART_MS * 4
+      Date.now() - lastChapterStreamStartMs >= MIN_CHAPTER_STREAM_RESTART_MS * STREAM_RETRY_COOLDOWN_MULTIPLIER
     ) {
       reconnectAttempts = MAX_RECONNECT_ATTEMPTS - 1
       scheduleChapterStreamReconnect(0)
@@ -857,7 +867,7 @@ function maybeOpenActiveInvocation(s) {
 
 function clearStatusPoll() {
   if (statusPollTimer) {
-    clearInterval(statusPollTimer)
+    clearTimeout(statusPollTimer)
     statusPollTimer = null
   }
   lastStatusPollIntervalMs = -1
@@ -865,17 +875,20 @@ function clearStatusPoll() {
 
 /** 轮询间隔变化时（如后端断连退避）重置 timer，避免固定 3～5s 刷满 Vite 代理日志 */
 function maybeRestartStatusPollTimer() {
-  if (statusPollDisabled.value) return
+  if (statusPollDisposed || statusPollDisabled.value) return
   const ms = getAdaptivePollInterval()
   if (statusPollTimer != null && ms === lastStatusPollIntervalMs) {
     return
   }
   lastStatusPollIntervalMs = ms
   if (statusPollTimer) {
-    clearInterval(statusPollTimer)
+    clearTimeout(statusPollTimer)
     statusPollTimer = null
   }
-  statusPollTimer = setInterval(() => fetchStatus(), ms)
+  statusPollTimer = setTimeout(() => {
+    statusPollTimer = null
+    void fetchStatus()
+  }, ms)
 }
 
 /** 章节正文 SSE 仅在「运行中 + 写作阶段」需要；审计/规划时服务端会关流，不应重连 */
@@ -945,14 +958,17 @@ function startChapterStream() {
 
   chapterStreamCtrl = chapterApi.subscribeStream(props.novelId, {
     onOutlinePlanning: () => {
+      if (session !== chapterStreamSession) return
       void fetchStatus()
     },
     onBeatsPlanned: (chapterNumber, beats) => {
+      if (session !== chapterStreamSession) return
       void fetchStatus()
       emit('desk-refresh')
       emit('beats-planned', { chapterNumber, beats })
     },
     onChapterStart: (num) => {
+      if (session !== chapterStreamSession) return
       const isNewChapter = writingChapterNumber.value !== num
       writingChapterNumber.value = num
       // SSE 重连会对同一章再次发 chapter_start，勿清空已累积正文
@@ -966,7 +982,8 @@ function startChapterStream() {
       emit('desk-refresh')
     },
     onChapterChunk: (payload) => {
-      const maxLen = 80000
+      if (session !== chapterStreamSession) return
+      const maxLen = CHAPTER_STREAM_CONTENT_MAX_LENGTH
       if (payload.isSnapshot && payload.content != null) {
         if (payload.content.length <= maxLen) {
           writingContent.value = payload.content
@@ -984,18 +1001,21 @@ function startChapterStream() {
       }, Boolean(payload.isSnapshot))
     },
     onChapterContent: (data) => {
+      if (session !== chapterStreamSession) return
       writingContent.value = data.content
       writingChapterNumber.value = data.chapterNumber
       writingBeatIndex.value = data.beatIndex
       emit('chapter-content-update', data)
     },
     onAutopilotStopped: () => {
+      if (session !== chapterStreamSession) return
       reconnectAttempts = 0
       void fetchStatus()
       // 🔥 全书完成/停止时刷新章节列表，确保侧栏「已收稿」状态同步
       emit('desk-refresh')
     },
     onPausedForReview: () => {
+      if (session !== chapterStreamSession) return
       reconnectAttempts = 0
       void fetchStatus()
       // 🔥 进入待审阅时刷新章节列表和结构树
@@ -1022,7 +1042,7 @@ function startChapterStream() {
           reconnectAttempts = 0
           return
         }
-        scheduleChapterStreamReconnect(1500)
+        scheduleChapterStreamReconnect(panelPerformance.streamIdleReconnectDelayMs)
       })
     },
     onDisconnected: () => {
@@ -1040,7 +1060,10 @@ function startChapterStream() {
           sseReconnecting.value = false
           return
         }
-        const delay = Math.min(1000 * 2 ** (reconnectAttempts - 1), 30000)
+        const delay = Math.min(
+          panelPerformance.streamReconnectBaseDelayMs * 2 ** Math.max(reconnectAttempts - 1, 0),
+          panelPerformance.streamReconnectMaxDelayMs,
+        )
         scheduleChapterStreamReconnect(delay)
       })
     },
@@ -1068,19 +1091,19 @@ function stopChapterStream() {
 
 // 🔧 优化：自适应状态轮询 + SSE 协同
 // 策略：
-// - SSE 已连接时：轮询降到 15s 兜底（SSE 已实时驱动刷新，轮询仅防断连漏检）
-// - SSE 未连接但运行中：5s（需要轮询补偿 SSE 的缺失）
-// - 非运行中：3s（用户可能刚操作，需要快速看到状态变化）
-// - 审阅等待中：10s（用户在看大纲，不需要高频刷新）
+// - SSE 已连接时：降频兜底（SSE 已实时驱动刷新，轮询仅防断连漏检）
+// - SSE 未连接但运行中：较高频补偿 SSE 缺失
+// - 非运行中：用户可能刚操作，需要快速看到状态变化
+// - 审阅等待中：用户在看大纲，不需要高频刷新
 function getAdaptivePollInterval() {
   let base
-  if (requiresAIReview.value) base = 5000
-  else if (needsReview.value) base = 10000
-  else if (!isRunning.value) base = 3000
-  else if (sseConnected.value) base = 15000
-  else base = 5000
+  if (requiresAIReview.value) base = panelPerformance.pollRequiresAiReviewMs
+  else if (needsReview.value) base = panelPerformance.pollManualReviewMs
+  else if (!isRunning.value) base = panelPerformance.pollIdleMs
+  else if (sseConnected.value) base = panelPerformance.pollSseConnectedMs
+  else base = panelPerformance.pollRunningMs
   const mult = Math.min(2 ** Math.min(statusConnectivityFailures.value, 8), 128)
-  return Math.min(base * mult, 120_000)
+  return Math.min(base * mult, panelPerformance.pollMaxMs)
 }
 
 watch(
@@ -1243,7 +1266,7 @@ async function stop() {
     stopChapterStream()
     // 发送停止请求（带超时）
     try {
-      await autopilotApi.stop(props.novelId, 5000)
+      await autopilotApi.stop(props.novelId, panelPerformance.stopRequestTimeoutMs)
     } catch (e) {
       if (e instanceof Error && e.name === 'AbortError') {
         message.warning('停止请求超时，但后台可能已处理')
@@ -1354,9 +1377,11 @@ async function forceStopFromError() {
 }
 
 onUnmounted(() => {
+  statusPollDisposed = true
   flushChapterChunkEmit()
   statusFetchSeq += 1
   statusFetchInFlight = false  // 🔥 重置请求去重标志
+  clearStageTransitionTimer()
   if (statusLastAbort) {
     statusLastAbort.abort()
     statusLastAbort = null

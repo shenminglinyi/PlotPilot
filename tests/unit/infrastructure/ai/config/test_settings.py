@@ -22,13 +22,23 @@ class TestSettings:
             default_model="claude-3-opus-20240229",
             default_temperature=0.5,
             default_max_tokens=2048,
-            api_key="test-key"
+            api_key="test-key",
+            timeout_seconds=240,
+            connect_timeout=12,
+            read_timeout=90,
+            write_timeout=45,
+            pool_timeout=9,
         )
 
         assert settings.default_model == "claude-3-opus-20240229"
         assert settings.default_temperature == 0.5
         assert settings.default_max_tokens == DEFAULT_MAX_OUTPUT_TOKENS
         assert settings.api_key == "test-key"
+        assert settings.http_timeout_settings.timeout_seconds == 240
+        assert settings.http_timeout_settings.connect_timeout == 12
+        assert settings.http_timeout_settings.read_timeout == 90
+        assert settings.http_timeout_settings.write_timeout == 45
+        assert settings.http_timeout_settings.pool_timeout == 9
 
     def test_temperature_validation(self):
         """测试温度参数验证"""
@@ -45,3 +55,17 @@ class TestSettings:
 
         with pytest.raises(ValueError, match="Max tokens must be positive"):
             Settings(default_max_tokens=-100)
+
+    @pytest.mark.parametrize(
+        ("field", "message"),
+        [
+            ("timeout_seconds", "timeout_seconds must be positive"),
+            ("connect_timeout", "connect_timeout must be positive"),
+            ("read_timeout", "read_timeout must be positive"),
+            ("write_timeout", "write_timeout must be positive"),
+            ("pool_timeout", "pool_timeout must be positive"),
+        ],
+    )
+    def test_timeout_validation(self, field, message):
+        with pytest.raises(ValueError, match=message):
+            Settings(**{field: 0})

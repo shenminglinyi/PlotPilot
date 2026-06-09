@@ -134,6 +134,8 @@ import type { GenerationPrefsDTO } from '@/api/novel'
 import { narrativeTreeChapterLine } from '@/utils/narrativeUnitLabel'
 import { formatApiError } from '@/utils/apiError'
 import { watchMacroPlanProgress, planningApi, type MacroProgressWatchTerminalEvent, type MacroStreamNodeEvent, type StoryNode as PlanningStoryNode } from '@/api/planning'
+import { runtimePerformance } from '@/config/performance'
+import { useAdaptivePolling } from '@/composables/useAdaptivePolling'
 
 const props = defineProps<{
   slug: string
@@ -203,15 +205,11 @@ const autopilotEmptyMode = ref<null | 'planning' | 'review'>(null)
 
 let macroPlanWatchCtrl: AbortController | null = null
 /** SSE 不可用时仍轮询 GET macro/progress，避免界面永远停在「骨架」态 */
-const macroProgressPolling = ref(false)
-let macroProgressPollTimer: ReturnType<typeof setInterval> | null = null
+let macroProgressPollSlug = ''
 
 function clearMacroProgressPoll() {
-  if (macroProgressPollTimer != null) {
-    clearInterval(macroProgressPollTimer)
-    macroProgressPollTimer = null
-  }
-  macroProgressPolling.value = false
+  macroProgressPollSlug = ''
+  macroProgressPoller.stop()
 }
 
 const macroWatchError = ref('')
@@ -349,21 +347,22 @@ function mergeMacroPreviewNode(ev: MacroStreamNodeEvent) {
 }
 
 async function loadTreeAfterMacroPersist() {
-  for (let i = 0; i < 12; i++) {
+  const attempts = runtimePerformance.workbench.storyTreeMacroPersistRetryAttempts
+  for (let i = 0; i < attempts; i++) {
     await loadTree()
     if (treeData.value.length > 0) {
       macroPreviewRoots.value = []
       return
     }
-    await new Promise((r) => setTimeout(r, 400))
+    await new Promise((r) => setTimeout(r, runtimePerformance.workbench.storyTreeMacroPersistRetryDelayMs))
   }
   macroPreviewRoots.value = []
 }
 
-function startMacroProgressPoll(slug: string) {
-  clearMacroProgressPoll()
-  macroProgressPolling.value = true
-  macroProgressPollTimer = window.setInterval(async () => {
+const macroProgressPoller = useAdaptivePolling(
+  async () => {
+    const slug = macroProgressPollSlug
+    if (!slug) return
     if (autopilotEmptyMode.value !== 'planning') {
       clearMacroProgressPoll()
       return
@@ -389,7 +388,18 @@ function startMacroProgressPoll(slug: string) {
     } catch {
       /* 轮询失败不打断 SSE */
     }
-  }, 3200)
+  },
+  () => runtimePerformance.workbench.storyTreeMacroProgressPollMs,
+  {
+    shouldContinue: () => autopilotEmptyMode.value === 'planning' && !!macroProgressPollSlug,
+    onError: () => undefined,
+  },
+)
+
+function startMacroProgressPoll(slug: string) {
+  clearMacroProgressPoll()
+  macroProgressPollSlug = slug
+  macroProgressPoller.start()
 }
 
 watch(

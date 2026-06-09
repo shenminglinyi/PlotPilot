@@ -3,6 +3,7 @@
  *
  * 与后端 interfaces/api/v1/engine/checkpoint_routes.py 一一对应。
  */
+import { runtimePerformance } from '@/config/performance'
 import { apiClient } from './config'
 
 // ─── Checkpoint ────────────────────────────────────────────────
@@ -263,7 +264,7 @@ export const characterPsycheApi = {
     apiClient.post<ExtractCharacterPsycheResponse>(
       `/novels/${novelId}/character-psyches/${encodeURIComponent(name)}/extract`,
       {},
-      { timeout: 60_000 },
+      { timeout: runtimePerformance.network.mediumTaskTimeoutMs },
     ) as unknown as Promise<ExtractCharacterPsycheResponse>,
 
   /**
@@ -274,7 +275,7 @@ export const characterPsycheApi = {
     apiClient.post<AutoFillCharacterPsycheResponse>(
       `/novels/${novelId}/character-psyches/auto-fill`,
       body ?? {},
-      { timeout: 120_000 },
+      { timeout: runtimePerformance.network.longTaskTimeoutMs },
     ) as unknown as Promise<AutoFillCharacterPsycheResponse>,
 }
 

@@ -1,4 +1,5 @@
 import { apiClient } from './config'
+import { runtimePerformance } from '@/config/performance'
 
 export type LLMProtocol = 'openai' | 'anthropic' | 'gemini'
 
@@ -88,9 +89,13 @@ export const llmControlApi = {
   saveConfig: (config: LLMControlConfig) =>
     apiClient.put<LLMControlPanelData>('/llm-control', config) as Promise<LLMControlPanelData>,
   testProfile: (profile: LLMProfile) =>
-    apiClient.post<LLMTestResult>('/llm-control/test', profile, { timeout: 120_000 }) as Promise<LLMTestResult>,
+    apiClient.post<LLMTestResult>('/llm-control/test', profile, {
+      timeout: runtimePerformance.network.longTaskTimeoutMs,
+    }) as Promise<LLMTestResult>,
   fetchModels: (payload: FetchModelsPayload) =>
-    apiClient.post<ModelListResponse>('/llm-control/models', payload, { timeout: 30_000 }) as Promise<ModelListResponse>,
+    apiClient.post<ModelListResponse>('/llm-control/models', payload, {
+      timeout: runtimePerformance.network.shortTaskTimeoutMs,
+    }) as Promise<ModelListResponse>,
 }
 
 // ========== 提示词广场 API (Prompt Plaza) ==========

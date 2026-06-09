@@ -23,12 +23,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { NCard, NProgress, NButton, NSpin, useMessage } from 'naive-ui'
 import { workflowApi } from '../../api/workflow'
+import { runtimePerformance } from '../../config/performance'
+import { usePolling } from '../../composables/usePolling'
 import type { JobStatusResponse } from '../../types/api'
-
-const POLL_INTERVAL_MS = 3000
 
 interface Props {
   jobId: string
@@ -42,7 +42,6 @@ const emit = defineEmits<{
 }>()
 
 const status = ref<JobStatusResponse | null>(null)
-let pollInterval: number | null = null
 
 const jobTypeLabel = computed(() => {
   if (!status.value) return ''
@@ -90,11 +89,10 @@ const pollStatus = async () => {
 }
 
 const stopPolling = () => {
-  if (pollInterval) {
-    clearInterval(pollInterval)
-    pollInterval = null
-  }
+  polling.stop()
 }
+
+const polling = usePolling(pollStatus, runtimePerformance.jobs.statusPollMs)
 
 const handleCancel = async () => {
   if (!props.jobId) return
@@ -112,12 +110,7 @@ const handleCancel = async () => {
 }
 
 onMounted(() => {
-  pollStatus()
-  pollInterval = window.setInterval(pollStatus, POLL_INTERVAL_MS)
-})
-
-onUnmounted(() => {
-  stopPolling()
+  polling.start({ immediate: true })
 })
 </script>
 

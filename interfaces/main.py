@@ -55,7 +55,7 @@ import signal
 
 from interfaces.api.routes import register_api_routes
 from interfaces.daemon_manager import AutopilotDaemonManager
-from interfaces.runtime import BackendLifecycle
+from interfaces.runtime import BackendLifecycle, get_backend_lifecycle_settings
 from interfaces.runtime_state import (
     _get_shared_state,
     get_shared_novel_state,
@@ -99,9 +99,37 @@ def _get_lifecycle() -> BackendLifecycle:
             start_daemon=_start_autopilot_daemon_thread,
             stop_daemon=_stop_autopilot_daemon_thread,
             cleanup_orphans=_cleanup_orphan_python_processes,
+            stop_async_bridge=_stop_async_bridge,
+            stop_background_tasks=_stop_background_task_service,
+            stop_persistence_consumer=_stop_persistence_consumer,
+            stop_managed_resources=_stop_managed_resources,
             start_force_exit_watchdog=_start_force_exit_watchdog,
         )
     return _lifecycle
+
+
+def _stop_background_task_service() -> None:
+    from interfaces.api.dependencies import shutdown_background_task_service_if_initialized
+
+    shutdown_background_task_service_if_initialized()
+
+
+def _stop_async_bridge() -> None:
+    from application.core.async_bridge import shutdown_async_bridge_executor_if_initialized
+
+    shutdown_async_bridge_executor_if_initialized()
+
+
+def _stop_persistence_consumer() -> None:
+    from application.engine.services.persistence_queue import shutdown_persistence_queue_if_initialized
+
+    shutdown_persistence_queue_if_initialized()
+
+
+def _stop_managed_resources() -> None:
+    from application.engine.services.resource_manager import shutdown_resource_manager_if_initialized
+
+    shutdown_resource_manager_if_initialized()
 
 
 def _get_daemon_manager() -> AutopilotDaemonManager:
@@ -267,7 +295,7 @@ def _assert_internal_shutdown_localhost(request: Request) -> None:
 
 def _internal_shutdown_after_response() -> None:
     """HTTP 响应已发出后再触发进程级退出，避免截断响应体。"""
-    time.sleep(0.15)  # 让 HTTP 响应先发出去
+    time.sleep(get_backend_lifecycle_settings().shutdown_response_delay_seconds)
     if os.name == "nt":
         _get_lifecycle().windows_forced_shutdown()
     os.kill(os.getpid(), signal.SIGINT)
@@ -316,17 +344,19 @@ def _force_exit_watchdog() -> None:
     - multiprocessing 子进程可能在 uvicorn join 时卡住
 
     解决方案：
-    - 在 shutdown event 触发时启动看门狗，给优雅关闭 8 秒时间
+    - 在 shutdown event 触发时启动看门狗，给优雅关闭一段配置化的时间
     - 超时后直接 os._exit(0)，确保进程能退出
     """
     global _shutdown_deadline
     if _shutdown_deadline is None:
         return
+    settings = get_backend_lifecycle_settings()
     # 等待优雅关闭完成或超时
     while time.time() < _shutdown_deadline:
-        time.sleep(0.5)
+        remaining = _shutdown_deadline - time.time()
+        time.sleep(min(settings.force_exit_watchdog_poll_seconds, max(remaining, 0.0)))
     # 超时，强制退出
-    logger.warning("看门狗：优雅关闭超时（8s），强制退出")
+    logger.warning("看门狗：优雅关闭超时（%.1fs），强制退出", settings.force_exit_timeout_seconds)
     logging.shutdown()
     os._exit(0)
 
@@ -334,7 +364,7 @@ def _force_exit_watchdog() -> None:
 def _start_force_exit_watchdog() -> None:
     """在关闭流程开始时启动看门狗线程。"""
     global _shutdown_deadline
-    _shutdown_deadline = time.time() + 8.0
+    _shutdown_deadline = time.time() + get_backend_lifecycle_settings().force_exit_timeout_seconds
     t = threading.Thread(target=_force_exit_watchdog, daemon=True)
     t.start()
 

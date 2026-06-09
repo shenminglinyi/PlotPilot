@@ -13,8 +13,6 @@
 
 当 Token 预算紧张时，从 T3 → T2 → T1 逐层挤压，T0 绝对保护。
 """
-import asyncio
-import concurrent.futures
 import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -68,6 +66,7 @@ from application.engine.services.context_slot_providers import (
     build_worldbuilding_core_slot_content,
     format_storyline_context_block,
 )
+from application.core.async_bridge import run_coroutine_sync
 from infrastructure.ai.prompt_registry import get_prompt_registry
 
 logger = logging.getLogger(__name__)
@@ -75,13 +74,7 @@ logger = logging.getLogger(__name__)
 
 def _sync_run_async(coro):
     """在同步上下文中运行 async 协程（处理已有事件循环的情况）。"""
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(coro)
-    # 已在事件循环中：在新线程中运行
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        return pool.submit(lambda: asyncio.run(coro)).result()
+    return run_coroutine_sync(lambda: coro)
 
 
 class ContextBudgetAllocator:

@@ -16,8 +16,11 @@ import time
 import logging
 from queue import Full, Empty
 from typing import Dict, Optional, List, Any
-from dataclasses import dataclass, field
 from infrastructure.engine.streaming_environment import StreamingEnvironmentSettings
+from application.engine.services.streaming_bus_settings import (
+    StreamingBusSettings,
+    get_streaming_bus_settings,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +32,6 @@ _initialized = False
 # 消息格式：
 #   普通 chunk: {"novel_id": str, "chunk": str, "timestamp": float}
 #   停止信号:   {"novel_id": str, "type": "stop_signal", "timestamp": float}
-MAX_QUEUE_SIZE = 10000
-
-
 def init_streaming_bus() -> mp.Queue:
     """初始化流式队列（主进程调用）
 
@@ -46,10 +46,11 @@ def init_streaming_bus() -> mp.Queue:
         if _initialized and _stream_queue is not None:
             return _stream_queue
 
+        settings = get_streaming_bus_settings()
         logger.info("[StreamingBus] 初始化跨进程队列...")
-        _stream_queue = mp.Queue(maxsize=MAX_QUEUE_SIZE)
+        _stream_queue = mp.Queue(maxsize=settings.queue_max_size)
         _initialized = True
-        logger.info("[StreamingBus] 队列初始化完成，maxsize=%d", MAX_QUEUE_SIZE)
+        logger.info("[StreamingBus] 队列初始化完成，maxsize=%d", settings.queue_max_size)
 
     return _stream_queue
 
@@ -66,6 +67,17 @@ def get_stream_queue() -> Optional[mp.Queue]:
     return _stream_queue
 
 
+def _drop_old_messages(queue: mp.Queue, limit: int) -> int:
+    dropped = 0
+    for _ in range(limit):
+        try:
+            queue.get_nowait()
+            dropped += 1
+        except Empty:
+            break
+    return dropped
+
+
 class StreamingBus:
     """流式消息总线 v4 - 纯队列模式 + 停止信号
 
@@ -76,17 +88,17 @@ class StreamingBus:
     - 简单、可靠、单队列多消息类型
     """
 
-    MAX_BATCH_CHUNKS = 200
-
     def __init__(
         self,
         queue: Optional[mp.Queue] = None,
         *,
         verbose_chunks: Optional[bool] = None,
+        settings: StreamingBusSettings | None = None,
     ):
         if verbose_chunks is None:
             verbose_chunks = StreamingEnvironmentSettings.from_env().verbose_chunks
         self._verbose_chunks = verbose_chunks
+        self._settings = settings or get_streaming_bus_settings()
         if queue is not None:
             inject_stream_queue(queue)
 
@@ -136,7 +148,7 @@ class StreamingBus:
                 qsize = -1
             logger.warning(
                 "[StreamingBus] 队列满，丢弃本条 chunk（约 %d 字）novel=%s qsize≈%s；"
-                "请检查 SSE 消费是否阻塞或增大 MAX_QUEUE_SIZE",
+                "请检查 SSE 消费是否阻塞或调整 streaming_bus.queue_max_size",
                 len(chunk),
                 novel_id,
                 qsize,
@@ -178,12 +190,7 @@ class StreamingBus:
             if self._verbose_chunks:
                 logger.debug("[StreamingBus] publish_audit_event: %s, %s", novel_id, event_type)
         except Full:
-            # 队列满时丢弃旧消息
-            for _ in range(10):
-                try:
-                    queue.get_nowait()
-                except Empty:
-                    break
+            _drop_old_messages(queue, self._settings.audit_overflow_drop_count)
             try:
                 queue.put_nowait(message)
             except Full:
@@ -211,13 +218,7 @@ class StreamingBus:
             logger.info("[StreamingBus] 停止信号已发布: %s", novel_id)
         except Full:
             # 队列满时强制丢弃旧消息，确保停止信号能送达
-            dropped = 0
-            for _ in range(100):
-                try:
-                    queue.get_nowait()
-                    dropped += 1
-                except Empty:
-                    break
+            dropped = _drop_old_messages(queue, self._settings.stop_overflow_drop_count)
             try:
                 queue.put_nowait(message)
                 logger.warning(
@@ -250,11 +251,7 @@ class StreamingBus:
             logger.info("[StreamingBus] 启动信号已发布: %s", novel_id)
         except Full:
             # 丢弃旧消息腾出空间
-            for _ in range(50):
-                try:
-                    queue.get_nowait()
-                except Empty:
-                    break
+            _drop_old_messages(queue, self._settings.start_overflow_drop_count)
             try:
                 queue.put_nowait(message)
             except Full:
@@ -282,7 +279,7 @@ class StreamingBus:
             return affected_novels
 
         # 只消费少量消息，避免阻塞正常 chunk 消费
-        for _ in range(50):
+        for _ in range(self._settings.control_scan_limit):
             try:
                 message = queue.get_nowait()
                 if not isinstance(message, dict):
@@ -335,7 +332,7 @@ class StreamingBus:
             {"deltas": List[str], "content": Optional[str]}
             ``content`` 为本批最新消息中的整章快照（若有则优先于 deltas 拼接）。
         """
-        max_chunks = max_chunks or self.MAX_BATCH_CHUNKS
+        max_chunks = max_chunks or self._settings.max_batch_chunks
         chunks: List[str] = []
         latest_content: Optional[str] = None
         other_messages: List[Dict] = []
@@ -420,7 +417,7 @@ class StreamingBus:
                 "audit_events": List[Dict],  # 审计事件
             }
         """
-        max_chunks = max_chunks or self.MAX_BATCH_CHUNKS
+        max_chunks = max_chunks or self._settings.max_batch_chunks
         chunks: List[str] = []
         latest_content: Optional[str] = None
         audit_events: List[Dict] = []
@@ -521,7 +518,7 @@ class StreamingBus:
         other_messages: List[Dict] = []
         cleared = 0
 
-        for _ in range(1000):
+        for _ in range(self._settings.clear_scan_limit):
             try:
                 message = queue.get_nowait()
                 if isinstance(message, dict):

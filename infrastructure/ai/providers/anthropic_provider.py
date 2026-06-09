@@ -10,6 +10,7 @@ from domain.ai.services.llm_service import GenerationConfig, GenerationResult
 from domain.ai.value_objects.prompt import Prompt
 from domain.ai.value_objects.token_usage import TokenUsage
 from infrastructure.ai.config.settings import Settings
+from infrastructure.ai.http_timeout import build_httpx_timeout
 from .base import BaseProvider
 from .model_resolution import require_resolved_model_id
 
@@ -94,13 +95,7 @@ class AnthropicProvider(BaseProvider):
             official_client_kw["base_url"] = base
 
         # SDK 内置 httpx 默认 trust_env=True，会走系统 HTTP(S)_PROXY，本机代理 TLS 常导致 ConnectError。
-        # 🔥 分层超时：避免 API 卡住时整个进程挂起
-        _sdk_timeout = httpx.Timeout(
-            connect=settings.connect_timeout,
-            read=settings.read_timeout,
-            write=60.0,
-            pool=30.0,
-        )
+        _sdk_timeout = build_httpx_timeout(settings.http_timeout_settings)
         self._http_client_sync = httpx.Client(timeout=_sdk_timeout, trust_env=False)
         self._http_client_async = httpx.AsyncClient(timeout=_sdk_timeout, trust_env=False)
         self.client = Anthropic(**official_client_kw, http_client=self._http_client_sync)
@@ -108,12 +103,7 @@ class AnthropicProvider(BaseProvider):
 
         # 流式端点专用 httpx client（长生命周期，跨请求复用连接池）
         self._stream_http_client = httpx.AsyncClient(
-            timeout=httpx.Timeout(
-                connect=self.settings.connect_timeout,
-                read=self.settings.read_timeout,
-                write=60.0,
-                pool=30.0,
-            ),
+            timeout=build_httpx_timeout(self.settings.http_timeout_settings),
             trust_env=False,
         )
 

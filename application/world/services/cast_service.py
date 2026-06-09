@@ -24,6 +24,10 @@ from application.world.dtos.cast_dto import (
     BibleCharacterDTO,
     QuotedTextDTO
 )
+from application.world.services.cast_runtime_settings import (
+    CastRuntimeSettings,
+    get_cast_runtime_settings,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +79,7 @@ class CastService:
         self,
         storage_root: Path,
         knowledge_repository: Optional["KnowledgeRepository"] = None,
+        runtime_settings: Optional[CastRuntimeSettings] = None,
     ):
         """Initialize service
 
@@ -84,10 +89,54 @@ class CastService:
         """
         self.storage_root = storage_root
         self._knowledge_repository = knowledge_repository
+        self._runtime_settings = runtime_settings or get_cast_runtime_settings()
         # 同一小说在短时间内大量 API（如逐个拉 character-psyches）会重复全量构图；TTL 缓存降低 SQLite 与 CPU 压力。
         self._graph_cache_lock = threading.Lock()
-        self._graph_cache_ttl_sec = 8.0
         self._graph_cache_ttl: Dict[str, Tuple[float, CastGraphDTO]] = {}
+
+    def _graph_cache_enabled(self) -> bool:
+        return (
+            self._runtime_settings.graph_cache_ttl_seconds > 0
+            and self._runtime_settings.graph_cache_max_size > 0
+        )
+
+    def _cleanup_graph_cache_locked(self, now: float) -> None:
+        ttl = self._runtime_settings.graph_cache_ttl_seconds
+        expired = [
+            key for key, (ts, _) in self._graph_cache_ttl.items()
+            if now - ts >= ttl
+        ]
+        for key in expired:
+            self._graph_cache_ttl.pop(key, None)
+
+    def _evict_graph_cache_overflow_locked(self) -> None:
+        max_size = self._runtime_settings.graph_cache_max_size
+        while len(self._graph_cache_ttl) > max_size:
+            oldest_key = min(
+                self._graph_cache_ttl,
+                key=lambda key: self._graph_cache_ttl[key][0],
+            )
+            self._graph_cache_ttl.pop(oldest_key, None)
+
+    def _get_cached_graph(self, novel_id: str, now: float) -> Optional[CastGraphDTO]:
+        if not self._graph_cache_enabled():
+            return None
+        with self._graph_cache_lock:
+            self._cleanup_graph_cache_locked(now)
+            ent = self._graph_cache_ttl.get(novel_id)
+            if ent is None:
+                return None
+            logger.debug("Cast graph cache hit novel_id=%s", novel_id)
+            return ent[1]
+
+    def _store_cached_graph(self, novel_id: str, dto: CastGraphDTO) -> None:
+        if not self._graph_cache_enabled():
+            return
+        now = time.monotonic()
+        with self._graph_cache_lock:
+            self._cleanup_graph_cache_locked(now)
+            self._graph_cache_ttl[novel_id] = (now, dto)
+            self._evict_graph_cache_overflow_locked()
 
     def _load_facts_list(self, novel_id: str) -> List[dict]:
         """仅从 SQLite 知识库读取 facts（不回退 novel_knowledge.json）。"""
@@ -299,13 +348,9 @@ class CastService:
     def get_cast_graph(self, novel_id: str) -> CastGraphDTO:
         """从三元组自动生成关系图（仅 SQLite 知识库）。"""
         now = time.monotonic()
-        with self._graph_cache_lock:
-            ent = self._graph_cache_ttl.get(novel_id)
-            if ent is not None:
-                ts, dto = ent
-                if now - ts < self._graph_cache_ttl_sec:
-                    logger.debug("Cast graph cache hit novel_id=%s", novel_id)
-                    return dto
+        cached = self._get_cached_graph(novel_id, now)
+        if cached is not None:
+            return cached
 
         logger.debug("从三元组生成关系图: novel_id=%s", novel_id)
 
@@ -313,8 +358,7 @@ class CastService:
         if not facts:
             logger.debug(f"No facts for novel {novel_id}")
             dto = CastGraphDTO(version=2, characters=[], relationships=[])
-            with self._graph_cache_lock:
-                self._graph_cache_ttl[novel_id] = (time.monotonic(), dto)
+            self._store_cached_graph(novel_id, dto)
             return dto
 
         characters = self._extract_characters_from_facts(facts)
@@ -334,8 +378,7 @@ class CastService:
             len(characters),
             len(relationships),
         )
-        with self._graph_cache_lock:
-            self._graph_cache_ttl[novel_id] = (time.monotonic(), dto)
+        self._store_cached_graph(novel_id, dto)
         return dto
 
     def search_cast(self, novel_id: str, query: str) -> CastSearchResultDTO:

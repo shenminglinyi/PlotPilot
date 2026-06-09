@@ -98,6 +98,7 @@
 import { ref, computed, type ComponentPublicInstance } from 'vue'
 import StoryStructureTree from '@/components/StoryStructureTree.vue'
 import MacroPlanModal from '@/components/workbench/MacroPlanModal.vue'
+import { runtimePerformance } from '@/config/performance'
 import type { GenerationPrefsDTO } from '@/api/novel'
 import { narrativeOrdinalLabel, narrativeUnitNoun } from '@/utils/narrativeUnitLabel'
 
@@ -156,8 +157,6 @@ const storyTreeRef = ref<ComponentPublicInstance<{ loadTree: () => Promise<void>
 
 /** 合并短时间内的多次刷新（全托管 desk 更新等），减轻结构树请求叠压 */
 let storyTreeRefreshTimer: ReturnType<typeof setTimeout> | null = null
-const STORY_TREE_REFRESH_DEBOUNCE_MS = 200
-
 /** 幕→章确认后由工作台调用，刷新左侧叙事结构树 */
 function refreshStoryTree() {
   if (storyTreeRefreshTimer != null) {
@@ -166,7 +165,7 @@ function refreshStoryTree() {
   storyTreeRefreshTimer = setTimeout(() => {
     storyTreeRefreshTimer = null
     void storyTreeRef.value?.loadTree?.()
-  }, STORY_TREE_REFRESH_DEBOUNCE_MS)
+  }, runtimePerformance.workbench.storyTreeRefreshDebounceMs)
 }
 
 defineExpose({ refreshStoryTree })

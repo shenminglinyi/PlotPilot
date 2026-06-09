@@ -3,6 +3,7 @@
  */
 
 import { apiClient, resolveHttpUrl } from './config'
+import { runtimePerformance } from '@/config/performance'
 
 /** 开发态前端日志：与后端 `continuous_planning_routes` 中 `[MacroSSEWatch]` 等关键词对齐，便于同一控制台/filter 对照 */
 function truncFeMsg(s: string, max: number): string {
@@ -622,7 +623,7 @@ export const planningApi = {
     apiClient.post<MacroPlanGenerateResponse>(
       `/planning/novels/${novelId}/macro/generate`,
       data,
-      { timeout: 300000 }
+      { timeout: runtimePerformance.network.planningTaskTimeoutMs }
     ) as unknown as Promise<MacroPlanGenerateResponse>,
 
   getMacroProgress: (novelId: string) =>

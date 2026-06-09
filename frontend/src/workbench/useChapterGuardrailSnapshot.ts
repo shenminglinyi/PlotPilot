@@ -1,6 +1,7 @@
 import { ref, watch, type Ref } from 'vue'
 import { chapterApi } from '@/api/chapter'
 import type { GuardrailCheckResponse } from '@/api/engineCore'
+import { runtimePerformance } from '@/config/performance'
 
 export interface LoadGuardrailSnapshotOptions {
   force?: boolean
@@ -12,9 +13,6 @@ export interface UseChapterGuardrailSnapshotOptions {
   chapterNumber: Ref<number | null | undefined>
   refreshKey?: Ref<unknown>
 }
-
-const GUARDRAIL_EMPTY_BACKOFF_MS = 90_000
-const GUARDRAIL_ERROR_BACKOFF_MS = 60_000
 
 export function useChapterGuardrailSnapshot(options: UseChapterGuardrailSnapshotOptions) {
   const snapshot = ref<GuardrailCheckResponse | null>(null)
@@ -63,13 +61,13 @@ export function useChapterGuardrailSnapshot(options: UseChapterGuardrailSnapshot
       snapshot.value = data
       if (data == null) {
         backoffKey.value = key
-        backoffUntil.value = Date.now() + GUARDRAIL_EMPTY_BACKOFF_MS
+        backoffUntil.value = Date.now() + runtimePerformance.workbench.guardrailEmptyBackoffMs
       } else {
         resetBackoff()
       }
     } catch {
       backoffKey.value = key
-      backoffUntil.value = Date.now() + GUARDRAIL_ERROR_BACKOFF_MS
+      backoffUntil.value = Date.now() + runtimePerformance.workbench.guardrailErrorBackoffMs
     }
   }
 

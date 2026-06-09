@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import datetime
 from typing import Any, List, Mapping, Optional, Union
@@ -12,6 +13,7 @@ from domain.bible.triple import Triple, SourceType
 from domain.knowledge.triple_provenance import TripleProvenanceRecord
 from infrastructure.persistence.database.connection import DatabaseConnection
 from infrastructure.persistence.database.sqlite_knowledge_repository import SqliteKnowledgeRepository
+from infrastructure.persistence.database.sqlite_write_settings import get_sqlite_write_settings
 
 
 def _persist_source_type(st: SourceType) -> str:
@@ -376,18 +378,18 @@ class TripleRepository:
             triples: 三元组列表
             batch_size: 每批提交数量，默认 50。WAL 模式下小批量可让读请求"插队"。
         """
-        import time
         total = len(triples)
         if total == 0:
             return triples
 
+        write_settings = get_sqlite_write_settings()
         for i in range(0, total, batch_size):
             batch = triples[i:i + batch_size]
             for t in batch:
                 await self.save(t)
             # 🔥 微事务间隙主动让出时间片，允许 API 进程的读请求插队
             if i + batch_size < total:
-                time.sleep(0.01)
+                await asyncio.sleep(write_settings.micro_transaction_yield_seconds)
 
         return triples
 

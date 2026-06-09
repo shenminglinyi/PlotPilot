@@ -90,6 +90,7 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { monitorApi } from '@/api/monitor'
 import { usePolling } from '@/composables/usePolling'
+import { runtimePerformance } from '@/config/performance'
 
 interface VoiceDriftData {
   drift_score: number
@@ -236,7 +237,7 @@ function formatTime(timestamp: string): string {
   }
 }
 
-const polling = usePolling(loadDriftData, 30000)
+const polling = usePolling(loadDriftData, runtimePerformance.autopilotMetrics.voiceDriftPollMs)
 
 // 监听
 watch(() => props.novelId, () => {

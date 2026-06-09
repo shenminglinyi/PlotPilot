@@ -1,6 +1,7 @@
 from interfaces.api.settings import BackendSettings
 from interfaces.daemon_manager import (
     AutopilotDaemonManager,
+    DaemonLifecycleSettings,
     DaemonStatus,
     is_expected_daemon_shutdown_exception,
 )
@@ -46,6 +47,10 @@ def test_daemon_manager_status_reads_process_state():
         log_level=20,
         log_file="logs/test.log",
         shared_state_provider=lambda: {},
+        lifecycle_settings_provider=lambda: DaemonLifecycleSettings(
+            graceful_join_timeout_seconds=0.25,
+            terminate_join_timeout_seconds=0.5,
+        ),
     )
     manager.process = process
 
@@ -75,6 +80,10 @@ def test_daemon_manager_stop_signals_and_terminates_stuck_process(monkeypatch):
         log_level=20,
         log_file="logs/test.log",
         shared_state_provider=lambda: {},
+        lifecycle_settings_provider=lambda: DaemonLifecycleSettings(
+            graceful_join_timeout_seconds=0.25,
+            terminate_join_timeout_seconds=0.5,
+        ),
     )
     manager.process = process
     manager.stop_event = event
@@ -84,6 +93,6 @@ def test_daemon_manager_stop_signals_and_terminates_stuck_process(monkeypatch):
 
     assert event.was_set is True
     assert process.terminated is True
-    assert process.join_calls == [2, 1]
+    assert process.join_calls == [0.25, 0.5]
     assert manager.process is None
     assert manager.stop_event is None

@@ -29,9 +29,10 @@ from __future__ import annotations
 
 import json
 import logging
-import os
+import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -40,6 +41,10 @@ from domain.bible.repositories.bible_repository import BibleRepository
 from domain.novel.value_objects.novel_id import NovelId
 
 from application.ai.llm_json_extract import parse_llm_json_to_dict
+from application.engine.services.memory_engine_settings import (
+    MemoryEngineRuntimeSettings,
+    get_memory_engine_runtime_settings,
+)
 from infrastructure.ai.generation_profiles import generation_config_from_profile
 from infrastructure.ai.prompt_contracts.memory_extraction import MEMORY_EXTRACTION_CONTRACT
 from infrastructure.ai.prompt_gateway import PromptGatewayError, get_prompt_gateway
@@ -335,14 +340,17 @@ class MemoryEngine:
         llm_service: LLMService,
         bible_repository: BibleRepository,
         db_connection=None,
+        runtime_settings: MemoryEngineRuntimeSettings | None = None,
     ):
         self.llm_service = llm_service
         self.fact_lock_builder = FactLockBuilder(bible_repository)
         self.bible_repository = bible_repository
         self.db_connection = db_connection
+        self._runtime_settings = runtime_settings or get_memory_engine_runtime_settings()
 
-        # 运行时内存缓存（优先读缓存，miss 再查 DB）
-        self._cache: Dict[str, MemoryState] = {}
+        # 运行时内存缓存（优先读缓存，miss 再查 DB）。容量与 TTL 由 performance.yaml 管理。
+        self._cache: "OrderedDict[str, MemoryState]" = OrderedDict()
+        self._cache_loaded_at: Dict[str, float] = {}
 
         if self.db_connection is not None:
             # 与正式迁移一致；避免首次 _load_from_db 在表未建好时刷 WARNING
@@ -503,7 +511,7 @@ class MemoryEngine:
 
             # 6. 更新状态并持久化
             state.last_updated_chapter = chapter_number
-            self._cache[novel_id] = state
+            self._remember_state(novel_id, state)
             self._persist_state(novel_id, state)
 
             logger.info(
@@ -524,13 +532,55 @@ class MemoryEngine:
 
     def _get_or_load_state(self, novel_id: str) -> MemoryState:
         """获取内存状态（缓存优先）"""
-        if novel_id in self._cache:
-            return self._cache[novel_id]
+        cached = self._get_cached_state(novel_id)
+        if cached is not None:
+            return cached
 
         # 从 DB 加载
         state = self._load_from_db(novel_id)
-        self._cache[novel_id] = state
+        self._remember_state(novel_id, state)
         return state
+
+    def _cache_enabled(self) -> bool:
+        return (
+            self._runtime_settings.state_cache_ttl_seconds > 0
+            and self._runtime_settings.state_cache_max_size > 0
+        )
+
+    def _get_cached_state(self, novel_id: str) -> MemoryState | None:
+        if not self._cache_enabled():
+            self._forget_cached_state(novel_id)
+            return None
+
+        state = self._cache.get(novel_id)
+        if state is None:
+            return None
+
+        loaded_at = self._cache_loaded_at.get(novel_id, 0.0)
+        if time.monotonic() - loaded_at >= self._runtime_settings.state_cache_ttl_seconds:
+            self._forget_cached_state(novel_id)
+            return None
+
+        self._cache.move_to_end(novel_id)
+        return state
+
+    def _remember_state(self, novel_id: str, state: MemoryState) -> None:
+        if not self._cache_enabled():
+            self._forget_cached_state(novel_id)
+            return
+
+        self._cache[novel_id] = state
+        self._cache.move_to_end(novel_id)
+        self._cache_loaded_at[novel_id] = time.monotonic()
+
+        max_size = self._runtime_settings.state_cache_max_size
+        while len(self._cache) > max_size:
+            evicted_novel_id, _ = self._cache.popitem(last=False)
+            self._cache_loaded_at.pop(evicted_novel_id, None)
+
+    def _forget_cached_state(self, novel_id: str) -> None:
+        self._cache.pop(novel_id, None)
+        self._cache_loaded_at.pop(novel_id, None)
 
     def _load_from_db(self, novel_id: str) -> MemoryState:
         """从数据库加载持久化状态"""
@@ -725,8 +775,7 @@ class MemoryEngine:
 
     def reset(self, novel_id: str) -> None:
         """重置某小说的记忆状态（谨慎使用）"""
-        if novel_id in self._cache:
-            del self._cache[novel_id]
+        self._forget_cached_state(novel_id)
 
         if self.db_connection:
             try:

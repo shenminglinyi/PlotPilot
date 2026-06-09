@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 
 import { featureFlags } from '../config/features'
+import { runtimePerformance } from '../config/performance'
 import {
   aiInvocationApi,
   type InvocationPromptDraftPreviewDTO,
@@ -21,7 +22,9 @@ function errorText(err: unknown): string {
 
 export const useAIInvocationStore = defineStore('aiInvocation', () => {
   const sessionListeners = new Map<string, Array<(payload: InvocationResponseDTO) => void>>()
-  const sessionPollTimer = new Map<string, ReturnType<typeof setInterval>>()
+  const sessionPollTimer = new Map<string, ReturnType<typeof setTimeout>>()
+  const activeGenerationPollSessions = new Set<string>()
+  const sessionPollInFlight = new Set<string>()
   const headlessAdvancingSessions = new Set<string>()
   const visible = ref(false)
   const loading = ref(false)
@@ -386,38 +389,72 @@ export const useAIInvocationStore = defineStore('aiInvocation', () => {
     stopGenerationPolling()
   }
 
-  function stopGenerationPolling(sessionId?: string) {
-    if (sessionId) {
-      const timer = sessionPollTimer.get(sessionId)
-      if (timer) {
-        clearInterval(timer)
-        sessionPollTimer.delete(sessionId)
-      }
-    } else {
-      for (const timer of sessionPollTimer.values()) {
-        clearInterval(timer)
-      }
-      sessionPollTimer.clear()
-    }
-    liveAttemptLoading.value = false
+  function clearGenerationPollTimer(sessionId: string) {
+    const timer = sessionPollTimer.get(sessionId)
+    if (!timer) return
+    clearTimeout(timer)
+    sessionPollTimer.delete(sessionId)
   }
 
-  async function refreshSession() {
-    if (!session.value?.id) return
-    const payload = await aiInvocationApi.get(session.value.id, { silentGlobalFeedback: true })
+  function refreshLiveAttemptLoading() {
+    liveAttemptLoading.value = sessionPollTimer.size > 0 || sessionPollInFlight.size > 0
+  }
+
+  function stopGenerationPolling(sessionId?: string) {
+    if (sessionId) {
+      activeGenerationPollSessions.delete(sessionId)
+      clearGenerationPollTimer(sessionId)
+    } else {
+      activeGenerationPollSessions.clear()
+      for (const activeSessionId of [...sessionPollTimer.keys()]) {
+        clearGenerationPollTimer(activeSessionId)
+      }
+    }
+    refreshLiveAttemptLoading()
+  }
+
+  async function refreshSession(sessionId = session.value?.id) {
+    if (!sessionId) return
+    const payload = await aiInvocationApi.get(sessionId, { silentGlobalFeedback: true })
+    if (session.value?.id && session.value.id !== sessionId) return
     applyResponse(payload)
+  }
+
+  function scheduleGenerationPoll(sessionId: string) {
+    if (!activeGenerationPollSessions.has(sessionId)) return
+    if (sessionPollTimer.has(sessionId) || sessionPollInFlight.has(sessionId)) return
+    const timer = window.setTimeout(() => {
+      sessionPollTimer.delete(sessionId)
+      if (!activeGenerationPollSessions.has(sessionId)) {
+        refreshLiveAttemptLoading()
+        return
+      }
+      sessionPollInFlight.add(sessionId)
+      refreshLiveAttemptLoading()
+      void refreshSession(sessionId)
+        .catch(() => {})
+        .finally(() => {
+          sessionPollInFlight.delete(sessionId)
+          if (
+            activeGenerationPollSessions.has(sessionId)
+            && session.value?.id === sessionId
+            && session.value?.status === 'generating'
+          ) {
+            scheduleGenerationPoll(sessionId)
+          }
+          refreshLiveAttemptLoading()
+        })
+    }, runtimePerformance.aiInvocation.generationPollMs)
+    sessionPollTimer.set(sessionId, timer)
+    refreshLiveAttemptLoading()
   }
 
   function syncGenerationPolling() {
     const sessionId = session.value?.id
     if (!sessionId) return
     if (session.value?.status === 'generating') {
-      if (sessionPollTimer.has(sessionId)) return
-      liveAttemptLoading.value = true
-      const timer = window.setInterval(() => {
-        void refreshSession().catch(() => {})
-      }, 1200)
-      sessionPollTimer.set(sessionId, timer)
+      activeGenerationPollSessions.add(sessionId)
+      scheduleGenerationPoll(sessionId)
       return
     }
     stopGenerationPolling()

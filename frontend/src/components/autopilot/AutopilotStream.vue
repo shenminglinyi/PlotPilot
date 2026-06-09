@@ -13,8 +13,10 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onUnmounted, nextTick } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { chapterApi } from '../../api/chapter'
+import { runtimePerformance } from '../../config/performance'
+import { usePolling } from '../../composables/usePolling'
 
 const props = defineProps({
   novelId: String,
@@ -32,8 +34,6 @@ const wordCount = computed(() => displayContent.value.length)
 const stageLabel = computed(() => '正文撰写中')
 const streamEl = ref(null)
 
-let pollTimer = null
-
 async function fetchLatestDraft() {
   // 取最新 draft 章节的内容
   const ch = await chapterApi.getLatestDraftChapter(props.novelId)
@@ -48,16 +48,15 @@ async function fetchLatestDraft() {
   }
 }
 
+const polling = usePolling(fetchLatestDraft, runtimePerformance.autopilotPanel.draftStreamPollMs)
+
 watch(() => props.currentStage, (stage) => {
   if (stage === 'writing') {
-    pollTimer = setInterval(fetchLatestDraft, 5000)
-    fetchLatestDraft()
+    polling.restart({ immediate: true })
   } else {
-    clearInterval(pollTimer)
+    polling.stop()
   }
 }, { immediate: true })
-
-onUnmounted(() => clearInterval(pollTimer))
 </script>
 
 <style scoped>

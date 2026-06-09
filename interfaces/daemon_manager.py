@@ -10,6 +10,8 @@ import subprocess
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from application.core.config.config_loader import get_config
+from application.core.config.runtime_settings_utils import positive_float, section_value
 from interfaces.api.settings import BackendSettings, get_backend_settings
 
 
@@ -22,6 +24,82 @@ NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
 class DaemonStatus:
     running: bool
     pid: int | None
+
+
+@dataclass(frozen=True)
+class DaemonLifecycleSettings:
+    error_sleep_seconds: float = 10.0
+    powershell_list_timeout_seconds: float = 15.0
+    wmic_list_timeout_seconds: float = 8.0
+    orphan_taskkill_timeout_seconds: float = 5.0
+    graceful_join_timeout_seconds: float = 2.0
+    terminate_join_timeout_seconds: float = 1.0
+    sigkill_join_timeout_seconds: float = 1.0
+    windows_taskkill_timeout_seconds: float = 3.0
+
+
+def get_daemon_lifecycle_settings() -> DaemonLifecycleSettings:
+    daemon = getattr(get_config(), "daemon", None)
+    section = getattr(daemon, "lifecycle", None)
+    defaults = DaemonLifecycleSettings()
+    return DaemonLifecycleSettings(
+        error_sleep_seconds=positive_float(
+            section_value(section, "error_sleep_seconds", defaults.error_sleep_seconds),
+            defaults.error_sleep_seconds,
+        ),
+        powershell_list_timeout_seconds=positive_float(
+            section_value(
+                section,
+                "powershell_list_timeout_seconds",
+                defaults.powershell_list_timeout_seconds,
+            ),
+            defaults.powershell_list_timeout_seconds,
+        ),
+        wmic_list_timeout_seconds=positive_float(
+            section_value(section, "wmic_list_timeout_seconds", defaults.wmic_list_timeout_seconds),
+            defaults.wmic_list_timeout_seconds,
+        ),
+        orphan_taskkill_timeout_seconds=positive_float(
+            section_value(
+                section,
+                "orphan_taskkill_timeout_seconds",
+                defaults.orphan_taskkill_timeout_seconds,
+            ),
+            defaults.orphan_taskkill_timeout_seconds,
+        ),
+        graceful_join_timeout_seconds=positive_float(
+            section_value(
+                section,
+                "graceful_join_timeout_seconds",
+                defaults.graceful_join_timeout_seconds,
+            ),
+            defaults.graceful_join_timeout_seconds,
+        ),
+        terminate_join_timeout_seconds=positive_float(
+            section_value(
+                section,
+                "terminate_join_timeout_seconds",
+                defaults.terminate_join_timeout_seconds,
+            ),
+            defaults.terminate_join_timeout_seconds,
+        ),
+        sigkill_join_timeout_seconds=positive_float(
+            section_value(
+                section,
+                "sigkill_join_timeout_seconds",
+                defaults.sigkill_join_timeout_seconds,
+            ),
+            defaults.sigkill_join_timeout_seconds,
+        ),
+        windows_taskkill_timeout_seconds=positive_float(
+            section_value(
+                section,
+                "windows_taskkill_timeout_seconds",
+                defaults.windows_taskkill_timeout_seconds,
+            ),
+            defaults.windows_taskkill_timeout_seconds,
+        ),
+    )
 
 
 def is_expected_daemon_shutdown_exception(exc: BaseException) -> bool:
@@ -48,6 +126,7 @@ def run_autopilot_daemon_process(
     from interfaces.api.middleware.logging_config import setup_logging
 
     process_logger = logging.getLogger(__name__)
+    lifecycle_settings = get_daemon_lifecycle_settings()
     setup_logging(level=log_level, log_file=log_file)
 
     if stream_queue is not None:
@@ -134,7 +213,7 @@ def run_autopilot_daemon_process(
                     process_logger.info("守护进程在停止/热重载期间中断，正常退出")
                     break
                 process_logger.error("守护进程异常: %s", exc, exc_info=True)
-                stop_event.wait(timeout=10)
+                stop_event.wait(timeout=lifecycle_settings.error_sleep_seconds)
 
     except BaseException as exc:
         if stop_event.is_set() or is_expected_daemon_shutdown_exception(exc):
@@ -148,6 +227,7 @@ def run_autopilot_daemon_process(
 def cleanup_orphan_python_processes(logger_: logging.Logger | None = None) -> None:
     """Windows cleanup for leftover PlotPilot/uvicorn Python processes."""
     log = logger_ or logger
+    lifecycle_settings = get_daemon_lifecycle_settings()
     current_pid = os.getpid()
     log.info("检查残留进程（当前 PID=%s）...", current_pid)
 
@@ -175,7 +255,7 @@ Get-CimInstance Win32_Process | ForEach-Object {
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=15,
+            timeout=lifecycle_settings.powershell_list_timeout_seconds,
             creationflags=NO_WINDOW,
         )
         if result.returncode != 0:
@@ -202,7 +282,7 @@ Get-CimInstance Win32_Process | ForEach-Object {
             ],
             capture_output=True,
             text=True,
-            timeout=8,
+            timeout=lifecycle_settings.wmic_list_timeout_seconds,
             creationflags=NO_WINDOW,
         )
         if result.returncode != 0:
@@ -248,7 +328,7 @@ Get-CimInstance Win32_Process | ForEach-Object {
                 subprocess.run(
                     ["taskkill", "/F", "/PID", str(pid)],
                     capture_output=True,
-                    timeout=5,
+                    timeout=lifecycle_settings.orphan_taskkill_timeout_seconds,
                     creationflags=NO_WINDOW,
                 )
                 killed_count += 1
@@ -279,6 +359,7 @@ class AutopilotDaemonManager:
         log_file: str,
         shared_state_provider: Callable[[], dict],
         settings_provider: Callable[[], BackendSettings] = get_backend_settings,
+        lifecycle_settings_provider: Callable[[], DaemonLifecycleSettings] = get_daemon_lifecycle_settings,
         process_factory: Callable[..., Any] = multiprocessing.Process,
         event_factory: Callable[[], Any] = multiprocessing.Event,
     ) -> None:
@@ -287,6 +368,7 @@ class AutopilotDaemonManager:
         self._log_file = log_file
         self._shared_state_provider = shared_state_provider
         self._settings_provider = settings_provider
+        self._lifecycle_settings_provider = lifecycle_settings_provider
         self._process_factory = process_factory
         self._event_factory = event_factory
         self.process = None
@@ -370,9 +452,9 @@ class AutopilotDaemonManager:
         daemon_pid = self.process.pid if self.process else None
 
         try:
-            from application.engine.services.persistence_queue import get_persistence_queue
+            from application.engine.services.persistence_queue import shutdown_persistence_queue_if_initialized
 
-            get_persistence_queue().stop_consumer()
+            shutdown_persistence_queue_if_initialized()
         except Exception as exc:
             self._logger.debug("停止持久化消费者失败（可忽略）: %s", exc)
 
@@ -388,16 +470,17 @@ class AutopilotDaemonManager:
             self.stop_event.set()
 
         if self.process and self.process.is_alive():
-            self.process.join(timeout=2)
+            lifecycle_settings = self._lifecycle_settings_provider()
+            self.process.join(timeout=lifecycle_settings.graceful_join_timeout_seconds)
             if self.process.is_alive():
                 self._logger.warning("守护进程未在超时时间内停止，强制终止")
                 self.process.terminate()
-                self.process.join(timeout=1)
+                self.process.join(timeout=lifecycle_settings.terminate_join_timeout_seconds)
                 if self.process.is_alive():
                     self._logger.warning("守护进程仍未停止，使用 SIGKILL")
                     try:
                         os.kill(self.process.pid, signal.SIGKILL)
-                        self.process.join(timeout=1)
+                        self.process.join(timeout=lifecycle_settings.sigkill_join_timeout_seconds)
                     except Exception as exc:
                         self._logger.error("强制终止守护进程失败: %s", exc)
             else:
@@ -408,7 +491,7 @@ class AutopilotDaemonManager:
                 subprocess.run(
                     ["taskkill", "/F", "/T", "/PID", str(daemon_pid)],
                     capture_output=True,
-                    timeout=3,
+                    timeout=self._lifecycle_settings_provider().windows_taskkill_timeout_seconds,
                     creationflags=NO_WINDOW,
                 )
                 self._logger.info("Windows: 已通过 taskkill 终止守护进程 PID=%s", daemon_pid)

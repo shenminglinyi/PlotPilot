@@ -428,6 +428,7 @@ import LocationGraphCompact from '../graphs/LocationGraphCompact.vue'
 import KnowledgeGraphView from './KnowledgeGraphView.vue'
 import KnowledgeJsonView from './KnowledgeJsonView.vue'
 import KnowledgeTriplesTableEditor from './KnowledgeTriplesTableEditor.vue'
+import { runtimePerformance } from '../../config/performance'
 
 
 const props = defineProps<{ slug: string }>()
@@ -440,6 +441,7 @@ const graphFilter = ref<'character' | 'location'>('character')
 // 知识库编辑相关
 const knowledgeTableOpen = ref(false)
 const knowledgeLoading = ref(false)
+let knowledgeReloadTimer: ReturnType<typeof setTimeout> | null = null
 
 interface Ch {
   chapter_id: number
@@ -754,11 +756,16 @@ const goCastChapter = (cid: number) => {
 
 const reloadKnowledge = () => {
   knowledgeLoading.value = true
+  if (knowledgeReloadTimer) {
+    clearTimeout(knowledgeReloadTimer)
+    knowledgeReloadTimer = null
+  }
   // 触发子组件重新加载
   window.dispatchEvent(new CustomEvent('plotpilot:knowledge:reload'))
-  setTimeout(() => {
+  knowledgeReloadTimer = setTimeout(() => {
+    knowledgeReloadTimer = null
     knowledgeLoading.value = false
-  }, 500)
+  }, runtimePerformance.workbench.knowledgeReloadBusyMs)
 }
 
 const onKnowledgeTableSaved = () => {
@@ -790,6 +797,10 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('plotpilot:knowledge:reload', onKnowledgeReloadFromOutside)
+  if (knowledgeReloadTimer) {
+    clearTimeout(knowledgeReloadTimer)
+    knowledgeReloadTimer = null
+  }
 })
 </script>
 

@@ -155,6 +155,8 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { foreshadowApi } from '../../api/foreshadow'
 import { isRequestCanceled } from '../../utils/requestCancel'
+import { runtimePerformance } from '../../config/performance'
+import { usePolling } from '../../composables/usePolling'
 import {
   getForeshadowImportanceLabel,
   getForeshadowImportanceTagType,
@@ -180,7 +182,6 @@ const foreshadows = ref<Foreshadow[]>([])
 const showLedgerModal = ref(false)
 const loading = ref(false)
 
-let pollTimer: number | null = null
 // 🔥 请求取消控制器：新请求发出前取消上一个未完成的请求
 let loadAbortController: AbortController | null = null
 
@@ -219,9 +220,6 @@ const collectedForeshadows = computed(() => foreshadows.value.filter(f => f.is_c
 const importanceLabel = getForeshadowImportanceLabel
 const importanceTagType = getForeshadowImportanceTagType
 
-// 🔥 伏笔列表独立超时：10 秒（远小于全局 120s，避免长时间挂起）
-const FORESHADOW_TIMEOUT_MS = 10_000
-
 // 与片场「伏笔账本」共用 foreshadow-ledger，经 foreshadowApi 与监控统计对齐
 async function loadForeshadows() {
   // 🔥 取消上一个未完成的请求，防止并发堆积
@@ -232,11 +230,12 @@ async function loadForeshadows() {
   loadAbortController = ac
 
   loading.value = true
-  const timeoutId = setTimeout(() => ac.abort(), FORESHADOW_TIMEOUT_MS)
+  const fetchTimeoutMs = runtimePerformance.autopilotMetrics.foreshadowFetchTimeoutMs
+  const timeoutId = setTimeout(() => ac.abort(), fetchTimeoutMs)
   try {
     const entries = await foreshadowApi.list(props.novelId, undefined, {
       signal: ac.signal,
-      timeout: FORESHADOW_TIMEOUT_MS,
+      timeout: fetchTimeoutMs,
     })
     // 🔥 仅在请求未被取消时更新（避免过期响应覆盖新数据）
     if (!ac.signal.aborted) {
@@ -269,21 +268,17 @@ function showFullLedger() {
   showLedgerModal.value = true
 }
 
-// 🔥 定时轮询间隔从 20s 提升到 30s（伏笔数据变化不频繁，降低 DB 压力）
-const POLL_INTERVAL_MS = 30_000
+const polling = usePolling(
+  loadForeshadows,
+  runtimePerformance.autopilotMetrics.foreshadowPollMs,
+)
 
 function startPolling() {
-  loadForeshadows()
-  pollTimer = window.setInterval(() => {
-    loadForeshadows()
-  }, POLL_INTERVAL_MS)
+  polling.restart({ immediate: true })
 }
 
 function stopPolling() {
-  if (pollTimer) {
-    clearInterval(pollTimer)
-    pollTimer = null
-  }
+  polling.stop()
   // 🔥 停止轮询时取消进行中的请求
   if (loadAbortController) {
     loadAbortController.abort()
@@ -299,7 +294,7 @@ watch(() => props.novelId, () => {
 
 // 🔥 刷新信号变化时重新加载（由 Dashboard 的 SSE 事件驱动）
 watch(() => props.refreshKey, (newKey) => {
-  if (newKey && newKey > 0) void loadForeshadows()
+  if (newKey && newKey > 0) void polling.execute()
 })
 
 // 生命周期

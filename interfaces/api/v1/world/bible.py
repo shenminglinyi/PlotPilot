@@ -35,6 +35,7 @@ from application.world.bible_generation_state import (
     record_bible_generation_failure,
 )
 from application.world.worldbuilding_schema import WORLDBUILDING_DIMENSION_DEFS
+from interfaces.api.v1.world.bible_runtime_settings import get_bible_runtime_settings
 
 logger = logging.getLogger(__name__)
 
@@ -593,6 +594,8 @@ async def _sse_bible_generator(
     """SSE 生成器：逐步推送 Bible 生成进度和数据片段。"""
     from interfaces.api.dependencies import get_novel_service
 
+    runtime_settings = get_bible_runtime_settings()
+
     # ── 起始 ──
     yield _sse_fmt("phase", {"phase": "init", "message": "正在准备生成环境..."})
     await asyncio.sleep(0)
@@ -769,7 +772,9 @@ async def _sse_bible_generator(
                                 "field": field_key,
                                 "value": field_value,
                             })
-                            await asyncio.sleep(0.02)
+                            await asyncio.sleep(
+                                runtime_settings.worldbuilding_field_emit_delay_seconds
+                            )
 
                     elif item["type"] == "dimension":
                         dim_key = item["key"]
@@ -806,7 +811,9 @@ async def _sse_bible_generator(
                                 logger.warning(
                                     "Failed to save dimension %s via SSE: %s", dim_key, e,
                                 )
-                        await asyncio.sleep(0.05)
+                        await asyncio.sleep(
+                            runtime_settings.worldbuilding_dimension_emit_delay_seconds
+                        )
 
                     elif item["type"] == "done":
                         full = item.get("worldbuilding") or {}

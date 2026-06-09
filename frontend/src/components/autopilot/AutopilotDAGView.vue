@@ -54,7 +54,7 @@
       :node-id="contextMenu.nodeId"
       :node-enabled="contextMenu.nodeEnabled"
       :node-type="contextMenu.nodeType"
-      @close="contextMenu.visible = false"
+      @close="closeContextMenu"
       @detail="handleNodeDetail"
       @toggle="handleToggleNode"
     />
@@ -69,12 +69,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import { useDAGStore } from '@/stores/dagStore'
 import { useDAGRunStore } from '@/stores/dagRunStore'
 import { useAutopilotWorkspaceStore } from '@/stores/autopilotWorkspaceStore'
 import { autopilotApi } from '@/api/autopilot'
+import { useAdaptivePolling } from '@/composables/useAdaptivePolling'
+import { runtimePerformance } from '@/config/performance'
 import { toAutopilotDAGDisplayStatus, type AutopilotDisplayStatus } from '@/workbench/autopilotStatus'
 import DAGToolbar from './DAGToolbar.vue'
 import DAGCanvas from './DAGCanvas.vue'
@@ -111,7 +113,11 @@ const gapSummary = computed(() =>
 )
 
 /** 周期性拉权威 /status ，避免仅用 DAG Run SSE 把「人工审阅」误标成「运行中」 */
-let autopilotStatusPollTimer: ReturnType<typeof setInterval> | null = null
+const autopilotStatusPolling = useAdaptivePolling(
+  fetchAutopilotStatus,
+  () => runtimePerformance.autopilotDag.statusPollMs,
+  { pauseWhenHidden: true },
+)
 
 async function retryHydrate() {
   await dagStore.hydrateDagForNovel(props.novelId)
@@ -123,16 +129,7 @@ onMounted(async () => {
   await dagStore.hydrateDagForNovel(props.novelId)
   await runStore.fetchStatus(props.novelId)
   await fetchAutopilotStatus()
-  autopilotStatusPollTimer = window.setInterval(() => {
-    void fetchAutopilotStatus()
-  }, 7000)
-})
-
-onUnmounted(() => {
-  if (autopilotStatusPollTimer != null) {
-    clearInterval(autopilotStatusPollTimer)
-    autopilotStatusPollTimer = null
-  }
+  autopilotStatusPolling.start()
 })
 
 // ★ 监听托管模式 SSE 日志：以 /status 为准合并「人工审阅」态
@@ -145,8 +142,23 @@ watch(
 
 // ─── 画布右键菜单 ───
 
+let contextMenuCloseHandler: (() => void) | null = null
+
+function clearContextMenuCloseHandler() {
+  if (!contextMenuCloseHandler) return
+  document.removeEventListener('click', contextMenuCloseHandler)
+  document.removeEventListener('contextmenu', contextMenuCloseHandler)
+  contextMenuCloseHandler = null
+}
+
+function closeContextMenu() {
+  contextMenu.visible = false
+  clearContextMenuCloseHandler()
+}
+
 function handleCanvasContextMenu(event: MouseEvent, nodeId: string, enabled: boolean) {
   event.preventDefault()
+  clearContextMenuCloseHandler()
   const node = dagStore.dagDefinition?.nodes.find(n => n.id === nodeId)
   contextMenu.visible = true
   contextMenu.x = event.clientX
@@ -155,16 +167,20 @@ function handleCanvasContextMenu(event: MouseEvent, nodeId: string, enabled: boo
   contextMenu.nodeEnabled = enabled
   contextMenu.nodeType = node?.type || ''
 
-  const closeHandler = () => {
-    contextMenu.visible = false
-    document.removeEventListener('click', closeHandler)
-    document.removeEventListener('contextmenu', closeHandler)
-  }
-  setTimeout(() => {
+  const closeHandler = closeContextMenu
+  contextMenuCloseHandler = closeHandler
+  queueMicrotask(() => {
+    if (contextMenuCloseHandler !== closeHandler) {
+      return
+    }
     document.addEventListener('click', closeHandler, { once: true })
     document.addEventListener('contextmenu', closeHandler, { once: true })
-  }, 0)
+  })
 }
+
+onBeforeUnmount(() => {
+  closeContextMenu()
+})
 
 // ─── 事件处理 ───
 

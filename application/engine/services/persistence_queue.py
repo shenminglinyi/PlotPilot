@@ -21,6 +21,11 @@ from dataclasses import dataclass, asdict
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
+from application.engine.services.persistence_queue_settings import (
+    PersistentQueueSettings,
+    get_persistent_queue_settings,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -105,6 +110,7 @@ class PersistenceQueue:
         self._stop_event = threading.Event()
         self._handlers: Dict[str, Callable] = {}
         self._stats = {"queued": 0, "processed": 0, "failed": 0}
+        self._settings: PersistentQueueSettings = get_persistent_queue_settings()
 
     def initialize(self) -> mp.Queue:
         """初始化队列（在主进程调用）"""
@@ -182,7 +188,7 @@ class PersistenceQueue:
 
         self._stop_event.set()
         if self._consumer_thread:
-            self._consumer_thread.join(timeout=5)
+            self._consumer_thread.join(timeout=self._settings.consumer_stop_timeout_seconds)
         clear_sqlite_writer_thread()
         logger.info("持久化消费者线程已停止")
 
@@ -197,9 +203,11 @@ class PersistenceQueue:
 
         while not self._stop_event.is_set():
             try:
-                # 阻塞获取，超时 0.5 秒
                 try:
-                    item = self._queue.get(block=True, timeout=0.5)
+                    item = self._queue.get(
+                        block=True,
+                        timeout=self._settings.consumer_idle_sleep_seconds,
+                    )
                 except queue.Empty:
                     continue
 
@@ -235,13 +243,13 @@ class PersistenceQueue:
             self._stats["failed"] += 1
 
     def _process_single_command(self, command_type: str, payload: Dict) -> None:
-        """处理单个命令（DB 被锁时重试，最多 3 次退避）"""
+        """处理单个命令，DB 被锁时按配置进行指数退避。"""
         handler = self._handlers.get(command_type)
         if not handler:
             logger.warning(f"未注册的命令类型: {command_type}")
             return
 
-        max_retries = 10
+        max_retries = self._settings.legacy_lock_max_retries
         for attempt in range(max_retries):
             try:
                 handler(payload)
@@ -249,7 +257,10 @@ class PersistenceQueue:
             except sqlite3.OperationalError as e:
                 if "locked" in str(e).lower() or "busy" in str(e).lower():
                     if attempt < max_retries - 1:
-                        wait = min(0.2 * (2**attempt), 3.0)
+                        wait = min(
+                            self._settings.legacy_lock_backoff_base_seconds * (2**attempt),
+                            self._settings.legacy_lock_backoff_max_seconds,
+                        )
                         logger.warning(
                             "DB 被锁，重试 %d/%d (等待%.2fs): %s",
                             attempt + 1, max_retries, wait, command_type,
@@ -273,7 +284,8 @@ class PersistenceQueue:
     def _drain_queue(self) -> None:
         """排空队列（带超时保护，避免 DB 被锁时无限等待）"""
         drained = 0
-        deadline = time.monotonic() + 3.0  # 最多排空 3 秒
+        drain_timeout = self._settings.legacy_drain_timeout_seconds
+        deadline = time.monotonic() + drain_timeout
         while time.monotonic() < deadline:
             try:
                 item = self._queue.get(block=False)
@@ -287,7 +299,7 @@ class PersistenceQueue:
         if drained > 0:
             logger.info(f"队列已排空，处理了 {drained} 条命令")
         if time.monotonic() >= deadline:
-            logger.warning("排空队列超时（3s），可能还有未处理命令")
+            logger.warning("排空队列超时（%.1fs），可能还有未处理命令", drain_timeout)
 
     def wait_until_idle(self, timeout: float = 5.0) -> bool:
         """等待持久化队列排空（启动/停止等关键路径：守护进程依赖 DB 读到最新状态）。"""
@@ -303,11 +315,11 @@ class PersistenceQueue:
                 pending = 0
             if pending <= 0:
                 stable_empty += 1
-                if stable_empty >= 3:
+                if stable_empty >= self._settings.legacy_idle_stable_checks:
                     return True
             else:
                 stable_empty = 0
-            time.sleep(0.05)
+            time.sleep(self._settings.legacy_idle_wait_sleep_seconds)
 
         try:
             pending = self._queue.qsize()
@@ -346,6 +358,13 @@ def get_persistence_queue() -> PersistenceQueue:
     if _persistence_queue is None:
         _persistence_queue = PersistenceQueue()
     return _persistence_queue
+
+
+def shutdown_persistence_queue_if_initialized() -> None:
+    """Stop the persistence consumer without initializing the queue during shutdown."""
+    if _persistence_queue is None:
+        return
+    _persistence_queue.stop_consumer()
 
 
 def initialize_persistence_queue() -> mp.Queue:
@@ -468,29 +487,10 @@ def register_persistence_handlers() -> None:
             db.get_connection().commit()
             logger.debug(f"[PersistenceQueue] 章节已持久化: novel={novel_id} ch={chapter_number}")
 
+        except sqlite3.OperationalError:
+            raise
         except Exception as e:
             logger.error(f"[PersistenceQueue] 章节持久化失败: {e}")
-            # database is locked 时重试一次
-            if "database is locked" in str(e):
-                import time as _time
-                _time.sleep(1.0)
-                try:
-                    db = get_database()
-                    db.get_connection().execute("PRAGMA busy_timeout=15000")
-                    db.execute(
-                        """INSERT INTO chapters (novel_id, number, content, status, word_count, updated_at)
-                        VALUES (?, ?, ?, ?, LENGTH(?), CURRENT_TIMESTAMP)
-                        ON CONFLICT(novel_id, number) DO UPDATE SET
-                            content = excluded.content,
-                            status = excluded.status,
-                            word_count = excluded.word_count,
-                            updated_at = CURRENT_TIMESTAMP""",
-                        (novel_id, chapter_number, content, status, content)
-                    )
-                    db.get_connection().commit()
-                    logger.info(f"[PersistenceQueue] 章节持久化重试成功: novel={novel_id} ch={chapter_number}")
-                except Exception as e2:
-                    logger.error(f"[PersistenceQueue] 章节持久化重试仍失败: {e2}")
 
     def handle_update_chapter_tension(payload: Dict) -> None:
         """处理章节张力值更新"""
@@ -599,23 +599,10 @@ def register_persistence_handlers() -> None:
             db.get_connection().commit()
             logger.debug(f"[PersistenceQueue] 章节状态已持久化: novel={novel_id} ch={chapter_number}")
 
+        except sqlite3.OperationalError:
+            raise
         except Exception as e:
             logger.error(f"[PersistenceQueue] 章节状态持久化失败: {e}")
-            # database is locked 时重试一次
-            if "database is locked" in str(e):
-                import time as _time
-                _time.sleep(1.0)
-                try:
-                    db = get_database()
-                    db.get_connection().execute("PRAGMA busy_timeout=15000")
-                    db.execute(
-                        "UPDATE chapters SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE novel_id = ? AND number = ?",
-                        (status, novel_id, chapter_number)
-                    )
-                    db.get_connection().commit()
-                    logger.info(f"[PersistenceQueue] 章节状态持久化重试成功: novel={novel_id} ch={chapter_number}")
-                except Exception as e2:
-                    logger.error(f"[PersistenceQueue] 章节状态持久化重试仍失败: {e2}")
 
     # 新增：章节字数更新处理器
     def handle_update_chapter_word_count(payload: Dict) -> None:

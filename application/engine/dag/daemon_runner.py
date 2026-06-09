@@ -45,7 +45,7 @@ class DAGDaemonRunner:
         self._version_mgr = DAGVersionManager(data_root=data_root)
 
         # 事件聚合器
-        self._aggregator = NodeEventAggregator(flush_interval=0.5)
+        self._aggregator = NodeEventAggregator()
 
         # IPC 适配器
         self._ipc = IPCAdapter(

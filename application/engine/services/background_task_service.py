@@ -21,11 +21,12 @@ from enum import Enum
 
 from domain.novel.value_objects.novel_id import NovelId
 from domain.novel.value_objects.chapter_id import ChapterId
+from application.engine.services.background_task_settings import (
+    background_task_retry_delay,
+    get_background_task_settings,
+)
 
 logger = logging.getLogger(__name__)
-
-# 工作线程数量
-_WORKER_COUNT = 3
 
 
 class TaskType(Enum):
@@ -85,14 +86,16 @@ class BackgroundTaskService:
         self.chapter_repository = chapter_repository
         self.plot_arc_repository = plot_arc_repository
         self.narrative_event_repository = narrative_event_repository
+        self._settings = get_background_task_settings()
+        self._stopping = threading.Event()
 
-        self._queue = queue.Queue(maxsize=200)  # 防队列无限增长
+        self._queue = queue.Queue(maxsize=self._settings.queue_max_size)  # 防队列无限增长
         self._workers: list[threading.Thread] = []
-        for i in range(_WORKER_COUNT):
+        for i in range(self._settings.worker_count):
             w = threading.Thread(target=self._worker_loop, daemon=True, name=f"bg-task-worker-{i}")
             w.start()
             self._workers.append(w)
-        logger.info("BackgroundTaskService started with %d worker threads", _WORKER_COUNT)
+        logger.info("BackgroundTaskService started with %d worker threads", self._settings.worker_count)
 
     def submit_task(self, task_type, novel_id, chapter_id, payload):
         """提交后台任务（非阻塞）"""
@@ -109,14 +112,30 @@ class BackgroundTaskService:
         except queue.Full:
             logger.warning(f"[BG] 后台任务队列已满，丢弃任务：{task_type.value}")
 
+    def shutdown(self) -> None:
+        """Signal worker threads to stop and wait briefly for their loops to exit."""
+        if self._stopping.is_set():
+            return
+        self._stopping.set()
+        for _ in self._workers:
+            try:
+                self._queue.put_nowait(None)
+            except queue.Full:
+                break
+        for worker in self._workers:
+            worker.join(timeout=self._settings.worker_join_timeout_seconds)
+
     def _worker_loop(self):
         """工作线程主循环（持有持久事件循环，避免 asyncio.run() 每次重建）"""
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            while True:
+            while not self._stopping.is_set():
                 try:
-                    task = self._queue.get(timeout=2)
+                    task = self._queue.get(timeout=self._settings.queue_get_timeout_seconds)
+                    if task is None:
+                        self._queue.task_done()
+                        break
                     loop.run_until_complete(self._execute_with_retry_async(task))
                     self._queue.task_done()
                 except queue.Empty:
@@ -126,17 +145,18 @@ class BackgroundTaskService:
         finally:
             loop.close()
 
-    async def _execute_with_retry_async(self, task, max_retries=2):
+    async def _execute_with_retry_async(self, task, max_retries=None):
         """执行任务（带异步重试，不阻塞工作线程）"""
-        for attempt in range(max_retries + 1):
+        resolved_max_retries = self._settings.task_max_retries if max_retries is None else max_retries
+        for attempt in range(resolved_max_retries + 1):
             try:
                 await self._execute_task_async(task)
                 return
             except Exception as e:
-                if attempt == max_retries:
+                if attempt == resolved_max_retries:
                     logger.error(f"[BG] 任务最终失败 {task.task_type.value}：{e}")
                 else:
-                    wait = 2 ** attempt  # 指数退避：1s, 2s
+                    wait = background_task_retry_delay(attempt, self._settings)
                     logger.warning(f"[BG] 任务失败，{wait}s 后重试：{e}")
                     await asyncio.sleep(wait)  # 异步等待，不阻塞工作线程
 

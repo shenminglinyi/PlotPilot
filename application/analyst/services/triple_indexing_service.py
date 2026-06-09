@@ -353,19 +353,9 @@ class TripleIndexingService:
         Returns:
             匹配的三元组列表
         """
-        import asyncio
-        import concurrent.futures
+        from application.core.async_bridge import run_coroutine_sync
 
         async def _search():
             return await self.search_triples(novel_id, query, limit, min_score)
 
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            return asyncio.run(_search())
-
-        def _run_in_fresh_loop():
-            return asyncio.run(_search())
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            return pool.submit(_run_in_fresh_loop).result()
+        return run_coroutine_sync(_search)

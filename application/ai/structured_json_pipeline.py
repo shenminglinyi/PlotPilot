@@ -14,6 +14,10 @@ from pydantic import BaseModel, ValidationError
 
 from application.ai.llm_output_sanitize import strip_reasoning_artifacts
 from application.ai.llm_retry_policy import LLM_MAX_TOTAL_ATTEMPTS
+from application.ai.structured_json_settings import (
+    StructuredJSONSettings,
+    get_structured_json_settings,
+)
 from application.ai.trace_context import content_hash, preview_value
 from domain.ai.services.llm_service import GenerationConfig, LLMService
 from domain.ai.value_objects.prompt import Prompt
@@ -44,9 +48,13 @@ def _is_retryable_llm_error(exc: Exception) -> bool:
     )
 
 
-def _retry_delay_seconds(attempt: int) -> float:
+def _retry_delay_seconds(attempt: int, settings: StructuredJSONSettings | None = None) -> float:
     """简单指数退避，保持总等待可控。"""
-    return min(1.5 * (2 ** attempt), 8.0)
+    resolved = settings or get_structured_json_settings()
+    return min(
+        resolved.retry_backoff_base_seconds * (2 ** attempt),
+        resolved.retry_backoff_max_seconds,
+    )
 
 
 def sanitize_llm_output(raw: str) -> str:
@@ -131,6 +139,7 @@ async def structured_json_generate(
     last_errors: List[str] = []
     total_attempts = min(1 + max(0, max_retries), LLM_MAX_TOTAL_ATTEMPTS)
     recorder = get_trace_recorder()
+    settings = get_structured_json_settings()
 
     for attempt in range(total_attempts):
         try:
@@ -150,7 +159,7 @@ async def structured_json_generate(
                 },
             )
             if attempt < total_attempts - 1 and _is_retryable_llm_error(exc):
-                delay = _retry_delay_seconds(attempt)
+                delay = _retry_delay_seconds(attempt, settings)
                 logger.info(
                     "结构化 JSON 管线遇到可重试错误，%.1f 秒后重试 (attempt=%d/%d)",
                     delay,

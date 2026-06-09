@@ -14,11 +14,16 @@ import logging
 import time
 from typing import Any, Dict, List, Optional
 
+from application.core.async_bridge import run_coroutine_sync
 from application.engine.services.shared_state_repository import (
     SharedStateRepository,
     ChapterSummary,
     NovelState,
     get_shared_state_repository,
+)
+from application.engine.services.state_bootstrap_settings import (
+    StateBootstrapSettings,
+    get_state_bootstrap_settings,
 )
 
 logger = logging.getLogger(__name__)
@@ -27,8 +32,13 @@ logger = logging.getLogger(__name__)
 class StateBootstrap:
     """状态启动加载器 - 从 DB 加载所有数据到共享内存"""
 
-    def __init__(self, shared_state: Optional[SharedStateRepository] = None):
+    def __init__(
+        self,
+        shared_state: Optional[SharedStateRepository] = None,
+        settings: StateBootstrapSettings | None = None,
+    ):
         self._shared = shared_state or get_shared_state_repository()
+        self._settings = settings or get_state_bootstrap_settings()
 
     def load_all(self) -> Dict[str, Any]:
         """加载所有小说的状态到共享内存
@@ -419,28 +429,10 @@ class StateBootstrap:
         """加载三元组到共享内存"""
         try:
             from infrastructure.persistence.database.triple_repository import TripleRepository
-            import asyncio
 
             repo = TripleRepository()
 
-            # 同步调用异步方法
-            try:
-                loop = asyncio.get_event_loop()
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-
-            if loop.is_running():
-                # 如果事件循环正在运行，创建一个新的
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(
-                        asyncio.run,
-                        repo.get_by_novel(novel_id)
-                    )
-                    triples = future.result(timeout=5)
-            else:
-                triples = loop.run_until_complete(repo.get_by_novel(novel_id))
+            triples = self._run_async_triple_fetch(novel_id, lambda: repo.get_by_novel(novel_id))
 
             triples_list = [
                 {
@@ -460,6 +452,21 @@ class StateBootstrap:
 
         except Exception as e:
             logger.debug(f"加载三元组失败（可能不存在）: {novel_id}, {e}")
+            return []
+
+    def _run_async_triple_fetch(self, novel_id: str, coroutine_factory) -> List[Any]:
+        """Bridge async triple fetch with a bounded bootstrap timeout."""
+        try:
+            return run_coroutine_sync(
+                coroutine_factory,
+                timeout=self._settings.triple_fetch_timeout_seconds,
+            )
+        except TimeoutError:
+            logger.warning(
+                "加载三元组超时，跳过共享状态预热: novel=%s timeout=%ss",
+                novel_id,
+                self._settings.triple_fetch_timeout_seconds,
+            )
             return []
 
     def _load_snapshots(self, novel_id: str) -> List[Dict[str, Any]]:

@@ -73,10 +73,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useMessage } from 'naive-ui'
+import { useDebouncedTask } from '../../composables/useDebouncedTask'
 import { useWorkbenchRefreshStore } from '../../stores/workbenchRefreshStore'
+import { runtimePerformance } from '../../config/performance'
 import { planningApi } from '../../api/planning'
 import type { StoryNode } from '../../api/planning'
 import { knowledgeApi } from '../../api/knowledge'
@@ -669,28 +671,23 @@ watch(() => props.currentChapterNumber, async () => {
 
 const refreshStore = useWorkbenchRefreshStore()
 const { deskTick } = storeToRefs(refreshStore)
-let deskTickDebounce: ReturnType<typeof setTimeout> | null = null
-const DESK_TICK_DEBOUNCE_MS = 450
+const deskTickReload = useDebouncedTask(
+  async () => {
+    await Promise.all([
+      resolveStoryNode(),
+      loadKnowledgeChapter(),
+    ])
+  },
+  () => runtimePerformance.workbench.deskTickDebounceMs,
+)
 watch(deskTick, () => {
-  if (deskTickDebounce) clearTimeout(deskTickDebounce)
-  deskTickDebounce = setTimeout(() => {
-    deskTickDebounce = null
-    void resolveStoryNode()
-    void loadKnowledgeChapter()
-  }, DESK_TICK_DEBOUNCE_MS)
+  deskTickReload.schedule()
 })
 
 onMounted(async () => {
   await loadBible()
   await resolveStoryNode()
   await loadKnowledgeChapter()
-})
-
-onUnmounted(() => {
-  if (deskTickDebounce) {
-    clearTimeout(deskTickDebounce)
-    deskTickDebounce = null
-  }
 })
 </script>
 

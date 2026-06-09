@@ -11,6 +11,7 @@ from domain.ai.services.llm_service import GenerationConfig, GenerationResult
 from domain.ai.value_objects.prompt import Prompt
 from domain.ai.value_objects.token_usage import TokenUsage
 from infrastructure.ai.config.settings import Settings
+from infrastructure.ai.http_timeout import build_httpx_timeout
 from .base import BaseProvider
 from .model_resolution import require_resolved_model_id
 
@@ -26,14 +27,8 @@ class GeminiProvider(BaseProvider):
             raise ValueError('API key is required for GeminiProvider')
         self.base_url = (settings.base_url or DEFAULT_BASE_URL).rstrip('/')
         # 长生命周期 httpx client（跨请求复用连接池）
-        # 🔥 分层超时：避免 API 卡住时整个进程挂起
         self._http_client = httpx.AsyncClient(
-            timeout=httpx.Timeout(
-                connect=settings.connect_timeout,
-                read=settings.read_timeout,
-                write=60.0,
-                pool=30.0,
-            ),
+            timeout=build_httpx_timeout(settings.http_timeout_settings),
             trust_env=False,
         )
 

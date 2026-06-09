@@ -40,6 +40,23 @@ class TestOpenAIProviderLegacy:
         assert provider.async_client is not None
         assert provider._use_legacy is True
 
+    def test_http_timeout_uses_settings(self):
+        provider = OpenAIProvider(
+            Settings(
+                api_key="test-api-key",
+                connect_timeout=4,
+                read_timeout=40,
+                write_timeout=8,
+                pool_timeout=2,
+            )
+        )
+
+        timeout = provider._http_client.timeout
+        assert timeout.connect == 4
+        assert timeout.read == 40
+        assert timeout.write == 8
+        assert timeout.pool == 2
+
     @pytest.mark.anyio
     async def test_generate_requires_model_id(self, provider):
         prompt = Prompt(system="s", user="u")

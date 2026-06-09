@@ -26,6 +26,7 @@ import asyncio
 import json
 import logging
 import time
+from collections import OrderedDict
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -48,6 +49,7 @@ from application.engine.narrative_projection.dag_runtime_projection import (
     snapshot_from_shared,
 )
 from application.engine.narrative_projection.linkage_kernel import linkage_bundle
+from interfaces.api.v1.engine.dag.dag_runtime_settings import get_dag_runtime_settings
 
 logger = logging.getLogger(__name__)
 
@@ -59,14 +61,26 @@ router = APIRouter(prefix="/dag", tags=["DAG 工作流"])
 _sse_subscribers: Dict[str, List[asyncio.Queue]] = {}  # novel_id -> [Queue]
 
 # ★ DAG 定义内存缓存（暂时不走数据库）
-_dag_cache: Dict[str, DAGDefinition] = {}
+_dag_cache: "OrderedDict[str, DAGDefinition]" = OrderedDict()
+
+
+def _evict_dag_cache_overflow() -> None:
+    max_size = get_dag_runtime_settings().dag_cache_max_size
+    while len(_dag_cache) > max_size:
+        _dag_cache.popitem(last=False)
 
 
 def _get_dag_for_novel(novel_id: str) -> DAGDefinition:
     """获取或初始化小说的 DAG 定义（内存缓存，不走数据库）"""
-    if novel_id not in _dag_cache:
-        _dag_cache[novel_id] = get_default_dag()
-    return _dag_cache[novel_id]
+    dag = _dag_cache.get(novel_id)
+    if dag is not None:
+        _dag_cache.move_to_end(novel_id)
+        return dag
+
+    dag = get_default_dag()
+    _dag_cache[novel_id] = dag
+    _evict_dag_cache_overflow()
+    return dag
 
 
 def publish_sse_event(novel_id: str, event_data: dict):
@@ -164,7 +178,8 @@ async def get_dag_registry_linkage():
 @router.get("/events")
 async def dag_event_stream(novel_id: str = Query(..., description="小说 ID")):
     """SSE 事件流 — 前端实时接收节点状态变更"""
-    queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+    runtime_settings = get_dag_runtime_settings()
+    queue: asyncio.Queue = asyncio.Queue(maxsize=runtime_settings.sse_queue_size)
 
     # 注册订阅者
     if novel_id not in _sse_subscribers:
@@ -184,7 +199,10 @@ async def dag_event_stream(novel_id: str = Query(..., description="小说 ID")):
 
             while True:
                 try:
-                    event_data = await asyncio.wait_for(queue.get(), timeout=1.0)
+                    event_data = await asyncio.wait_for(
+                        queue.get(),
+                        timeout=runtime_settings.sse_idle_poll_seconds,
+                    )
                     idle_ticks = 0
                     event_type = event_data.get("type", "message")
                     yield f"event: {event_type}\ndata: {json.dumps(event_data, ensure_ascii=False)}\n\n"
@@ -205,7 +223,7 @@ async def dag_event_stream(novel_id: str = Query(..., description="小说 ID")):
                         et = ev.get("type", "node_status_change")
                         yield f"event: {et}\ndata: {json.dumps(ev, ensure_ascii=False)}\n\n"
                     prev_proj = new_proj
-                if idle_ticks >= 30:
+                if idle_ticks >= runtime_settings.sse_heartbeat_every_idle_ticks:
                     yield f"event: heartbeat\ndata: {json.dumps({'timestamp': time.time()})}\n\n"
                     idle_ticks = 0
         except asyncio.CancelledError:

@@ -1,6 +1,7 @@
 import type { AxiosRequestConfig } from 'axios'
 
 import { WIZARD_STEP_TIMEOUT_MS } from '@/constants/wizard'
+import { runtimePerformance } from '@/config/performance'
 import { apiClient, resolveHttpUrl } from './config'
 
 /** Bible 人物关系：字符串 或 LLM 结构化对象 */
@@ -172,7 +173,9 @@ export const bibleApi = {
       error: string | null
       stage: string | null
       at: string | null
-    }>(`/bible/novels/${novelId}/bible/generation-feedback`, { timeout: 30_000 }) as Promise<{
+    }>(`/bible/novels/${novelId}/bible/generation-feedback`, {
+      timeout: runtimePerformance.network.shortTaskTimeoutMs,
+    }) as Promise<{
       novel_id: string
       error: string | null
       stage: string | null

@@ -6,9 +6,73 @@ import multiprocessing
 import os
 import sqlite3
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict
 
+from application.core.config.config_loader import get_config
+from application.core.config.runtime_settings_utils import (
+    positive_float,
+    positive_int,
+    section_value,
+)
+
+
+@dataclass(frozen=True)
+class BackendLifecycleSettings:
+    startup_reset_max_retries: int = 3
+    startup_reset_retry_backoff_seconds: float = 1.0
+    shutdown_response_delay_seconds: float = 0.15
+    force_exit_timeout_seconds: float = 8.0
+    force_exit_watchdog_poll_seconds: float = 0.5
+
+
+def get_backend_lifecycle_settings() -> BackendLifecycleSettings:
+    backend = getattr(get_config(), "backend", None)
+    section = getattr(backend, "lifecycle", None)
+    defaults = BackendLifecycleSettings()
+    return BackendLifecycleSettings(
+        startup_reset_max_retries=positive_int(
+            section_value(
+                section,
+                "startup_reset_max_retries",
+                defaults.startup_reset_max_retries,
+            ),
+            defaults.startup_reset_max_retries,
+        ),
+        startup_reset_retry_backoff_seconds=positive_float(
+            section_value(
+                section,
+                "startup_reset_retry_backoff_seconds",
+                defaults.startup_reset_retry_backoff_seconds,
+            ),
+            defaults.startup_reset_retry_backoff_seconds,
+        ),
+        shutdown_response_delay_seconds=positive_float(
+            section_value(
+                section,
+                "shutdown_response_delay_seconds",
+                defaults.shutdown_response_delay_seconds,
+            ),
+            defaults.shutdown_response_delay_seconds,
+        ),
+        force_exit_timeout_seconds=positive_float(
+            section_value(
+                section,
+                "force_exit_timeout_seconds",
+                defaults.force_exit_timeout_seconds,
+            ),
+            defaults.force_exit_timeout_seconds,
+        ),
+        force_exit_watchdog_poll_seconds=positive_float(
+            section_value(
+                section,
+                "force_exit_watchdog_poll_seconds",
+                defaults.force_exit_watchdog_poll_seconds,
+            ),
+            defaults.force_exit_watchdog_poll_seconds,
+        ),
+    )
 
 class AppRuntime:
     """Small runtime facade for process-shared novel state."""
@@ -57,6 +121,10 @@ class BackendLifecycle:
         start_daemon: Callable[[], None],
         stop_daemon: Callable[[], None],
         cleanup_orphans: Callable[[], None] | None = None,
+        stop_async_bridge: Callable[[], None] | None = None,
+        stop_background_tasks: Callable[[], None] | None = None,
+        stop_persistence_consumer: Callable[[], None] | None = None,
+        stop_managed_resources: Callable[[], None] | None = None,
         start_force_exit_watchdog: Callable[[], None] | None = None,
     ) -> None:
         self._logger = logger or logging.getLogger(__name__)
@@ -64,6 +132,10 @@ class BackendLifecycle:
         self._start_daemon = start_daemon
         self._stop_daemon = stop_daemon
         self._cleanup_orphans = cleanup_orphans
+        self._stop_async_bridge = stop_async_bridge
+        self._stop_background_tasks = stop_background_tasks
+        self._stop_persistence_consumer = stop_persistence_consumer
+        self._stop_managed_resources = stop_managed_resources
         self._start_force_exit_watchdog = start_force_exit_watchdog
 
     def startup(self, registered_route_count: int) -> None:
@@ -90,6 +162,10 @@ class BackendLifecycle:
         if self._start_force_exit_watchdog is not None:
             self._start_force_exit_watchdog()
         self._stop_daemon()
+        self.stop_background_tasks()
+        self.stop_persistence_consumer()
+        self.stop_async_bridge()
+        self.stop_managed_resources()
         self.close_database(skip_checkpoint=True)
         self.checkpoint_sqlite_wal_safe()
         self.close_llm_service()
@@ -97,11 +173,47 @@ class BackendLifecycle:
 
     def windows_forced_shutdown(self) -> None:
         self._stop_daemon()
+        self.stop_background_tasks()
+        self.stop_persistence_consumer()
+        self.stop_async_bridge()
+        self.stop_managed_resources()
         self.close_database(skip_checkpoint=True)
         self.checkpoint_sqlite_wal_safe()
         self.log_stopped("PlotPilot service stopped (Windows forced exit)")
         logging.shutdown()
         os._exit(0)
+
+    def stop_background_tasks(self) -> None:
+        if self._stop_background_tasks is None:
+            return
+        try:
+            self._stop_background_tasks()
+        except Exception as exc:
+            self._logger.warning("Shutdown: background task service stop failed: %s", exc)
+
+    def stop_async_bridge(self) -> None:
+        if self._stop_async_bridge is None:
+            return
+        try:
+            self._stop_async_bridge()
+        except Exception as exc:
+            self._logger.warning("Shutdown: async bridge stop failed: %s", exc)
+
+    def stop_persistence_consumer(self) -> None:
+        if self._stop_persistence_consumer is None:
+            return
+        try:
+            self._stop_persistence_consumer()
+        except Exception as exc:
+            self._logger.warning("Shutdown: persistence consumer stop failed: %s", exc)
+
+    def stop_managed_resources(self) -> None:
+        if self._stop_managed_resources is None:
+            return
+        try:
+            self._stop_managed_resources()
+        except Exception as exc:
+            self._logger.warning("Shutdown: managed resource stop failed: %s", exc)
 
     def bootstrap_persistence_consumer(self) -> None:
         try:
@@ -125,11 +237,15 @@ class BackendLifecycle:
         """Best-effort WAL checkpoint during desktop graceful shutdown."""
         try:
             from application.paths import get_db_path
+            from infrastructure.persistence.database.sqlite_pragmas import (
+                apply_standard_pragmas,
+                get_sqlite_pragma_settings,
+            )
 
-            conn = sqlite3.connect(get_db_path(), timeout=2.0)
+            settings = get_sqlite_pragma_settings()
+            conn = sqlite3.connect(get_db_path(), timeout=max(1.0, settings.busy_timeout_ms / 1000))
             try:
-                conn.execute("PRAGMA journal_mode=WAL")
-                conn.execute("PRAGMA busy_timeout=2000")
+                apply_standard_pragmas(conn)
                 conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
             finally:
                 conn.close()
@@ -189,7 +305,8 @@ class BackendLifecycle:
             self._logger.warning("Startup: database file does not exist: %s", db_path)
             return
 
-        max_retries = 3
+        settings = get_backend_lifecycle_settings()
+        max_retries = settings.startup_reset_max_retries
         for attempt in range(1, max_retries + 1):
             try:
                 db = get_database(db_path_str)
@@ -251,7 +368,7 @@ class BackendLifecycle:
                     except Exception:
                         pass
                     db_connection._db_instance = None
-                    time.sleep(1.0 * attempt)
+                    time.sleep(settings.startup_reset_retry_backoff_seconds * attempt)
                 else:
                     self._logger.error(
                         "Startup: failed to reset running novels: db=%s err=%s",

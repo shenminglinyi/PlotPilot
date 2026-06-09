@@ -8,8 +8,8 @@ from pathlib import Path
 from typing import Optional
 
 from infrastructure.persistence.database.sqlite_pragmas import (
-    BUSY_TIMEOUT_MS,
     apply_standard_pragmas,
+    get_sqlite_pragma_settings,
 )
 from infrastructure.persistence.database.migration_runner import (
     apply_migration_files as run_migration_files,
@@ -443,7 +443,8 @@ class DatabaseConnection:
         db_file = Path(self.db_path)
         db_file.parent.mkdir(parents=True, exist_ok=True)
 
-        conn = sqlite3.connect(self.db_path, timeout=30.0)
+        timeout_seconds = max(1.0, get_sqlite_pragma_settings().busy_timeout_ms / 1000)
+        conn = sqlite3.connect(self.db_path, timeout=timeout_seconds)
         conn.row_factory = sqlite3.Row
         apply_standard_pragmas(conn)
 
@@ -475,8 +476,9 @@ class DatabaseConnection:
 
     def get_connection(self) -> sqlite3.Connection:
         if not hasattr(self._local, 'connection') or self._local.connection is None:
+            timeout_seconds = max(1.0, get_sqlite_pragma_settings().busy_timeout_ms / 1000)
             conn = sqlite3.connect(
-                self.db_path, check_same_thread=False, timeout=30.0
+                self.db_path, check_same_thread=False, timeout=timeout_seconds
             )
             conn.row_factory = sqlite3.Row
             apply_standard_pragmas(conn)
@@ -636,7 +638,8 @@ class DatabaseConnection:
         for conn in connections:
             if not skip_checkpoint:
                 try:
-                    conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
+                    busy_timeout_ms = get_sqlite_pragma_settings().busy_timeout_ms
+                    conn.execute(f"PRAGMA busy_timeout={busy_timeout_ms}")
                     conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
                 except Exception:
                     pass

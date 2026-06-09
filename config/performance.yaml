@@ -11,6 +11,74 @@ autopilot:
   max_auto_chapters: 9999  # 保护上限
   consecutive_error_limit: 3  # 连续错误上限
 
+  runtime:
+    sse_thread_pool_workers: 12
+    shared_state_cache_ttl_seconds: 1.0
+    shared_state_cache_max_size: 1000
+    sse_max_lifetime_seconds: 7200.0
+    db_read_timeout_seconds: 5.0
+    db_persist_timeout_seconds: 30.0
+    persistence_idle_timeout_seconds: 5.0
+    persistence_fallback_idle_timeout_seconds: 3.0
+    sse_tick_timeout_seconds: 2.0
+    sse_missing_check_timeout_seconds: 1.0
+    log_poll_seconds: 2.0
+    log_missing_keepalive_seconds: 3.0
+    log_heartbeat_every_ticks: 10
+    log_stream_max_events: 200
+    chapter_active_poll_seconds: 0.8
+    chapter_slow_poll_seconds: 3.0
+    chapter_heartbeat_every_ticks: 10
+    chapter_empty_status_check_polls: 24
+    chapter_stream_max_chunks: 50
+    events_poll_seconds: 3.0
+
+# ─── AI 通用管线配置 ───
+ai:
+  structured_json:
+    retry_backoff_base_seconds: 1.5
+    retry_backoff_max_seconds: 8.0
+
+# ─── 后台任务配置 ───
+background_tasks:
+  worker_count: 3
+  queue_max_size: 200
+  queue_get_timeout_seconds: 2.0
+  worker_join_timeout_seconds: 2.0
+  task_max_retries: 2
+  retry_backoff_base_seconds: 1.0
+  retry_backoff_max_seconds: 8.0
+
+# ─── 同步/异步桥接配置 ───
+async_bridge:
+  max_workers: 4
+
+# ─── 跨进程流式消息总线配置 ───
+streaming_bus:
+  queue_max_size: 10000
+  max_batch_chunks: 200
+  control_scan_limit: 50
+  audit_overflow_drop_count: 10
+  stop_overflow_drop_count: 100
+  start_overflow_drop_count: 50
+  clear_scan_limit: 1000
+
+# ─── 共享状态启动加载配置 ───
+state_bootstrap:
+  triple_fetch_timeout_seconds: 5.0
+
+# ─── MemoryEngine 跨章状态缓存配置 ───
+memory_engine:
+  state_cache_ttl_seconds: 300.0
+  state_cache_max_size: 256
+
+# ─── Workbench 接口配置 ───
+workbench:
+  llm_control:
+    model_list_timeout_ms: 30000
+    panel_cache_ttl_seconds: 10.0
+    plaza_cache_ttl_seconds: 60.0
+
 # ─── 写作引擎配置 ───
 writing:
   # 每章字数上限（单位：字符）
@@ -43,6 +111,14 @@ database:
     temp_store: "MEMORY"
     mmap_size: 268435456  # 256MB
     cache_size: -32768  # 32MB（负值表示 KB）
+    micro_transaction_yield_seconds: 0.01  # 大批量三元组写入的小事务让步间隔
+
+  retry:
+    lock_max_retries: 8
+    lock_backoff_base_seconds: 0.15
+    lock_backoff_max_seconds: 2.5
+    migration_max_retries: 3
+    migration_backoff_base_seconds: 0.5
 
 # ─── 持久化队列配置 ───
 persistence_queue:
@@ -50,6 +126,18 @@ persistence_queue:
   cleanup_threshold: 1000
   cleanup_days: 7  # 清理 7 天前的已完成任务
   max_retries: 3
+  zombie_timeout_minutes: 5
+  queue_bloat_warning: 5000
+  cleanup_every_processed: 100
+  consumer_idle_sleep_seconds: 0.5
+  consumer_error_sleep_seconds: 1.0
+  consumer_stop_timeout_seconds: 5.0
+  legacy_lock_max_retries: 10
+  legacy_lock_backoff_base_seconds: 0.2
+  legacy_lock_backoff_max_seconds: 3.0
+  legacy_drain_timeout_seconds: 3.0
+  legacy_idle_wait_sleep_seconds: 0.05
+  legacy_idle_stable_checks: 3
 
 # ─── 监控配置 ───
 monitoring:
@@ -70,8 +158,69 @@ frontend:
     reconnect_base_delay_ms: 1000
     reconnect_max_delay_ms: 30000
 
+# ─── 后端生命周期配置 ───
+backend:
+  lifecycle:
+    startup_reset_max_retries: 3
+    startup_reset_retry_backoff_seconds: 1.0
+    shutdown_response_delay_seconds: 0.15
+    force_exit_timeout_seconds: 8.0
+    force_exit_watchdog_poll_seconds: 0.5
+
 # ─── DAG 引擎配置 ───
 dag_engine:
   use_langgraph: false  # 是否使用 LangGraph
   checkpoint_enabled: true
   max_parallel_nodes: 5
+  event_aggregator:
+    flush_interval_seconds: 0.5
+    stop_join_timeout_seconds: 2.0
+  sse:
+    queue_size: 100
+    idle_poll_seconds: 1.0
+    heartbeat_every_idle_ticks: 30
+  cache:
+    max_size: 256
+
+# ─── 连续规划流式呈现配置 ───
+planning:
+  runtime:
+    macro_generation_poll_seconds: 0.4
+    macro_part_node_delay_seconds: 0.09
+    macro_volume_node_delay_seconds: 0.06
+    macro_act_node_delay_seconds: 0.04
+    macro_watch_poll_seconds: 0.32
+    macro_watch_node_delay_seconds: 0.028
+    macro_watch_max_seconds: 3600.0
+    macro_watch_heartbeat_every_ticks: 10
+    act_generation_poll_seconds: 0.4
+    act_chapter_node_delay_seconds: 0.045
+    act_generation_progress_base_percent: 8
+    act_generation_progress_step_percent: 3
+    act_generation_progress_cycle_ticks: 10
+    act_generation_progress_max_percent: 88
+
+# ─── Bible / 世界观流式呈现配置 ───
+bible:
+  runtime:
+    worldbuilding_field_emit_delay_seconds: 0.02
+    worldbuilding_dimension_emit_delay_seconds: 0.05
+
+# ─── Cast / 角色关系图配置 ───
+world:
+  cast:
+    runtime:
+      graph_cache_ttl_seconds: 8.0
+      graph_cache_max_size: 128
+
+# ─── 守护进程生命周期配置 ───
+daemon:
+  lifecycle:
+    error_sleep_seconds: 10.0
+    powershell_list_timeout_seconds: 15.0
+    wmic_list_timeout_seconds: 8.0
+    orphan_taskkill_timeout_seconds: 5.0
+    graceful_join_timeout_seconds: 2.0
+    terminate_join_timeout_seconds: 1.0
+    sigkill_join_timeout_seconds: 1.0
+    windows_taskkill_timeout_seconds: 3.0

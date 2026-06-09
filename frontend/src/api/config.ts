@@ -1,5 +1,6 @@
 import axios, { type AxiosError, type AxiosRequestConfig } from 'axios'
 
+import { runtimePerformance } from '../config/performance'
 import { emitAxiosFeedbackIncident } from '../support/feedbackNotifier'
 import { apiRoutes } from './endpoints'
 
@@ -31,7 +32,7 @@ export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1'
 
 const axiosInstance = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 120000,
+  timeout: runtimePerformance.network.apiDefaultTimeoutMs,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -43,7 +44,7 @@ export const apiAxios = axiosInstance
 /** 旧版 /api 路由（book、jobs），与 v1 共用主机 */
 export const legacyBookHttp = axios.create({
   baseURL: '/api',
-  timeout: 30000,
+  timeout: runtimePerformance.network.legacyApiTimeoutMs,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -53,7 +54,7 @@ legacyBookHttp.interceptors.response.use(response => response.data)
 /** 旧版 /api/stats，带 SuccessResponse 解包 */
 export const legacyStatsHttp = axios.create({
   baseURL: '/api',
-  timeout: 30000,
+  timeout: runtimePerformance.network.legacyApiTimeoutMs,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -107,8 +108,6 @@ async function initTauriConnection(): Promise<void> {
 }
 
 /** 桌面壳：后端在后台线程就绪，IPC 端口在健康检查通过前可能为 0 */
-const TAURI_BACKEND_POLL_MS = 200
-const TAURI_BACKEND_WAIT_MS = 30_000  // 30秒，避免长时间卡住
 
 async function waitForTauriBackendPort(
   invoke: (cmd: string) => Promise<number>,
@@ -128,6 +127,22 @@ async function waitForTauriBackendPort(
   return null
 }
 
+function createTimeoutSignal(timeoutMs: number): { signal: AbortSignal; cleanup: () => void } {
+  const abortSignal = AbortSignal as typeof AbortSignal & {
+    timeout?: (milliseconds: number) => AbortSignal
+  }
+  if (typeof abortSignal.timeout === 'function') {
+    return { signal: abortSignal.timeout(timeoutMs), cleanup: () => {} }
+  }
+
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs)
+  return {
+    signal: controller.signal,
+    cleanup: () => window.clearTimeout(timer),
+  }
+}
+
 /**
  * 初始化 API（应用启动时调用一次）
  */
@@ -142,8 +157,8 @@ export async function initApiClient(): Promise<void> {
       console.log('[API] 等待后端就绪...')
       port = await waitForTauriBackendPort(
         cmd => invoke<number>(cmd),
-        TAURI_BACKEND_WAIT_MS,
-        TAURI_BACKEND_POLL_MS,
+        runtimePerformance.network.tauriBackendWaitMs,
+        runtimePerformance.network.tauriBackendPollMs,
       )
     }
   } catch (e) {
@@ -156,16 +171,19 @@ export async function initApiClient(): Promise<void> {
     console.log(`[API] 桌面模式 baseURL: ${newBaseURL}`)
 
     // 验证后端是否真的响应
+    const healthTimeout = createTimeoutSignal(runtimePerformance.network.tauriHealthCheckTimeoutMs)
     try {
       const healthCheck = await fetch(`http://127.0.0.1:${port}/health`, {
         method: 'GET',
-        signal: AbortSignal.timeout(5000)
+        signal: healthTimeout.signal,
       })
       if (!healthCheck.ok) {
         console.warn('[API] 后端健康检查失败，状态码:', healthCheck.status)
       }
     } catch (e) {
       console.warn('[API] 后端健康检查异常:', e)
+    } finally {
+      healthTimeout.cleanup()
     }
   } else if (isTauri()) {
     axiosInstance.defaults.baseURL = 'http://127.0.0.1:8005/api/v1'

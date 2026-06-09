@@ -133,8 +133,6 @@ class KnowledgeService:
             indexing_service = get_triple_indexing_service()
 
             if indexing_service is not None:
-                import concurrent.futures
-
                 # 使用同步接口
                 results = indexing_service.sync_search(
                     novel_id=novel_id,
@@ -284,8 +282,7 @@ class KnowledgeService:
         Returns:
             成功索引的三元组数量
         """
-        import concurrent.futures
-        import asyncio
+        from application.core.async_bridge import run_coroutine_sync
 
         # 从数据库获取三元组（异步方法）
         try:
@@ -299,8 +296,7 @@ class KnowledgeService:
             async def _load():
                 return await triple_repo.get_by_novel(novel_id)
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                triples = pool.submit(lambda: asyncio.run(_load())).result()
+            triples = run_coroutine_sync(_load)
 
             if not triples:
                 logger.info(f"No triples found in DB for {novel_id}")
@@ -327,8 +323,7 @@ class KnowledgeService:
             async def _index():
                 return await indexing_service.index_triples_batch(novel_id, triple_dicts)
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                indexed_count = pool.submit(lambda: asyncio.run(_index())).result()
+            indexed_count = run_coroutine_sync(_index)
 
             logger.info(f"Auto-indexed {indexed_count} triples for {novel_id}")
             return indexed_count

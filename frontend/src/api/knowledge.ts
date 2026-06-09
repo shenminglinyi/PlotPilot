@@ -1,4 +1,5 @@
 import { apiClient } from './config'
+import { runtimePerformance } from '@/config/performance'
 
 const request = apiClient
 
@@ -100,6 +101,6 @@ export const knowledgeApi = {
     request.post<{ success: boolean; message: string; facts_count: number; premise_lock: string }>(
       `/novels/${novelId}/knowledge/generate`,
       {},
-      { timeout: 120_000 }
+      { timeout: runtimePerformance.network.longTaskTimeoutMs }
     ) as unknown as Promise<{ success: boolean; message: string; facts_count: number; premise_lock: string }>,
 }

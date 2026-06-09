@@ -10,6 +10,7 @@ from domain.ai.services.llm_service import GenerationConfig, GenerationResult
 from domain.ai.value_objects.prompt import Prompt
 from domain.ai.value_objects.token_usage import TokenUsage
 from infrastructure.ai.config.settings import Settings
+from infrastructure.ai.http_timeout import build_httpx_timeout
 from .base import BaseProvider
 from .model_resolution import require_resolved_model_id
 
@@ -44,19 +45,8 @@ class OpenAIProvider(BaseProvider):
         if settings.base_url:
             client_kwargs["base_url"] = settings.base_url
 
-        # 🔥 关键修复：分层超时配置
-        # - connect_timeout: TCP 连接建立超时（30s，快速发现网络不可达）
-        # - read_timeout: 等待服务端响应超时（120s，两个 SSE chunk 之间的间隔）
-        # - write_timeout: 发送请求超时（60s）
-        # - pool_timeout: 从连接池获取连接超时（30s）
-        # 之前 httpx.Timeout(300) 是统一 300s，导致 deepseek API 卡住时整个进程挂起 1 小时
         self._http_client = httpx.AsyncClient(
-            timeout=httpx.Timeout(
-                connect=settings.connect_timeout,
-                read=settings.read_timeout,
-                write=60.0,
-                pool=30.0,
-            ),
+            timeout=build_httpx_timeout(settings.http_timeout_settings),
             trust_env=False,
         )
         client_kwargs["http_client"] = self._http_client

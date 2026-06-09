@@ -75,6 +75,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onUnmounted } from 'vue'
+import { runtimePerformance } from '@/config/performance'
 
 const props = withDefaults(
   defineProps<{
@@ -114,7 +115,6 @@ const lastContentLength = ref(0)
 const displayedText = ref('')
 const pendingText = ref('')
 let typewriterTimer: ReturnType<typeof setInterval> | null = null
-const TYPEWRITER_SPEED = 30 // 每 30ms 显示一个字符
 
 const isStreaming = computed(
   () =>
@@ -292,7 +292,7 @@ function startTypewriter() {
         }
       })
     }
-  }, TYPEWRITER_SPEED)
+  }, runtimePerformance.autopilotPanel.writingTypewriterIntervalMs)
 }
 
 function stopTypewriter() {

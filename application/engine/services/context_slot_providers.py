@@ -11,6 +11,10 @@ from typing import Any
 
 from domain.novel.value_objects.novel_id import NovelId
 from domain.novel.value_objects.storyline_role import StorylineRole
+from infrastructure.persistence.database.sqlite_pragmas import (
+    apply_standard_pragmas,
+    get_sqlite_pragma_settings,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -222,9 +226,11 @@ def build_key_props_slot_content(novel_id: str, db_path_provider: Any = None) ->
 
             db_path_provider = get_db_path
 
-        conn = sqlite3.connect(str(db_path_provider()), timeout=5)
-        conn.row_factory = sqlite3.Row
+        timeout = max(1.0, get_sqlite_pragma_settings().busy_timeout_ms / 1000)
+        conn = sqlite3.connect(str(db_path_provider()), timeout=timeout)
         try:
+            apply_standard_pragmas(conn)
+            conn.row_factory = sqlite3.Row
             cursor = conn.execute(
                 "SELECT name, description, attributes_json FROM unified_props "
                 "WHERE novel_id = ? LIMIT 64",

@@ -413,15 +413,13 @@
 </template>
 
 <script setup lang="ts">
-import { h, ref, onMounted, computed, nextTick } from 'vue'
+import { defineAsyncComponent, h, ref, onMounted, computed, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMessage, NIcon } from 'naive-ui'
 import { novelApi, type NovelDTO } from '../api/novel'
 import { isWizardCompleted } from '@/utils/wizardStageCache'
 import StatsSidebar from '@/components/stats/StatsSidebar.vue'
-import NovelSetupGuide from '@/components/onboarding/NovelSetupGuide.vue'
 import { useAppSettingsShellStore } from '@/stores/appSettingsShellStore'
-import MarketTaxonomyPicker from '@/components/taxonomy/MarketTaxonomyPicker.vue'
 import { parseGenreWorldFromPremise } from '@/utils/premisePresets'
 import { useStatsStore } from '@/stores/statsStore'
 import { storageKeys } from '@/config/storageKeys'
@@ -433,6 +431,13 @@ import {
   getNovelStageTagType,
   type NovelLengthTier,
 } from '@/domain/novel'
+
+const MarketTaxonomyPicker = defineAsyncComponent(
+  () => import('@/components/taxonomy/MarketTaxonomyPicker.vue'),
+)
+const NovelSetupGuide = defineAsyncComponent(
+  () => import('@/components/onboarding/NovelSetupGuide.vue'),
+)
 
 // Icons
 const IconSpark = () =>
