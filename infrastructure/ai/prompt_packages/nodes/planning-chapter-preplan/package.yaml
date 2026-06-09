@@ -22,7 +22,7 @@ variables:
   type: string
   required: true
 - name: continuity_context
-  desc: 连续性上下文，使用前3章规划大纲
+  desc: 连续性上下文，使用近3章承接摘要
   type: string
   required: true
 id: planning-chapter-preplan

@@ -70,9 +70,11 @@ class AutopilotRecoveryPolicy:
         return self._decide_from_row(row, for_start=False)
 
     def apply_transient_cleanup(self, decision: AutopilotRecoveryDecision) -> None:
-        if decision.discard_transient_generation and decision.chapter_number and self._workspace is not None:
-            self._workspace.discard(decision.novel_id, decision.chapter_number)
+        if decision.discard_transient_generation and decision.chapter_number:
+            if self._workspace is not None:
+                self._workspace.discard(decision.novel_id, decision.chapter_number)
             self._archive_legacy_draft(decision.novel_id, decision.chapter_number)
+            self._discard_transient_chapter_preplan(decision.novel_id, decision.chapter_number)
         if decision.discard_transient_invocations:
             self._discard_transient_invocations(decision)
         if decision.clear_pending_invocation:
@@ -516,6 +518,99 @@ class AutopilotRecoveryPolicy:
             )
         except Exception as exc:
             logger.debug("variable output discard skipped sessions=%s: %s", session_ids, exc)
+
+    def _discard_transient_chapter_preplan(self, novel_id: str, chapter_number: int) -> None:
+        """Reset pre-writing chapter plans for an unfinished writing retry.
+
+        Chapter preplanning is part of the writing step. If generation is stopped
+        before the chapter is completed, the seven-section plan and its
+        continuity context must not be reused as stable input on the next run.
+        """
+        try:
+            db = self._get_db()
+            row = db.fetch_one(
+                """
+                SELECT id, outline, metadata
+                FROM story_nodes
+                WHERE novel_id = ? AND node_type = 'chapter' AND number = ?
+                LIMIT 1
+                """,
+                (novel_id, int(chapter_number)),
+            )
+            lightweight_outline = ""
+            metadata: dict[str, Any] = {}
+            if row:
+                metadata = self._json_object(row.get("metadata"))
+                act_plan = metadata.get("act_chapter_plan")
+                if isinstance(act_plan, dict) and act_plan:
+                    from application.blueprint.services.chapter_plan_renderer import (
+                        render_lightweight_act_chapter_outline,
+                    )
+
+                    lightweight_outline = render_lightweight_act_chapter_outline(act_plan)
+                if metadata.pop("chapter_preplan", None) is not None:
+                    db.execute(
+                        """
+                        UPDATE story_nodes
+                        SET outline = ?, metadata = ?, updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                        """,
+                        (
+                            lightweight_outline,
+                            json.dumps(metadata, ensure_ascii=False, sort_keys=True),
+                            row["id"],
+                        ),
+                    )
+
+            db.execute(
+                """
+                UPDATE chapters
+                SET outline = ?,
+                    content = '',
+                    word_count = 0,
+                    status = 'draft',
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE novel_id = ? AND number = ? AND status != 'completed'
+                """,
+                (lightweight_outline, novel_id, int(chapter_number)),
+            )
+            scope_key = f"novel_id:{novel_id}|chapter_number:{int(chapter_number)}"
+            db.execute(
+                """
+                UPDATE variable_values
+                SET is_current = 0
+                WHERE scope_key = ?
+                  AND is_current = 1
+                  AND source_node_key = 'planning-chapter-preplan'
+                  AND variable_key IN ('chapter.outline', 'chapter.continuity_context')
+                """,
+                (scope_key,),
+            )
+            self._commit()
+            logger.info(
+                "丢弃未完成章节的章前规划 novel=%s chapter=%s",
+                novel_id,
+                chapter_number,
+            )
+        except Exception as exc:
+            logger.debug(
+                "章前规划清理跳过 novel=%s ch=%s: %s",
+                novel_id,
+                chapter_number,
+                exc,
+            )
+
+    @staticmethod
+    def _json_object(raw: Any) -> dict[str, Any]:
+        if isinstance(raw, dict):
+            return dict(raw)
+        if not raw:
+            return {}
+        try:
+            data = json.loads(str(raw))
+        except Exception:
+            return {}
+        return data if isinstance(data, dict) else {}
 
     def _archive_legacy_draft(self, novel_id: str, chapter_number: int) -> None:
         try:

@@ -1,4 +1,5 @@
 import sqlite3
+import json
 
 from application.engine.services.autopilot_recovery_policy import AutopilotRecoveryPolicy
 
@@ -20,13 +21,19 @@ class _Db:
                 number INTEGER NOT NULL,
                 status TEXT DEFAULT 'draft',
                 content TEXT DEFAULT '',
+                outline TEXT DEFAULT '',
+                word_count INTEGER DEFAULT 0,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(novel_id, number)
             );
             CREATE TABLE story_nodes (
                 id TEXT PRIMARY KEY,
                 novel_id TEXT NOT NULL,
                 number INTEGER NOT NULL,
-                node_type TEXT NOT NULL
+                node_type TEXT NOT NULL,
+                outline TEXT DEFAULT '',
+                metadata TEXT DEFAULT '{}',
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE ai_invocation_sessions (
                 id TEXT PRIMARY KEY,
@@ -207,6 +214,76 @@ def test_recovery_policy_preserves_legacy_writing_resume_semantics():
     assert decision.chapter_number == 1
     assert decision.discard_transient_generation is False
     assert decision.reason == "resume_legacy_writing"
+
+
+def test_recovery_cleanup_discards_transient_chapter_preplan_for_writing_retry():
+    db = _Db()
+    preplan_metadata = {
+        "act_chapter_plan": {
+            "number": 1,
+            "title": "第1章",
+            "main_event": "轻量主事件",
+            "handoff_from_previous": "本幕入口",
+            "handoff_to_next": "下一章钩子",
+            "required_threads": ["主线"],
+        },
+        "chapter_preplan": {
+            "detail_outline": "一、开篇切入点：临时七段细纲",
+            "continuity_context": "坏的连续性上下文",
+        },
+    }
+    db.execute(
+        "INSERT INTO novels (id, current_stage, autopilot_status) VALUES ('novel-1', 'writing', 'stopped')"
+    )
+    db.execute(
+        """
+        INSERT INTO story_nodes (id, novel_id, number, node_type, outline, metadata)
+        VALUES ('sn-1', 'novel-1', 1, 'chapter', '一、开篇切入点：临时七段细纲', ?)
+        """,
+        (json.dumps(preplan_metadata, ensure_ascii=False),),
+    )
+    db.execute(
+        """
+        INSERT INTO chapters (id, novel_id, number, status, content)
+        VALUES ('c1', 'novel-1', 1, 'draft', '半章草稿')
+        """
+    )
+    db.execute(
+        """
+        INSERT INTO variable_values
+          (id, variable_key, scope_level, scope_key, value_json, is_current, source_node_key)
+        VALUES
+          ('v-preplan-outline', 'chapter.outline', 'chapter', 'novel_id:novel-1|chapter_number:1', '"七段细纲"', 1, 'planning-chapter-preplan'),
+          ('v-preplan-context', 'chapter.continuity_context', 'chapter', 'novel_id:novel-1|chapter_number:1', '"坏上下文"', 1, 'planning-chapter-preplan'),
+          ('v-act-outline', 'chapter.outline', 'chapter', 'novel_id:novel-1|chapter_number:1', '"轻量链条"', 1, 'planning-act')
+        """
+    )
+
+    policy = AutopilotRecoveryPolicy(db)
+    decision = policy.decide_on_start("novel-1")
+    assert decision.discard_transient_generation is True
+
+    policy.apply_transient_cleanup(decision)
+
+    story_node = db.fetch_one("SELECT outline, metadata FROM story_nodes WHERE id = 'sn-1'")
+    chapter = db.fetch_one("SELECT outline, content, word_count, status FROM chapters WHERE id = 'c1'")
+    preplan_flags = {
+        row["id"]: row["is_current"]
+        for row in db.fetch_all(
+            "SELECT id, is_current FROM variable_values WHERE id LIKE 'v-preplan-%'",
+            (),
+        )
+    }
+    act_flag = db.fetch_one("SELECT is_current FROM variable_values WHERE id = 'v-act-outline'")["is_current"]
+
+    assert "主事件：轻量主事件" in story_node["outline"]
+    assert "chapter_preplan" not in json.loads(story_node["metadata"])
+    assert chapter["content"] == ""
+    assert chapter["word_count"] == 0
+    assert chapter["status"] == "draft"
+    assert "主事件：轻量主事件" in chapter["outline"]
+    assert preplan_flags == {"v-preplan-outline": 0, "v-preplan-context": 0}
+    assert act_flag == 1
 
 
 def test_recovery_cleanup_cancels_only_retryable_pending_invocations():
