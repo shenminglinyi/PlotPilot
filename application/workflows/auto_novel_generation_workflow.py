@@ -97,38 +97,9 @@ from infrastructure.ai.prompt_keys import PROSE_FROM_SCRIPT as _PROSE_FROM_SCRIP
 from infrastructure.ai.prompt_contracts.script_generation import SCRIPT_GENERATION_CONTRACT
 from infrastructure.ai.prompt_contracts.prose_from_script import PROSE_FROM_SCRIPT_CONTRACT
 from infrastructure.ai.prompt_gateway import get_prompt_gateway
-
-# 硬编码回退：system 模板框架（仅在 PromptRegistry 不可用时使用）
-_FALLBACK_SYSTEM_TEMPLATE = (
-    "你是一位专业的网络小说作家。根据以下上下文撰写章节内容。\n"
-    "{theme_persona}{theme_rules}\n"
-    "{planning_section}{voice_block}{context}\n\n"
-    "{fact_lock}\n"
-    "{shuangwen_directive}"
-    "{prose_discipline}"
-    "写作要求：\n"
-    "1. 必须有多个人物互动（至少2-3个角色出场）\n"
-    "2. 必须有对话（不能只有独白和叙述）\n"
-    "3. 必须有冲突或张力（人物之间的矛盾、目标阻碍、悬念等）\n"
-    "4. 保持人物性格一致\n"
-    "5. 推进情节发展\n"
-    "6. 使用生动的场景描写和细节\n"
-    "{length_rule}\n"
-    "8. 用中文写作，使用第三人称叙事{beat_extra}\n"
-    "{format_rules}"
-)
-
-# 硬编码回退：user 模板框架
-_FALLBACK_USER_TEMPLATE = (
-    "请根据以下大纲撰写本章内容：\n\n{outline}\n\n"
-    "关键要求（必须遵守）：\n"
-    "- 至少2-3个角色出场并互动\n"
-    "- 必须包含对话场景（不少于3段对话）\n"
-    "- 必须有明确的冲突或戏剧张力\n"
-    "- 场景要具体生动，不要空泛叙述\n"
-    "- 推进主线情节，不要原地踏步\n"
-    "- 结尾要有悬念或转折\n\n"
-    "{beat_section}"
+from infrastructure.ai.prompt_utils import (
+    get_required_prompt_system,
+    get_required_prompt_user_template,
 )
 
 # 与 ContextBuilder.build_structured_context 映射：Layer1≈T0+T1，Layer2=T2，Layer3=T3
@@ -1341,61 +1312,33 @@ class AutoNovelGenerationWorkflow:
     # ─── CPMS 模板获取辅助方法 ───
 
     def _get_workflow_system_template(self) -> str:
-        """获取主工作流 system 模板（CPMS 优先 -> 硬编码回退）。
+        """获取主工作流 system 模板（CPMS 必需）。
 
         设计决策：
         - 主工作流的 system prompt 包含大量动态变量（theme_persona, fact_lock 等），
           不适合直接用 Registry.render() 一步渲染，而是获取模板后由 _build_prompt 手动 format。
         - 如果 PromptRegistry 中注册了 workflow-chapter-generation 节点，
           用户可在提示词广场直接编辑此模板并实时生效。
-        - 降级时使用模块级 _FALLBACK_SYSTEM_TEMPLATE 常量。
+        - 运行期生成链路不允许隐藏硬编码回退；CPMS 缺失必须 fail-fast。
 
         Returns:
             system prompt 模板字符串（含 {variable} 占位符）
         """
-        try:
-            from infrastructure.ai.prompt_registry import get_prompt_registry
-            registry = get_prompt_registry()
-            system = registry.get_system(_WORKFLOW_CHAPTER_GEN_NODE_KEY)
-            if system:
-                logger.debug(
-                    "CPMS: 使用 Registry 模板 (node_key=%s)", _WORKFLOW_CHAPTER_GEN_NODE_KEY
-                )
-                return system
-        except Exception as exc:
-            logger.debug(
-                "PromptRegistry 不可用 (node_key=%s): %s", _WORKFLOW_CHAPTER_GEN_NODE_KEY, exc
-            )
-
-        logger.debug("CPMS: 使用硬编码回退 system 模板")
-        return _FALLBACK_SYSTEM_TEMPLATE
+        logger.debug("CPMS: 读取必需 system 模板 (node_key=%s)", _WORKFLOW_CHAPTER_GEN_NODE_KEY)
+        return get_required_prompt_system(_WORKFLOW_CHAPTER_GEN_NODE_KEY)
 
     def _get_workflow_user_template(self) -> str:
-        """获取主工作流 user 模板（CPMS 优先 -> 硬编码回退）。
+        """获取主工作流 user 模板（CPMS 必需）。
 
         同 _get_workflow_system_template 的设计决策：
         - 获取模板文本，后续由 _build_prompt 根据节拍模式追加更多段落。
-        - 降级时使用模块级 _FALLBACK_USER_TEMPLATE 常量。
+        - 运行期生成链路不允许隐藏硬编码回退；CPMS 缺失必须 fail-fast。
 
         Returns:
             user prompt 模板字符串（含 {variable} 占位符）
         """
-        try:
-            from infrastructure.ai.prompt_registry import get_prompt_registry
-            registry = get_prompt_registry()
-            user_template = registry.get_user_template(_WORKFLOW_CHAPTER_GEN_NODE_KEY)
-            if user_template:
-                logger.debug(
-                    "CPMS: 使用 Registry user_template (node_key=%s)", _WORKFLOW_CHAPTER_GEN_NODE_KEY
-                )
-                return user_template
-        except Exception as exc:
-            logger.debug(
-                "PromptRegistry 不可用 (node_key=%s): %s", _WORKFLOW_CHAPTER_GEN_NODE_KEY, exc
-            )
-
-        logger.debug("CPMS: 使用硬编码回退 user_template")
-        return _FALLBACK_USER_TEMPLATE
+        logger.debug("CPMS: 读取必需 user_template (node_key=%s)", _WORKFLOW_CHAPTER_GEN_NODE_KEY)
+        return get_required_prompt_user_template(_WORKFLOW_CHAPTER_GEN_NODE_KEY)
 
     # ─── 两阶段生成：剧本 → 正文（PromptGateway 驱动） ───
 
