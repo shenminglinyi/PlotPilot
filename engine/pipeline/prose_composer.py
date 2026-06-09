@@ -80,12 +80,58 @@ class ChapterProseInvocationComposer:
 
         return GenerationConfig(max_tokens=ChapterProseInvocationComposer._max_output_tokens(request), temperature=0.85)
 
+    @staticmethod
+    def _load_committed_story_pipeline_content(request: ProseCompositionRequest) -> str:
+        """Return accepted prose already committed for this StoryPipeline step.
+
+        StoryPipeline owns the formal chapter save, so its continuation stores
+        the accepted text in the invocation commit and then resumes writing.
+        On the resumed pipeline tick we must consume that text instead of
+        creating another AI invocation for the same chapter.
+        """
+        try:
+            from infrastructure.persistence.database.connection import get_database
+
+            row = get_database().fetch_one(
+                """
+                SELECT d.accepted_content AS accepted_content
+                FROM ai_invocation_sessions s
+                JOIN ai_adoption_decisions d ON d.session_id = s.id
+                JOIN ai_adoption_commits c ON c.decision_id = d.id
+                WHERE s.operation = ?
+                  AND s.status = 'completed'
+                  AND c.status = 'succeeded'
+                  AND json_extract(s.context_json, '$.novel_id') = ?
+                  AND CAST(json_extract(s.context_json, '$.chapter_number') AS INTEGER) = ?
+                  AND json_extract(s.metadata_json, '$.commit_owner') = 'story_pipeline_save_step'
+                ORDER BY c.updated_at DESC, d.accepted_at DESC
+                LIMIT 1
+                """,
+                (
+                    AUTOPILOT_CHAPTER_PROSE_OPERATION,
+                    request.novel_id,
+                    int(request.chapter_number or 0),
+                ),
+            )
+        except Exception:
+            return ""
+        return str((row or {}).get("accepted_content") or "").strip()
+
     async def compose(self, request: ProseCompositionRequest) -> ProseCompositionResult:
         from application.ai_invocation.autopilot.factory import get_or_create_autopilot_orchestrator
         from application.ai_invocation.autopilot.intents import AutopilotInvocationIntent
         from application.ai_invocation.autopilot.policy import AutopilotInvocationPolicyResolver
         from application.ai_invocation.contracts import ensure_invocation_contract
         from infrastructure.persistence.database.connection import get_database
+
+        committed_content = self._load_committed_story_pipeline_content(request)
+        if committed_content:
+            if request.stream_sink:
+                request.stream_sink(committed_content)
+            return ProseCompositionResult(
+                content=committed_content,
+                status="committed_story_pipeline_content",
+            )
 
         db = get_database()
         ensure_invocation_contract(AUTOPILOT_CHAPTER_PROSE_OPERATION, CHAPTER_PROSE_GENERATION, db)

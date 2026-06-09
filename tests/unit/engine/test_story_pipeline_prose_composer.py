@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sqlite3
+
 import pytest
 
 from engine.pipeline.base import BaseStoryPipeline
@@ -50,6 +52,75 @@ def test_chapter_prose_composer_builds_only_core_prompt_variables():
 
 
 @pytest.mark.asyncio
+async def test_chapter_prose_composer_reuses_committed_story_pipeline_content(monkeypatch):
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.executescript(
+        """
+        CREATE TABLE ai_invocation_sessions (
+            id TEXT PRIMARY KEY,
+            operation TEXT,
+            status TEXT,
+            context_json TEXT DEFAULT '{}',
+            metadata_json TEXT DEFAULT '{}',
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE ai_adoption_decisions (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            attempt_id TEXT DEFAULT '',
+            accepted_content TEXT DEFAULT '',
+            accepted_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE ai_adoption_commits (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            decision_id TEXT NOT NULL,
+            status TEXT DEFAULT 'pending',
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+        INSERT INTO ai_invocation_sessions
+            (id, operation, status, context_json, metadata_json)
+        VALUES
+            (
+                'session-1',
+                'autopilot.chapter.prose',
+                'completed',
+                '{"novel_id":"novel-1","chapter_number":2}',
+                '{"commit_owner":"story_pipeline_save_step"}'
+            );
+        INSERT INTO ai_adoption_decisions
+            (id, session_id, accepted_content)
+        VALUES ('decision-1', 'session-1', '已采纳正文');
+        INSERT INTO ai_adoption_commits
+            (id, session_id, decision_id, status)
+        VALUES ('commit-1', 'session-1', 'decision-1', 'succeeded');
+        """
+    )
+
+    class _Db:
+        def fetch_one(self, sql, params=()):
+            row = conn.execute(sql, params).fetchone()
+            return dict(row) if row else None
+
+    import infrastructure.persistence.database.connection
+
+    monkeypatch.setattr(infrastructure.persistence.database.connection, "get_database", lambda *_args, **_kwargs: _Db())
+    chunks = []
+    request = ProseCompositionRequest(
+        novel_id="novel-1",
+        chapter_number=2,
+        stream_sink=chunks.append,
+    )
+
+    result = await ChapterProseInvocationComposer().compose(request)
+
+    assert result.content == "已采纳正文"
+    assert result.status == "committed_story_pipeline_content"
+    assert chunks == ["已采纳正文"]
+
+
+@pytest.mark.asyncio
 async def test_story_pipeline_uses_chapter_prose_composer_for_auto_approved_flow():
     composer = _Composer(ProseCompositionResult(content="整章正文"))
     pipeline = _Pipeline()
@@ -71,6 +142,34 @@ async def test_story_pipeline_uses_chapter_prose_composer_for_auto_approved_flow
     assert ctx.word_count == len("整章正文")
     assert composer.requests[0].outline == "本章大纲"
     assert composer.requests[0].context_text == "世界观上下文"
+
+
+@pytest.mark.asyncio
+async def test_story_pipeline_save_falls_back_when_queue_write_not_visible(monkeypatch):
+    pipeline = _Pipeline()
+    ctx = PipelineContext(
+        novel_id="novel-save",
+        chapter_number=1,
+        chapter_content="正文",
+        word_count=2,
+    )
+    ctx.chapter_repository = object()
+    saved = []
+
+    async def _save_via_repo(_ctx):
+        saved.append((_ctx.novel_id, _ctx.chapter_number, _ctx.chapter_content))
+
+    monkeypatch.setattr(pipeline, "_push_persistence_command", lambda _ctx: True)
+    monkeypatch.setattr(pipeline, "_wait_for_chapter_persistence", lambda _ctx: None)
+    monkeypatch.setattr(pipeline, "_chapter_completed_in_repository", lambda _ctx: False)
+    monkeypatch.setattr(pipeline, "_save_chapter_via_repository", _save_via_repo)
+
+    result = await pipeline._step_save_chapter(ctx)
+
+    assert result.passed
+    assert saved == [("novel-save", 1, "正文")]
+    assert ctx.chapter_saved is True
+    assert ctx.save_method == "queue"
 
 
 @pytest.mark.asyncio
