@@ -67,6 +67,14 @@ streaming_bus:
 state_bootstrap:
   triple_fetch_timeout_seconds: 5.0
 
+# ─── 分析服务配置 ───
+analyst:
+  voice_analysis:
+    style_cache_ttl_seconds: 300.0
+    style_cache_max_size: 512
+    baseline_cache_ttl_seconds: 600.0
+    baseline_cache_max_size: 256
+
 # ─── MemoryEngine 跨章状态缓存配置 ───
 memory_engine:
   state_cache_ttl_seconds: 300.0

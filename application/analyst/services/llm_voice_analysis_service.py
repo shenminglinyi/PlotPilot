@@ -12,9 +12,15 @@
 """
 import json
 import logging
+import time
+from collections import OrderedDict
 from typing import Any, Dict, List
 
 from domain.ai.services.llm_service import LLMService
+from application.analyst.services.voice_analysis_settings import (
+    VoiceAnalysisRuntimeSettings,
+    get_voice_analysis_runtime_settings,
+)
 from infrastructure.ai.generation_profiles import generation_config_from_profile
 from infrastructure.ai.prompt_contracts.style_analysis import STYLE_ANALYSIS_CONTRACT
 from infrastructure.ai.prompt_contracts.voice_baseline_analysis import (
@@ -41,10 +47,15 @@ STYLE_DIMENSIONS = [
 class LLMVoiceAnalysisService:
     """LLM 文风分析服务"""
 
-    def __init__(self, llm_service: LLMService):
+    def __init__(
+        self,
+        llm_service: LLMService,
+        runtime_settings: VoiceAnalysisRuntimeSettings | None = None,
+    ):
         self._llm = llm_service
-        # 缓存已分析的章节风格
-        self._cache: Dict[str, Dict[str, float]] = {}
+        self._runtime_settings = runtime_settings or get_voice_analysis_runtime_settings()
+        self._cache: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+        self._cache_loaded_at: Dict[str, float] = {}
 
     async def analyze_chapter_style(
         self,
@@ -63,8 +74,9 @@ class LLMVoiceAnalysisService:
             风格向量字典，包含各维度分数和元数据
         """
         cache_key = f"{novel_id}:{chapter_number}"
-        if cache_key in self._cache:
-            return self._cache[cache_key]
+        cached = self._get_cached_style(cache_key)
+        if cached is not None:
+            return cached
 
         # 截取内容（最多 2000 字，节省 token）
         snippet = content[:2000] if len(content) > 2000 else content
@@ -90,8 +102,7 @@ class LLMVoiceAnalysisService:
                 "snippet_length": len(snippet),
             }
 
-            # 缓存结果
-            self._cache[cache_key] = style_vector
+            self._remember_style(cache_key, style_vector)
 
             logger.debug(
                 "LLM 文风分析完成 novel=%s ch=%d dimensions=%s",
@@ -107,6 +118,47 @@ class LLMVoiceAnalysisService:
             )
             # 返回中性值，避免阻断流程
             return self._get_neutral_style(chapter_number)
+
+    def _style_cache_enabled(self) -> bool:
+        return (
+            self._runtime_settings.style_cache_ttl_seconds > 0
+            and self._runtime_settings.style_cache_max_size > 0
+        )
+
+    def _get_cached_style(self, cache_key: str) -> Dict[str, Any] | None:
+        if not self._style_cache_enabled():
+            self._forget_cached_style(cache_key)
+            return None
+
+        cached = self._cache.get(cache_key)
+        if cached is None:
+            return None
+
+        loaded_at = self._cache_loaded_at.get(cache_key, 0.0)
+        if time.monotonic() - loaded_at >= self._runtime_settings.style_cache_ttl_seconds:
+            self._forget_cached_style(cache_key)
+            return None
+
+        self._cache.move_to_end(cache_key)
+        return cached
+
+    def _remember_style(self, cache_key: str, style_vector: Dict[str, Any]) -> None:
+        if not self._style_cache_enabled():
+            self._forget_cached_style(cache_key)
+            return
+
+        self._cache[cache_key] = style_vector
+        self._cache.move_to_end(cache_key)
+        self._cache_loaded_at[cache_key] = time.monotonic()
+
+        max_size = self._runtime_settings.style_cache_max_size
+        while len(self._cache) > max_size:
+            evicted_key, _ = self._cache.popitem(last=False)
+            self._cache_loaded_at.pop(evicted_key, None)
+
+    def _forget_cached_style(self, cache_key: str) -> None:
+        self._cache.pop(cache_key, None)
+        self._cache_loaded_at.pop(cache_key, None)
 
     async def compute_baseline(
         self,

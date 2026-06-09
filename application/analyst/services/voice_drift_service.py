@@ -8,7 +8,14 @@
 """
 import re
 import logging
+import time
+from collections import OrderedDict
 from typing import TYPE_CHECKING, List, Optional
+
+from application.analyst.services.voice_analysis_settings import (
+    VoiceAnalysisRuntimeSettings,
+    get_voice_analysis_runtime_settings,
+)
 
 if TYPE_CHECKING:
     from application.analyst.services.llm_voice_analysis_service import LLMVoiceAnalysisService
@@ -42,6 +49,7 @@ class VoiceDriftService:
         fingerprint_repo,
         llm_voice_service: Optional["LLMVoiceAnalysisService"] = None,
         use_llm_mode: bool = False,
+        runtime_settings: VoiceAnalysisRuntimeSettings | None = None,
     ):
         """
         Args:
@@ -54,9 +62,10 @@ class VoiceDriftService:
         self.fingerprint_repo = fingerprint_repo
         self.llm_voice_service = llm_voice_service
         self.use_llm_mode = use_llm_mode
+        self._runtime_settings = runtime_settings or get_voice_analysis_runtime_settings()
 
-        # LLM 模式下的基准风格缓存
-        self._baseline_cache: dict = {}
+        self._baseline_cache: "OrderedDict[str, dict]" = OrderedDict()
+        self._baseline_cache_loaded_at: dict[str, float] = {}
 
     # ------------------------------------------------------------------
     # 公开接口
@@ -184,8 +193,9 @@ class VoiceDriftService:
 
     def _get_or_init_baseline(self, novel_id: str) -> Optional[dict]:
         """获取或初始化基准风格"""
-        if novel_id in self._baseline_cache:
-            return self._baseline_cache[novel_id]
+        cached = self._get_cached_baseline(novel_id)
+        if cached is not None:
+            return cached
 
         # 从数据库加载历史评分，计算基准
         scores = self.score_repo.list_by_novel(novel_id, limit=10)
@@ -200,7 +210,7 @@ class VoiceDriftService:
                 style_vectors.append(vec)
 
             baseline = self.llm_voice_service._compute_simple_baseline(style_vectors)
-            self._baseline_cache[novel_id] = baseline
+            self._remember_baseline(novel_id, baseline)
             return baseline
 
         return None
@@ -222,8 +232,49 @@ class VoiceDriftService:
                 style_vectors.append(vec)
 
             baseline = await self.llm_voice_service.compute_baseline(novel_id, style_vectors)
-            self._baseline_cache[novel_id] = baseline
+            self._remember_baseline(novel_id, baseline)
             logger.info("基准风格已更新 novel=%s", novel_id)
+
+    def _baseline_cache_enabled(self) -> bool:
+        return (
+            self._runtime_settings.baseline_cache_ttl_seconds > 0
+            and self._runtime_settings.baseline_cache_max_size > 0
+        )
+
+    def _get_cached_baseline(self, novel_id: str) -> Optional[dict]:
+        if not self._baseline_cache_enabled():
+            self._forget_cached_baseline(novel_id)
+            return None
+
+        baseline = self._baseline_cache.get(novel_id)
+        if baseline is None:
+            return None
+
+        loaded_at = self._baseline_cache_loaded_at.get(novel_id, 0.0)
+        if time.monotonic() - loaded_at >= self._runtime_settings.baseline_cache_ttl_seconds:
+            self._forget_cached_baseline(novel_id)
+            return None
+
+        self._baseline_cache.move_to_end(novel_id)
+        return baseline
+
+    def _remember_baseline(self, novel_id: str, baseline: dict) -> None:
+        if not self._baseline_cache_enabled():
+            self._forget_cached_baseline(novel_id)
+            return
+
+        self._baseline_cache[novel_id] = baseline
+        self._baseline_cache.move_to_end(novel_id)
+        self._baseline_cache_loaded_at[novel_id] = time.monotonic()
+
+        max_size = self._runtime_settings.baseline_cache_max_size
+        while len(self._baseline_cache) > max_size:
+            evicted_novel_id, _ = self._baseline_cache.popitem(last=False)
+            self._baseline_cache_loaded_at.pop(evicted_novel_id, None)
+
+    def _forget_cached_baseline(self, novel_id: str) -> None:
+        self._baseline_cache.pop(novel_id, None)
+        self._baseline_cache_loaded_at.pop(novel_id, None)
 
     def get_drift_report(self, novel_id: str) -> dict:
         """获取漂移报告（全量评分 + 告警状态）。"""
