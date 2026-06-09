@@ -104,7 +104,10 @@ def tension_scoring_payload_to_domain(
 
 
 def tension_scoring_response_format() -> Dict[str, Any]:
-    """构建 Anthropic API 的 response_format 参数，强制 LLM 按契约输出 JSON。
+    """构建统一 GenerationConfig 的结构化输出契约。
+
+    具体 provider 负责把契约适配为自身支持的形式：OpenAI 可传
+    response_format，Anthropic 则转为 prompt 约束后由解析层校验。
 
     用法::
 

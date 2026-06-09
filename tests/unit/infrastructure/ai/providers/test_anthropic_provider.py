@@ -118,6 +118,37 @@ class TestAnthropicProvider:
         assert result.content == '{"score": 88}'
 
     @pytest.mark.asyncio
+    async def test_generate_json_schema_response_format_uses_prompt_instruction(self, provider):
+        """Anthropic SDK 不支持 OpenAI-style response_format，应转为 prompt 约束。"""
+        prompt = Prompt(system="You are helpful", user="Score it")
+        config = GenerationConfig(
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "score_payload",
+                    "schema": {
+                        "type": "object",
+                        "properties": {"score": {"type": "number"}},
+                        "required": ["score"],
+                    },
+                },
+            }
+        )
+
+        provider.async_client.messages.create = AsyncMock(return_value=Mock(
+            content=[Mock(type="text", text='{"score": 88}')],
+            usage=Mock(input_tokens=10, output_tokens=5)
+        ))
+
+        result = await provider.generate(prompt, config)
+
+        assert result.content == '{"score": 88}'
+        call_kwargs = provider.async_client.messages.create.call_args[1]
+        assert "response_format" not in call_kwargs
+        assert "score_payload" in call_kwargs["system"]
+        assert "请只输出一个有效 JSON 对象" in call_kwargs["system"]
+
+    @pytest.mark.asyncio
     async def test_generate_empty_content(self, provider):
         """测试 API 返回空 content"""
         prompt = Prompt(system="You are helpful", user="Hello")

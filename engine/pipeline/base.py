@@ -789,10 +789,18 @@ class BaseStoryPipeline(ABC):
 
         if ctx.aftermath_pipeline is not None:
             try:
+                voice_result = None
+                if ctx.similarity_score is not None:
+                    voice_result = {
+                        "similarity_score": ctx.similarity_score,
+                        "drift_alert": ctx.drift_alert,
+                        "mode": ctx.voice_mode,
+                    }
                 result = await ctx.aftermath_pipeline.run_after_chapter_saved(
                     ctx.novel_id,
                     ctx.chapter_number,
                     ctx.chapter_content,
+                    voice_result=voice_result,
                 )
                 ctx.narrative_sync_ok = bool(result.get("narrative_sync_ok", False))
                 ctx.vector_stored = bool(result.get("vector_stored", False))
@@ -862,8 +870,8 @@ class BaseStoryPipeline(ABC):
     async def _step_score_tension(self, ctx: PipelineContext) -> StepResult:
         """步骤9：张力打分（0-100 多维评分）
 
-        默认实现：优先使用章后管线的多维张力评分，
-        降级使用 LLM 单维评分（1-10 → ×10 转 0-100）。
+        默认实现只接受章后管线的多维张力评分。
+        不再用单维短提示词或固定 50 兜底，避免把评估失败伪装成真实心电图数据。
 
         子类覆写场景：
         - 自定义张力评分逻辑
@@ -885,16 +893,10 @@ class BaseStoryPipeline(ABC):
             logger.info(f"[{ctx.novel_id}] 多维张力值：{int(ctx.tension_composite)}/100")
             return StepResult.ok()
 
-        # 降级：使用 LLM 评分
-        if ctx.llm_service is not None and ctx.chapter_content:
-            try:
-                tension = await self._score_tension_via_llm(ctx)
-                ctx.tension_composite = float(tension)
-                logger.info(f"[{ctx.novel_id}] LLM 张力值：{tension}/100")
-            except Exception as e:
-                logger.warning(f"张力打分失败: {e}")
-                ctx.tension_composite = 50.0  # 默认中等张力
-
+        logger.warning(
+            "[%s] 张力未评估：章后管线未返回有效多维张力，跳过假分写入",
+            ctx.novel_id,
+        )
         return StepResult.ok()
 
     async def _step_finalize(self, ctx: PipelineContext) -> StepResult:
@@ -1119,8 +1121,11 @@ class BaseStoryPipeline(ABC):
         ctx.rewrite_attempts = min(self.VOICE_REWRITE_MAX_ATTEMPTS, 1)
         # 具体改写逻辑委托给 voice_drift_service
 
-    async def _score_tension_via_llm(self, ctx: PipelineContext) -> int:
-        """通过 AI Invocation 评分（降级方案）"""
+    async def _score_tension_via_llm(self, ctx: PipelineContext) -> Optional[int]:
+        """通过 AI Invocation 评分。
+
+        保留给子类/实验路径显式调用；默认管线不再把它作为兜底。
+        """
         try:
             import re
             from application.ai_invocation.autopilot.factory import get_or_create_autopilot_helper_invoker
@@ -1147,9 +1152,9 @@ class BaseStoryPipeline(ABC):
             if match:
                 score = int(match.group(1))
                 return min(score, 10) * 10  # 1-10 → 0-100
-        except Exception:
-            pass
-        return 50  # 默认中等张力
+        except Exception as e:
+            logger.warning("[%s] 单维张力评分失败: %s", ctx.novel_id, e)
+        return None
 
     def _make_result(
         self,

@@ -1085,7 +1085,6 @@ class ContextBudgetAllocator:
                     return "\n\n".join(parts)
 
             # 确保 novel_id 是正确的类型
-            from domain.novel.value_objects.novel_id import NovelId
             if isinstance(novel_id, str):
                 novel_id_obj = NovelId(novel_id)
             else:

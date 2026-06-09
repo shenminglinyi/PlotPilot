@@ -17,6 +17,26 @@ from .model_resolution import require_resolved_model_id
 logger = logging.getLogger(__name__)
 
 
+def _json_response_instruction(response_format: dict[str, Any]) -> str:
+    """Build prompt-side JSON constraints for Anthropic Messages API."""
+    fmt_type = response_format.get("type")
+    if fmt_type == "json_schema":
+        schema_payload = response_format.get("json_schema") or {}
+        schema = schema_payload.get("schema") or {}
+        schema_name = schema_payload.get("name") or "response"
+        try:
+            schema_text = json.dumps(schema, ensure_ascii=False, separators=(",", ":"))
+        except Exception:
+            schema_text = str(schema)
+        return (
+            "\n\n请只输出一个有效 JSON 对象，不要包含 Markdown 或额外文字。"
+            f"\nJSON 对象需符合 `{schema_name}` schema：{schema_text}"
+        )
+    if fmt_type == "json_object":
+        return "\n\n请只输出一个有效 JSON 对象，不要包含 Markdown 或额外文字。"
+    return ""
+
+
 def _extract_text_from_content_block(block: Any) -> str:
     """尽量从兼容端点返回的 content block 中提取文本。"""
     if block is None:
@@ -140,20 +160,14 @@ class AnthropicProvider(BaseProvider):
                 "system": prompt.system,
                 "messages": [{"role": "user", "content": prompt.user}],
             }
-            # 🔥 response_format 自适应：
-            # Anthropic 原生支持 json_schema 格式的 response_format（2024+），
-            # 但通过兼容网关（如智谱 Anthropic 兼容端点）可能不支持。
-            # 安全策略：只传递 Anthropic 原生格式的 response_format
+            # Anthropic Messages API does not accept OpenAI-style response_format.
+            # Keep structured output provider-agnostic by moving the constraint into
+            # the prompt; structured_json_pipeline will parse and validate it.
             if config.response_format:
                 fmt = config.response_format
-                # OpenAI 格式 → Anthropic 格式自动转换
-                if fmt.get("type") == "json_object":
-                    # Anthropic 没有 json_object，但可以通过 prompt 约束
-                    # 在 system prompt 末尾追加 JSON 输出提示
-                    create_kwargs["system"] = create_kwargs["system"] + "\n\n请只输出有效的 JSON 对象，不要包含其他文字。"
-                elif fmt.get("type") == "json_schema":
-                    # Anthropic 支持 json_schema（需要 API 版本 2024+）
-                    create_kwargs["response_format"] = fmt
+                instruction = _json_response_instruction(fmt)
+                if instruction:
+                    create_kwargs["system"] = create_kwargs["system"] + instruction
 
             # 使用 async_client 避免阻塞 asyncio 事件循环
             response = await self.async_client.messages.create(**create_kwargs)

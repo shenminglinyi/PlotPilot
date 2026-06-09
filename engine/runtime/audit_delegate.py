@@ -383,12 +383,14 @@ async def run_chapter_audit(host: Any, novel: Novel) -> None:
             _mb = host._pending_chapter_micro_beats.pop(
                 (novel.novel_id.value, chapter_num), None
             )
+            voice_result = drift_result if drift_result.get("similarity_score") is not None else None
             drift_result = await host._call_with_timeout(
                 host.aftermath_pipeline.run_after_chapter_saved(
                     novel.novel_id.value,
                     chapter_num,
                     content,
                     chapter_micro_beats=_mb,
+                    voice_result=voice_result,
                 ),
                 timeout=300.0,  # 章后管线最多 5 分钟（含多次 LLM）
                 novel_id=novel.novel_id.value,
@@ -437,49 +439,58 @@ async def run_chapter_audit(host: Any, novel: Novel) -> None:
         {"chapter_number": chapter_num}
     )
     # ★ Phase 1: 统一张力刻度为 0-100（不再有损转换为 1-10）
-    # 优先使用章后管线中的多维张力评分（0-100），替代旧式 _score_tension（1-10）
+    # 只接受章后管线中的多维张力评分；失败时显式标记未评估，不写固定 50 假分。
     tension_composite = drift_result.get("tension_composite") if drift_result else None
+    tension = 0
+    tension_evaluated = False
     if tension_composite is not None and tension_composite > 0:
         tension = int(tension_composite)  # 直接存 0-100，不再 /10 降级
+        tension_evaluated = True
         logger.info(f"[{novel.novel_id}] 章节 {chapter_num} 多维张力值：{tension}/100")
     else:
-        # 降级：旧式评分（1-10），升级到 0-100 刻度
-        old_scale_tension = await host._call_with_timeout(
-            host._score_tension(content),
-            timeout=60.0,
-            novel_id=novel.novel_id.value,
-            label="tension_scoring",
-            timeout_default=5,
+        logger.warning(
+            "[%s] 章节 %s 张力未评估：章后管线未返回有效多维张力，跳过旧式兜底与假分写入",
+            novel.novel_id,
+            chapter_num,
         )
-        tension = old_scale_tension * 10  # 1-10 → 0-100
-        logger.info(f"[{novel.novel_id}] 章节 {chapter_num} 旧式张力值：{old_scale_tension}/10 → {tension}/100")
-    novel.last_chapter_tension = tension
-    # 共享内存：供 /status 等高频读路径；章节张力另见下方 _write_tension_ephemeral
-    host._update_shared_state(
-        novel.novel_id.value,
-        last_chapter_tension=tension,
-    )
-    # 同步章节张力到 chapters 表，供 /monitor/tension-curve 与「audit_tension_result」SSE 刷新一致读库
-    #（章后管线可能已写过多维张力，此处幂等 UPDATE 覆盖 composite；旧式打分路径则依赖本次写入）
-    try:
-        from application.world.services.chapter_narrative_sync import _write_tension_ephemeral
+    if drift_result is not None:
+        drift_result["tension_evaluated"] = tension_evaluated
 
-        _write_tension_ephemeral(
-            novel.novel_id.value, chapter_num, float(tension), None
-        )
-    except Exception as e:
-        logger.debug(
-            "[%s] 张力同步 chapters 表失败（非致命）: %s",
+    if tension_evaluated:
+        novel.last_chapter_tension = tension
+        # 共享内存：供 /status 等高频读路径；章节张力另见下方 _write_tension_ephemeral
+        host._update_shared_state(
             novel.novel_id.value,
-            e,
+            last_chapter_tension=tension,
+        )
+        # 同步章节张力到 chapters 表，供 /monitor/tension-curve 与「audit_tension_result」SSE 刷新一致读库
+        #（章后管线可能已写过多维张力，此处幂等 UPDATE 覆盖 composite）
+        try:
+            from application.world.services.chapter_narrative_sync import _write_tension_ephemeral
+
+            _write_tension_ephemeral(
+                novel.novel_id.value, chapter_num, float(tension), None
+            )
+        except Exception as e:
+            logger.debug(
+                "[%s] 张力同步 chapters 表失败（非致命）: %s",
+                novel.novel_id.value,
+                e,
+            )
+    else:
+        novel.last_chapter_tension = 0
+        host._update_shared_state(
+            novel.novel_id.value,
+            last_chapter_tension=0,
         )
     # 🔥 发布张力打分结果事件
     host._publish_audit_event(
         novel.novel_id.value,
         "audit_tension_result",
-        {"tension": tension, "chapter_number": chapter_num}
+        {"tension": tension if tension_evaluated else None, "chapter_number": chapter_num, "evaluated": tension_evaluated}
     )
-    logger.info(f"[{novel.novel_id}] 章节 {chapter_num} 张力值：{tension}/100（共享内存 + 章节表已对齐）")
+    if tension_evaluated:
+        logger.info(f"[{novel.novel_id}] 章节 {chapter_num} 张力值：{tension}/100（共享内存 + 章节表已对齐）")
 
     # 章末审阅快照（写入 novels，供 /autopilot/status 与前台「章节状态 / 章节元素」）
     previous_same_chapter_drift = (
@@ -533,7 +544,8 @@ async def run_chapter_audit(host: Any, novel: Novel) -> None:
 
     hard_narrative = not bool(drift_result.get("narrative_sync_ok", True))
     hard_voice = drift_too_high and similarity_below_threshold
-    hard_fail = hard_narrative or hard_voice
+    hard_tension = not bool(drift_result.get("tension_evaluated", False))
+    hard_fail = hard_narrative or hard_voice or hard_tension
 
     anti_assessment = None
     if anti_report is not None:
@@ -566,7 +578,7 @@ async def run_chapter_audit(host: Any, novel: Novel) -> None:
         novel.current_stage = NovelStage.PAUSED_FOR_REVIEW
         logger.info(
             "[%s] 章末审阅闸门：进入 paused_for_review（每章一停=%s，硬伤停机=%s，Anti-AI严重=%s；"
-            "narrative_ok=%s hard_voice=%s assessment=%s）",
+            "narrative_ok=%s hard_voice=%s tension_evaluated=%s assessment=%s）",
             novel.novel_id.value,
             getattr(prefs, "pause_after_each_chapter_audit", False),
             bool(getattr(prefs, "audit_pause_on_hard_fail", False)) and hard_fail,
@@ -574,6 +586,7 @@ async def run_chapter_audit(host: Any, novel: Novel) -> None:
             and anti_ai_severe,
             drift_result.get("narrative_sync_ok", True),
             hard_voice,
+            drift_result.get("tension_evaluated", False),
             anti_assessment,
         )
     else:
