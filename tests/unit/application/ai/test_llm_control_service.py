@@ -1,4 +1,5 @@
-from application.ai.llm_control_service import LLMControlService
+from application.ai.llm_control_service import LLMControlService, LLMProfile
+from domain.ai.services.llm_service import DEFAULT_MAX_OUTPUT_TOKENS
 from infrastructure.ai.llm_environment import ARK_DEFAULT_BASE_URL
 
 
@@ -76,3 +77,33 @@ def test_initial_config_keeps_ark_default_base_url(monkeypatch):
     assert active.name == "豆包 / Ark"
     assert active.base_url == ARK_DEFAULT_BASE_URL
     assert active.model == "ark-model"
+
+
+def test_profile_lifts_small_max_tokens_to_global_floor():
+    profile = LLMProfile(id="p", name="Profile", max_tokens=4096)
+
+    assert profile.max_tokens == DEFAULT_MAX_OUTPUT_TOKENS
+
+
+def test_row_to_profile_preserves_max_tokens_above_global_floor():
+    row = {
+        "id": "p",
+        "name": "Profile",
+        "preset_key": "custom-openai-compatible",
+        "protocol": "openai",
+        "base_url": "",
+        "api_key": "",
+        "model": "",
+        "temperature": 0.7,
+        "max_tokens": DEFAULT_MAX_OUTPUT_TOKENS + 1000,
+        "timeout_seconds": 300,
+        "extra_headers": "{}",
+        "extra_query": "{}",
+        "extra_body": "{}",
+        "notes": "",
+        "use_legacy_chat_completions": 0,
+    }
+
+    profile = LLMControlService()._row_to_profile(row)
+
+    assert profile.max_tokens == DEFAULT_MAX_OUTPUT_TOKENS + 1000

@@ -2012,7 +2012,7 @@ class DaemonHostMixin:
             except Exception:
                 pass  # 降级：无锚点则不加
 
-        # 输出 token 策略与整章生成一致：固定 16000，不随目标字数动态变化。
+        # 输出 token 策略与整章生成一致：统一走全局输出下限，不随目标字数动态变化。
         from engine.runtime.generation_token_policy import CHAPTER_PROSE_MAX_TOKENS
 
         max_tokens = CHAPTER_PROSE_MAX_TOKENS

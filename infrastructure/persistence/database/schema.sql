@@ -868,7 +868,7 @@ CREATE TABLE IF NOT EXISTS llm_profiles (
     api_key TEXT NOT NULL DEFAULT '',
     model TEXT NOT NULL DEFAULT '',
     temperature REAL NOT NULL DEFAULT 0.7,
-    max_tokens INTEGER NOT NULL DEFAULT 4096,
+    max_tokens INTEGER NOT NULL DEFAULT 120000,
     timeout_seconds INTEGER NOT NULL DEFAULT 300,
     extra_headers TEXT NOT NULL DEFAULT '{}',
     extra_query TEXT NOT NULL DEFAULT '{}',

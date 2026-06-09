@@ -257,6 +257,7 @@ import {
   type LLMRuntimeSummary,
   type ModelItem,
 } from '../../api/llmControl'
+import { DEFAULT_MAX_OUTPUT_TOKENS } from '@/constants/llm'
 import { readStorageJson, writeStorageJson } from '@/utils/storage'
 import { formatApiError } from '../../utils/apiError'
 
@@ -409,7 +410,7 @@ function buildProfileFromPreset(preset?: LLMPreset): LLMProfile {
     api_key: '',
     model: preset?.default_model || '',
     temperature: 0.7,
-    max_tokens: 16000,
+    max_tokens: DEFAULT_MAX_OUTPUT_TOKENS,
     timeout_seconds: 300,
     extra_headers: {},
     extra_query: {},

@@ -177,7 +177,7 @@ class TestOpenAIProviderLegacy:
         ])
 
         with patch.object(provider.async_client.chat.completions, "create", new_callable=AsyncMock) as mock_create:
-            mock_create.side_effect = [empty_response, empty_stream]
+            mock_create.side_effect = [empty_response, empty_stream] * 3
 
             with pytest.raises(RuntimeError, match="empty content"):
                 await provider.generate(prompt, config)

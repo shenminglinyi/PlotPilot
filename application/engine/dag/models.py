@@ -199,7 +199,7 @@ class NodeConfig(BaseModel):
     max_retries: int = Field(default=1, ge=0, le=5)
     timeout_seconds: int = Field(default=60, ge=10, le=600)
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
-    max_tokens: Optional[int] = Field(default=None, ge=100, le=120000)
+    max_tokens: Optional[int] = Field(default=None, ge=100)
 
 
 # ─── DAG 定义模型 ───

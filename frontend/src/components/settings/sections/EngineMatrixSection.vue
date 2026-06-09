@@ -113,6 +113,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useMessage } from 'naive-ui'
 import { llmControlApi, type LLMControlPanelData, type LLMProfile, type LLMProtocol } from '@/api/llmControl'
+import { DEFAULT_MAX_OUTPUT_TOKENS } from '@/constants/llm'
 import EndpointGrid from './EngineMatrixEndpointGrid.vue'
 import InferenceCollapse from './EngineMatrixInferenceCollapse.vue'
 
@@ -161,21 +162,21 @@ const formData = reactive<ModelRoleConfig>({
   default_model_base_url: '',
   default_model: '',
   default_temperature: 0.7,
-  default_max_tokens: 16000,
+  default_max_tokens: DEFAULT_MAX_OUTPUT_TOKENS,
   default_timeout_seconds: 300,
   cheap_model_provider: 'openai',
   cheap_model_api_key: '',
   cheap_model_base_url: '',
   cheap_model: '',
   cheap_temperature: 0.5,
-  cheap_max_tokens: 16000,
+  cheap_max_tokens: DEFAULT_MAX_OUTPUT_TOKENS,
   cheap_timeout_seconds: 300,
   knowledge_model_provider: 'openai',
   knowledge_model_api_key: '',
   knowledge_model_base_url: '',
   knowledge_model: '',
   knowledge_temperature: 0.3,
-  knowledge_max_tokens: 16000,
+  knowledge_max_tokens: DEFAULT_MAX_OUTPUT_TOKENS,
   knowledge_timeout_seconds: 300,
 })
 

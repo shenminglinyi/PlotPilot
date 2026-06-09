@@ -58,7 +58,14 @@ class LLMProfile(BaseModel):
             raise ValueError('temperature must be between 0 and 2')
         return value
 
-    @field_validator('max_tokens', 'timeout_seconds')
+    @field_validator('max_tokens')
+    @classmethod
+    def _validate_max_tokens(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError('value must be positive')
+        return max(value, DEFAULT_MAX_OUTPUT_TOKENS)
+
+    @field_validator('timeout_seconds')
     @classmethod
     def _validate_positive_int(cls, value: int) -> int:
         if value <= 0:

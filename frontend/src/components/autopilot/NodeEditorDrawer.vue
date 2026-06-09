@@ -49,7 +49,6 @@
             v-model:value="localConfig.maxTokens"
             size="small"
             :min="100"
-            :max="16000"
             :step="100"
             placeholder="默认"
             clearable

@@ -421,7 +421,7 @@ class UpdateNodeConfigRequest(BaseModel):
     max_retries: Optional[int] = Field(default=None, ge=0, le=5)
     timeout_seconds: Optional[int] = Field(default=None, ge=10, le=600)
     temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)
-    max_tokens: Optional[int] = Field(default=None, ge=100, le=120000)
+    max_tokens: Optional[int] = Field(default=None, ge=100)
 
 
 @router.put("/{novel_id}/nodes/{node_id}")
