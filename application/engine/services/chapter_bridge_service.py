@@ -19,7 +19,7 @@
 
   3. 衔接度自检（check_continuity）：
      章节生成后，用轻量 LLM 检查首段与前章桥段的衔接度，
-     低于阈值则自动修整首段（最多 2 轮）。
+     默认只告警；调用方显式配置自动修整阈值后才改写首段。
 
 性能设计：
   - 桥段提取：复用 narrative_sync 的 LLM 调用，零额外开销
@@ -57,14 +57,15 @@ class ChapterContinuityPolicy:
     """
 
     warn_threshold: float = 0.6
-    auto_fix_threshold: float = 0.4
+    # 默认仅告警，避免无人工确认时静默改写正文；调用方可用正阈值显式开启。
+    auto_fix_threshold: float = 0.0
     max_fix_rounds: int = 2
 
     def needs_attention(self, score: float) -> bool:
         return score < self.warn_threshold
 
     def should_auto_fix(self, score: float) -> bool:
-        return score < self.auto_fix_threshold
+        return self.auto_fix_threshold > 0 and score < self.auto_fix_threshold
 
 
 @dataclass
