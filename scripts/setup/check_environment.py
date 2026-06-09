@@ -5,12 +5,12 @@ from pathlib import Path
 def check_python_version():
     """检查 Python 版本"""
     version = sys.version_info
-    if version.major >= 3 and version.minor >= 9:
+    if version.major == 3 and version.minor == 14:
         print(f"✅ Python 版本: {version.major}.{version.minor}.{version.micro}")
         return True
     else:
         print(f"❌ Python 版本过低: {version.major}.{version.minor}.{version.micro}")
-        print("   需要 Python 3.9+")
+        print("   需要 Python 3.14.x")
         return False
 
 def check_dependencies():
