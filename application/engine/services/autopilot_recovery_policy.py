@@ -29,6 +29,7 @@ class AutopilotRecoveryDecision:
     next_stage: str
     chapter_number: Optional[int] = None
     discard_transient_generation: bool = False
+    discard_transient_invocations: bool = False
     clear_stop_signal: bool = True
     clear_pending_invocation: bool = False
     preserve_review_gate: bool = False
@@ -72,17 +73,38 @@ class AutopilotRecoveryPolicy:
         if decision.discard_transient_generation and decision.chapter_number and self._workspace is not None:
             self._workspace.discard(decision.novel_id, decision.chapter_number)
             self._archive_legacy_draft(decision.novel_id, decision.chapter_number)
+        if decision.discard_transient_invocations:
+            self._discard_transient_invocations(decision)
         if decision.clear_pending_invocation:
             self._cancel_retryable_pending_invocations(decision.novel_id)
 
     def _decide_from_row(self, row: dict[str, Any], *, for_start: bool) -> AutopilotRecoveryDecision:
         novel_id = str(row["id"])
         stage = str(row.get("current_stage") or NovelStage.MACRO_PLANNING.value)
+        autopilot_stopped = str(row.get("autopilot_status") or "").strip().lower() == "stopped"
         if stage == NovelStage.PLANNING.value:
             stage = NovelStage.MACRO_PLANNING.value
 
         pending = self._find_pending_invocation(novel_id)
         if stage == NovelStage.PAUSED_FOR_REVIEW.value:
+            if for_start and autopilot_stopped:
+                next_stage = self._retry_stage_after_interrupted_review(novel_id)
+                chapter_number = self._current_chapter_number(novel_id)
+                story_pipeline = self._is_story_pipeline_writing_enabled()
+                return AutopilotRecoveryDecision(
+                    novel_id=novel_id,
+                    next_stage=next_stage,
+                    chapter_number=chapter_number,
+                    discard_transient_generation=story_pipeline
+                    and next_stage == NovelStage.WRITING.value
+                    and chapter_number is not None,
+                    discard_transient_invocations=True,
+                    clear_stop_signal=True,
+                    clear_pending_invocation=True,
+                    preserve_review_gate=False,
+                    story_pipeline_mode=story_pipeline,
+                    reason="discard_interrupted_review_gate",
+                )
             return AutopilotRecoveryDecision(
                 novel_id=novel_id,
                 next_stage=stage,
@@ -125,6 +147,7 @@ class AutopilotRecoveryPolicy:
                 next_stage=NovelStage.WRITING.value,
                 chapter_number=chapter_number,
                 discard_transient_generation=story_pipeline and chapter_number is not None,
+                discard_transient_invocations=for_start and autopilot_stopped and story_pipeline and chapter_number is not None,
                 clear_stop_signal=True,
                 clear_pending_invocation=self._is_retryable_pending(pending),
                 story_pipeline_mode=story_pipeline,
@@ -136,6 +159,7 @@ class AutopilotRecoveryPolicy:
                 novel_id=novel_id,
                 next_stage=NovelStage.ACT_PLANNING.value,
                 chapter_number=self._current_chapter_number(novel_id),
+                discard_transient_invocations=for_start and autopilot_stopped,
                 clear_stop_signal=True,
                 clear_pending_invocation=self._is_retryable_pending(pending),
                 story_pipeline_mode=self._is_story_pipeline_writing_enabled(),
@@ -146,11 +170,29 @@ class AutopilotRecoveryPolicy:
             novel_id=novel_id,
             next_stage=NovelStage.MACRO_PLANNING.value,
             chapter_number=self._current_chapter_number(novel_id),
+            discard_transient_invocations=for_start and autopilot_stopped,
             clear_stop_signal=True,
             clear_pending_invocation=self._is_retryable_pending(pending),
             story_pipeline_mode=self._is_story_pipeline_writing_enabled(),
             reason="retry_macro_planning",
         )
+
+    def _retry_stage_after_interrupted_review(self, novel_id: str) -> str:
+        latest = self._find_latest_autopilot_invocation(novel_id)
+        operation = str((latest or {}).get("operation") or "")
+        if operation in {"autopilot.chapter.prose", "autopilot.prose.from_script", "autopilot.outline.partition"}:
+            return NovelStage.WRITING.value
+        if operation == "autopilot.act.plan":
+            return NovelStage.ACT_PLANNING.value
+        if operation == "autopilot.macro.plan":
+            if self._macro_structure_exists(novel_id):
+                return NovelStage.ACT_PLANNING.value
+            return NovelStage.MACRO_PLANNING.value
+        if self._current_uncompleted_chapter_number(novel_id) is not None and self._macro_structure_exists(novel_id):
+            return NovelStage.WRITING.value
+        if self._macro_structure_exists(novel_id):
+            return NovelStage.ACT_PLANNING.value
+        return NovelStage.MACRO_PLANNING.value
 
     def _is_story_pipeline_writing_enabled(self) -> bool:
         if self._story_pipeline_writing_enabled is not None:
@@ -210,6 +252,38 @@ class AutopilotRecoveryPolicy:
 
     def _current_chapter_number(self, novel_id: str) -> Optional[int]:
         return self._current_uncompleted_chapter_number(novel_id) or self._latest_completed_chapter_number(novel_id)
+
+    def _macro_structure_exists(self, novel_id: str) -> bool:
+        try:
+            row = self._get_db().fetch_one(
+                """
+                SELECT 1 AS present
+                FROM story_nodes
+                WHERE novel_id = ? AND node_type = 'volume'
+                LIMIT 1
+                """,
+                (novel_id,),
+            )
+            return bool(row)
+        except Exception:
+            return False
+
+    def _find_latest_autopilot_invocation(self, novel_id: str) -> Optional[dict[str, Any]]:
+        try:
+            row = self._get_db().fetch_one(
+                """
+                SELECT id, operation, status, context_json, metadata_json
+                FROM ai_invocation_sessions
+                WHERE json_extract(context_json, '$.novel_id') = ?
+                  AND operation LIKE 'autopilot.%'
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """,
+                (novel_id,),
+            )
+            return dict(row) if row else None
+        except Exception:
+            return None
 
     def _find_pending_invocation(self, novel_id: str) -> Optional[dict[str, Any]]:
         try:
@@ -339,6 +413,109 @@ class AutopilotRecoveryPolicy:
             self._commit()
             logger.info("清理可重试 pending invocation novel=%s count=%d", novel_id, cancelled)
         return cancelled
+
+    def _discard_transient_invocations(self, decision: AutopilotRecoveryDecision) -> int:
+        operations = self._transient_operations_for_stage(decision.next_stage)
+        if not operations:
+            return 0
+        placeholders = ",".join("?" for _ in operations)
+        params: list[Any] = [decision.novel_id, *sorted(operations)]
+        chapter_filter = ""
+        if decision.next_stage == NovelStage.WRITING.value and decision.chapter_number is not None:
+            chapter_filter = "AND CAST(json_extract(context_json, '$.chapter_number') AS INTEGER) = ?"
+            params.append(int(decision.chapter_number))
+        try:
+            rows = self._fetch_all(
+                f"""
+                SELECT id, operation, status, context_json, metadata_json
+                FROM ai_invocation_sessions
+                WHERE json_extract(context_json, '$.novel_id') = ?
+                  AND operation IN ({placeholders})
+                  {chapter_filter}
+                  AND status IN (
+                    'requested', 'spec_resolved', 'context_resolved', 'variables_resolved',
+                    'prompt_compiled', 'awaiting_pre_call_review', 'generating',
+                    'awaiting_acceptance', 'awaiting_commit', 'committing',
+                    'completed', 'blocked', 'failed'
+                  )
+                """,
+                tuple(params),
+            )
+        except Exception:
+            return 0
+
+        session_ids: list[str] = []
+        for row in rows:
+            session_id = str(row.get("id") or "")
+            if not session_id:
+                continue
+            metadata = {}
+            try:
+                metadata = json.loads(row.get("metadata_json") or "{}")
+            except Exception:
+                metadata = {}
+            metadata.update(
+                {
+                    "recovery_cancelled": True,
+                    "recovery_reason": "interrupted_generation_discarded",
+                }
+            )
+            try:
+                self._get_db().execute(
+                    """
+                    UPDATE ai_invocation_sessions
+                    SET status = 'cancelled',
+                        metadata_json = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    """,
+                    (json.dumps(metadata, ensure_ascii=False, sort_keys=True), session_id),
+                )
+                session_ids.append(session_id)
+            except Exception as exc:
+                logger.debug("transient invocation discard skipped session=%s: %s", session_id, exc)
+        if not session_ids:
+            return 0
+        self._clear_current_variable_outputs(session_ids)
+        self._commit()
+        logger.info(
+            "丢弃被打断的 autopilot invocation novel=%s stage=%s count=%d",
+            decision.novel_id,
+            decision.next_stage,
+            len(session_ids),
+        )
+        return len(session_ids)
+
+    @staticmethod
+    def _transient_operations_for_stage(stage: str) -> set[str]:
+        if stage == NovelStage.WRITING.value:
+            return {
+                "autopilot.chapter.prose",
+                "autopilot.prose.from_script",
+                "autopilot.outline.partition",
+            }
+        if stage == NovelStage.ACT_PLANNING.value:
+            return {"autopilot.act.plan"}
+        if stage == NovelStage.MACRO_PLANNING.value:
+            return {"autopilot.macro.plan"}
+        return set()
+
+    def _clear_current_variable_outputs(self, session_ids: list[str]) -> None:
+        if not session_ids:
+            return
+        placeholders = ",".join("?" for _ in session_ids)
+        try:
+            self._get_db().execute(
+                f"""
+                UPDATE variable_values
+                SET is_current = 0
+                WHERE source_session_id IN ({placeholders})
+                  AND is_current = 1
+                """,
+                tuple(session_ids),
+            )
+        except Exception as exc:
+            logger.debug("variable output discard skipped sessions=%s: %s", session_ids, exc)
 
     def _archive_legacy_draft(self, novel_id: str, chapter_number: int) -> None:
         try:
