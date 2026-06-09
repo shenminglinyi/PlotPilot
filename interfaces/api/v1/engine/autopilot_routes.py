@@ -128,28 +128,30 @@ def _persist_autopilot_running_sync(
     max_auto_chapters: int,
     target_chapters: int,
     target_words_per_chapter: int,
-) -> None:
+) -> Dict[str, Any]:
     """将 RUNNING 写入 DB 并等待持久化队列落盘。
 
     守护进程仅按 DB autopilot_status=running 捞书；全量 save() 易与首页改篇幅等
     并发写回 stopped，故用 patch + 兜底 UPDATE。
     """
     from application.engine.services.persistence_queue import get_persistence_queue
+    from application.engine.services.autopilot_recovery_policy import AutopilotRecoveryPolicy
+    from application.engine.services.chapter_generation_workspace import ChapterGenerationWorkspace
     from infrastructure.persistence.database.connection import get_database
 
     runtime_settings = get_autopilot_runtime_settings()
     repo = get_novel_repository()
     novel = repo.get_by_id(NovelId(novel_id))
     if not novel:
-        return
+        return {"decision": None, "run_epoch": None}
 
-    fresh_stages_obj = {NovelStage.PLANNING, NovelStage.MACRO_PLANNING}
-    if novel.current_stage in fresh_stages_obj:
+    policy = AutopilotRecoveryPolicy(get_database(), workspace=ChapterGenerationWorkspace())
+    decision = policy.decide_on_start(novel_id)
+    policy.apply_transient_cleanup(decision)
+    try:
+        patch_stage = NovelStage(decision.next_stage)
+    except ValueError:
         patch_stage = NovelStage.MACRO_PLANNING
-    elif novel.current_stage == NovelStage.PAUSED_FOR_REVIEW:
-        patch_stage = _stage_after_review(novel)
-    else:
-        patch_stage = novel.current_stage
 
     repo.patch(
         NovelId(novel_id),
@@ -160,6 +162,9 @@ def _persist_autopilot_running_sync(
         target_chapters=target_chapters,
         target_words_per_chapter=target_words_per_chapter,
         current_stage=patch_stage,
+        active_pipeline_step="",
+        active_pipeline_run_id="",
+        last_stable_stage=decision.next_stage,
     )
 
     pq = get_persistence_queue()
@@ -185,6 +190,27 @@ def _persist_autopilot_running_sync(
         get_database().commit()
         if pq is not None:
             pq.wait_until_idle(timeout=runtime_settings.persistence_fallback_idle_timeout_seconds)
+
+    row = get_database().fetch_one(
+        "SELECT autopilot_run_epoch FROM novels WHERE id = ?",
+        (novel_id,),
+    )
+    old_epoch = int((row or {}).get("autopilot_run_epoch") or 0)
+    new_epoch = old_epoch + 1
+    get_database().execute(
+        """
+        UPDATE novels
+        SET autopilot_run_epoch = ?,
+            active_pipeline_step = '',
+            active_pipeline_run_id = '',
+            last_stable_stage = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+        """,
+        (new_epoch, decision.next_stage, novel_id),
+    )
+    get_database().commit()
+    return {"decision": decision, "run_epoch": new_epoch}
 
 
 def _macro_structure_exists(novel_id: str) -> bool:
@@ -559,6 +585,11 @@ def _build_autopilot_status_sync(novel_id: str) -> Optional[Dict[str, Any]]:
         "daemon_heartbeat_at": daemon_heartbeat,
         "writing_substep": novel.get("writing_substep", "") if isinstance(novel, dict) else "",
         "writing_substep_label": novel.get("writing_substep_label", "") if isinstance(novel, dict) else "",
+        "active_pipeline_step": novel.get("active_pipeline_step", "") if isinstance(novel, dict) else "",
+        "active_pipeline_run_id": novel.get("active_pipeline_run_id", "") if isinstance(novel, dict) else "",
+        "last_stable_stage": novel.get("last_stable_stage", "") if isinstance(novel, dict) else "",
+        "autopilot_run_epoch": novel.get("autopilot_run_epoch", 0) if isinstance(novel, dict) else 0,
+        "autopilot_recovery_reason": novel.get("autopilot_recovery_reason", "") if isinstance(novel, dict) else "",
     })
 
 
@@ -693,6 +724,11 @@ def _build_status_pure_memory(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         "daemon_heartbeat_at": daemon_heartbeat,
         "writing_substep": shared.get("writing_substep", ""),
         "writing_substep_label": shared.get("writing_substep_label", ""),
+        "active_pipeline_step": shared.get("active_pipeline_step", ""),
+        "active_pipeline_run_id": shared.get("active_pipeline_run_id", ""),
+        "last_stable_stage": shared.get("last_stable_stage", ""),
+        "autopilot_run_epoch": shared.get("autopilot_run_epoch", 0),
+        "autopilot_recovery_reason": shared.get("autopilot_recovery_reason", ""),
         "narrative_sync_ok": shared.get("narrative_sync_ok"),
         "vector_stored": shared.get("vector_stored"),
         "foreshadow_stored": shared.get("foreshadow_stored"),
@@ -894,6 +930,11 @@ def _build_status_with_shared(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         # ★ V9 细化字段
         "writing_substep": shared.get("writing_substep", ""),
         "writing_substep_label": shared.get("writing_substep_label", ""),
+        "active_pipeline_step": shared.get("active_pipeline_step", ""),
+        "active_pipeline_run_id": shared.get("active_pipeline_run_id", ""),
+        "last_stable_stage": shared.get("last_stable_stage", ""),
+        "autopilot_run_epoch": shared.get("autopilot_run_epoch", 0),
+        "autopilot_recovery_reason": shared.get("autopilot_recovery_reason", ""),
         "narrative_sync_ok": shared.get("narrative_sync_ok"),
         "vector_stored": shared.get("vector_stored"),
         "foreshadow_stored": shared.get("foreshadow_stored"),
@@ -1312,6 +1353,7 @@ async def start_autopilot(novel_id: str, body: StartRequest = StartRequest()):
     next_stage = None
     current_act = 0
     current_chapter_in_act = 0
+    current_beat_index = 0
     resolved_tc = 1
     resolved_twpc = 2500
     current_stage_str = "macro_planning"
@@ -1322,6 +1364,7 @@ async def start_autopilot(novel_id: str, body: StartRequest = StartRequest()):
         current_stage_str = shared.get("current_stage", "macro_planning")
         current_act = shared.get("current_act", 0) or 0
         current_chapter_in_act = shared.get("current_chapter_in_act", 0) or 0
+        current_beat_index = int(shared.get("current_beat_index", 0) or 0)
         resolved_tc = int(shared.get("target_chapters", 1) or 1)
         resolved_twpc = int(shared.get("target_words_per_chapter") or 2500)
 
@@ -1330,11 +1373,7 @@ async def start_autopilot(novel_id: str, body: StartRequest = StartRequest()):
         if current_stage_str in fresh_stages:
             next_stage = NovelStage.MACRO_PLANNING.value
         elif current_stage_str == "paused_for_review":
-            # 幕下已有章节节点则直接写作，否则幕级规划
-            if _has_chapter_nodes_under_current_act(novel_id, current_act):
-                next_stage = NovelStage.WRITING.value
-            else:
-                next_stage = NovelStage.ACT_PLANNING.value
+            next_stage = NovelStage.PAUSED_FOR_REVIEW.value
         else:
             next_stage = current_stage_str
     else:
@@ -1348,6 +1387,7 @@ async def start_autopilot(novel_id: str, body: StartRequest = StartRequest()):
                 "current_stage": n.current_stage.value if hasattr(n.current_stage, 'value') else str(n.current_stage),
                 "current_act": n.current_act or 0,
                 "current_chapter_in_act": n.current_chapter_in_act or 0,
+                "current_beat_index": getattr(n, "current_beat_index", 0) or 0,
                 "target_chapters": n.target_chapters or 1,
                 "target_words_per_chapter": getattr(n, "target_words_per_chapter", None) or 2500,
             }
@@ -1366,6 +1406,7 @@ async def start_autopilot(novel_id: str, body: StartRequest = StartRequest()):
         current_stage_str = novel_data["current_stage"]
         current_act = novel_data["current_act"]
         current_chapter_in_act = novel_data["current_chapter_in_act"]
+        current_beat_index = int(novel_data.get("current_beat_index") or 0)
         resolved_tc = int(novel_data["target_chapters"])
         resolved_twpc = int(novel_data.get("target_words_per_chapter") or 2500)
 
@@ -1373,10 +1414,7 @@ async def start_autopilot(novel_id: str, body: StartRequest = StartRequest()):
         if current_stage_str in fresh_stages:
             next_stage = NovelStage.MACRO_PLANNING.value
         elif current_stage_str == "paused_for_review":
-            if _has_chapter_nodes_under_current_act(novel_id, current_act):
-                next_stage = NovelStage.WRITING.value
-            else:
-                next_stage = NovelStage.ACT_PLANNING.value
+            next_stage = NovelStage.PAUSED_FOR_REVIEW.value
         else:
             next_stage = current_stage_str
 
@@ -1393,7 +1431,7 @@ async def start_autopilot(novel_id: str, body: StartRequest = StartRequest()):
             current_stage=next_stage,
             current_act=current_act,
             current_chapter_in_act=current_chapter_in_act,
-            current_beat_index=0,
+            current_beat_index=current_beat_index,
             consecutive_error_count=0,
             target_chapters=resolved_tc,
             target_words_per_chapter=resolved_twpc,
@@ -1415,7 +1453,7 @@ async def start_autopilot(novel_id: str, body: StartRequest = StartRequest()):
     def _start_persist_sync():
         """线程池中执行：DB 读取 + 写入"""
         try:
-            _persist_autopilot_running_sync(
+            result = _persist_autopilot_running_sync(
                 novel_id,
                 max_auto_chapters=body.max_auto_chapters,
                 target_chapters=resolved_tc,
@@ -1427,16 +1465,38 @@ async def start_autopilot(novel_id: str, body: StartRequest = StartRequest()):
                 resolved_tc,
                 resolved_twpc,
             )
+            return result
         except Exception as e:
             logger.warning("autopilot start DB 持久化失败（共享内存已生效）: %s", e)
+            return {"decision": None, "run_epoch": None}
 
+    persist_result = {"decision": None, "run_epoch": None}
     try:
-        await asyncio.wait_for(
+        persist_result = await asyncio.wait_for(
             loop.run_in_executor(_SSE_THREAD_POOL, _start_persist_sync),
             timeout=runtime_settings.db_persist_timeout_seconds,
         )
     except asyncio.TimeoutError:
         logger.warning("autopilot start DB 持久化超时 novel=%s（IPC 仍将发送）", novel_id)
+
+    decision = (persist_result or {}).get("decision")
+    run_epoch = (persist_result or {}).get("run_epoch")
+    if decision is not None:
+        next_stage = decision.next_stage
+        try:
+            from interfaces.runtime_state import update_shared_novel_state
+
+            update_shared_novel_state(
+                novel_id,
+                current_stage=next_stage,
+                active_pipeline_step="",
+                active_pipeline_run_id="",
+                last_stable_stage=decision.next_stage,
+                autopilot_recovery_reason=decision.reason,
+                autopilot_run_epoch=run_epoch,
+            )
+        except Exception:
+            pass
 
     # ── 第四步：发布 IPC 启动信号 ──
     try:
@@ -1452,6 +1512,8 @@ async def start_autopilot(novel_id: str, body: StartRequest = StartRequest()):
         "current_stage": next_stage,
         "target_chapters": resolved_tc,
         "target_words_per_chapter": resolved_twpc,
+        "autopilot_run_epoch": run_epoch,
+        "recovery_reason": getattr(decision, "reason", None) if decision is not None else None,
     }
 
 

@@ -26,6 +26,45 @@ async def process_novel(host: Any, novel: Novel) -> None:
     """处理单个小说（全流程状态机路由）"""
     try:
         try:
+            from application.engine.services.autopilot_recovery_policy import AutopilotRecoveryPolicy
+            from application.engine.services.chapter_generation_workspace import ChapterGenerationWorkspace
+
+            policy = AutopilotRecoveryPolicy(workspace=ChapterGenerationWorkspace())
+            decision = policy.decide_on_daemon_tick(novel)
+            policy.apply_transient_cleanup(decision)
+            if decision.next_stage and decision.next_stage != novel.current_stage.value:
+                try:
+                    novel.current_stage = NovelStage(decision.next_stage)
+                    host._update_shared_state(
+                        novel.novel_id.value,
+                        current_stage=decision.next_stage,
+                        autopilot_recovery_reason=decision.reason,
+                    )
+                    host._save_novel_state(novel)
+                    logger.info("[%s] 恢复策略修正阶段为 %s：%s", novel.novel_id, decision.next_stage, decision.reason)
+                except ValueError:
+                    logger.debug("[%s] 恢复策略返回未知阶段: %s", novel.novel_id, decision.next_stage)
+            elif decision.reason:
+                host._update_shared_state(
+                    novel.novel_id.value,
+                    autopilot_recovery_reason=decision.reason,
+                )
+            if decision.clear_pending_invocation:
+                host._update_shared_state(
+                    novel.novel_id.value,
+                    active_invocation_session_id="",
+                    active_invocation_operation="",
+                    active_invocation_node_key="",
+                    active_invocation_status="",
+                    active_invocation_policy="",
+                    has_active_invocation=False,
+                    requires_ai_review=False,
+                    autopilot_pause_reason="",
+                )
+        except Exception as recovery_error:
+            logger.debug("[%s] 恢复策略执行失败（继续原流程）: %s", novel.novel_id, recovery_error)
+
+        try:
             from application.engine.services.novel_stop_signal import is_novel_stopped, clear_local_novel_stop
 
             if is_novel_stopped(novel.novel_id.value):

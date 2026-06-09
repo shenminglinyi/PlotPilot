@@ -49,6 +49,8 @@ export function buildAutopilotStagePresentation(input: {
   autopilot_status?: string | null
   writing_substep?: string | null
   writing_substep_label?: string | null
+  active_pipeline_step?: string | null
+  autopilot_recovery_reason?: string | null
   _from_shared_memory?: boolean
   _degraded?: boolean
   audit_progress?: string | null
@@ -69,10 +71,21 @@ export function buildAutopilotStagePresentation(input: {
   const apStatus = input.autopilot_status ?? undefined
   const writingSubstep = String(input.writing_substep ?? '').trim()
   const writingSubstepLabel = String(input.writing_substep_label ?? '').trim()
+  const activePipelineStep = String(input.active_pipeline_step ?? '').trim()
+  const recoveryReason = String(input.autopilot_recovery_reason ?? '').trim()
 
   /** writing 阶段内：章前规划子步骤优先于笼统的「撰写中」 */
   const writingPhaseText = (): string | null => {
     if (stage !== 'writing') return null
+    if (writingSubstep === 'interrupted') {
+      return writingSubstepLabel || '未提交预览已停止'
+    }
+    if (recoveryReason === 'retry_writing_step') {
+      return '重新生成当前章'
+    }
+    if (activePipelineStep === 'generate') {
+      return '整章正文撰写'
+    }
     if (writingSubstep === 'chapter_found') {
       return writingSubstepLabel || '章节定位'
     }

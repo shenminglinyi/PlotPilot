@@ -17,6 +17,10 @@ CREATE TABLE IF NOT EXISTS novels (
     last_chapter_tension INTEGER DEFAULT 0,
     consecutive_error_count INTEGER DEFAULT 0,
     current_beat_index INTEGER DEFAULT 0,
+    autopilot_run_epoch INTEGER DEFAULT 0,
+    active_pipeline_step TEXT DEFAULT '',
+    active_pipeline_run_id TEXT DEFAULT '',
+    last_stable_stage TEXT DEFAULT '',
     beats_completed INTEGER DEFAULT 0,
     last_audit_chapter_number INTEGER,
     last_audit_similarity REAL,
@@ -908,5 +912,4 @@ CREATE INDEX IF NOT EXISTS idx_dag_versions_novel ON dag_versions(novel_id);
 CREATE INDEX IF NOT EXISTS idx_dag_versions_novel_version ON dag_versions(novel_id, version);
 -- 索引：按更新时间排序（用于清理旧版本）
 CREATE INDEX IF NOT EXISTS idx_dag_versions_updated_at ON dag_versions(novel_id, updated_at DESC);
-
 

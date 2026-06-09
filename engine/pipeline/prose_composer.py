@@ -41,6 +41,8 @@ class ProseCompositionResult:
     content: str = ""
     awaiting_review: bool = False
     session_id: str = ""
+    interrupted: bool = False
+    status: str = ""
 
 
 class ProseComposer(Protocol):
@@ -111,6 +113,7 @@ class ChapterProseInvocationComposer:
                 "source": "story_pipeline.chapter_prose_composer",
                 "target_words": request.target_words,
                 "generation_mode": "full_chapter_once",
+                "commit_owner": "story_pipeline_save_step",
             },
             config={"max_tokens": self._max_output_tokens(request), "temperature": 0.85},
         )
@@ -126,8 +129,12 @@ class ChapterProseInvocationComposer:
                 session_id=prepared.session.id,
             )
 
+        stop_seen = False
+
         def _on_chunk(chunk: str, full: str):
+            nonlocal stop_seen
             if request.stop_checker and request.stop_checker():
+                stop_seen = True
                 return False
             if request.stream_sink:
                 request.stream_sink(full)
@@ -142,4 +149,6 @@ class ChapterProseInvocationComposer:
         return ProseCompositionResult(
             content=outcome.accepted_content or "",
             session_id=outcome.session_id,
+            interrupted=stop_seen or outcome.status == "cancelled" or outcome.next_action == "cancelled",
+            status=outcome.status,
         )

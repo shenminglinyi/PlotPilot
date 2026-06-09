@@ -219,7 +219,7 @@
 
     <!-- 仅写作阶段拉章节流；审计/规划时服务端会关流，避免无意义重连 -->
     <AutopilotWritingStream
-      v-if="isWriting && props.renderLivePreview !== false"
+      v-if="(isWriting || hasUncommittedPreview) && props.renderLivePreview !== false"
       :writing-content="writingContent"
       :writing-chapter-number="writingChapterNumber"
       :writing-substep="status?.writing_substep"
@@ -230,6 +230,7 @@
       :runner-stage-label="stageLabel"
       :status-chapter-number="status?.current_chapter_number ?? null"
       :is-writing-phase="isWriting"
+      :uncommitted-preview="hasUncommittedPreview"
     />
 
     <!-- 操作按钮 -->
@@ -381,6 +382,7 @@ const STREAM_RETRY_COOLDOWN_MULTIPLIER = panelPerformance.streamRetryCooldownMul
 const writingContent = ref('')
 const writingChapterNumber = ref(0)
 const writingBeatIndex = ref(0)
+let activePreviewRunId = ''
 let chapterChunkEmitTimer = null
 let pendingChapterChunk = null
 const CHAPTER_CHUNK_EMIT_INTERVAL_MS = panelPerformance.chapterChunkEmitIntervalMs
@@ -504,6 +506,18 @@ const isWriting = computed(() =>
   status.value?.autopilot_status === 'running' && status.value?.current_stage === 'writing'
 )
 
+const hasUncommittedPreview = computed(() =>
+  Boolean(
+    writingContent.value &&
+    !isWriting.value &&
+    (
+      status.value?.autopilot_status === 'stopped' ||
+      status.value?.writing_substep === 'interrupted' ||
+      status.value?.autopilot_recovery_reason === 'retry_writing_step'
+    )
+  )
+)
+
 const storyPipelineWaveIndex = computed(() => {
   const ix = Number(status.value?.story_pipeline_wave_index)
   return Number.isFinite(ix) ? ix : 0
@@ -623,6 +637,8 @@ const stagePresentation = computed(() =>
     autopilot_status: status.value?.autopilot_status,
     writing_substep: status.value?.writing_substep,
     writing_substep_label: status.value?.writing_substep_label,
+    active_pipeline_step: status.value?.active_pipeline_step,
+    autopilot_recovery_reason: status.value?.autopilot_recovery_reason,
     _from_shared_memory: status.value?._from_shared_memory,
     _degraded: status.value?._degraded,
     audit_progress: status.value?.audit_progress,
@@ -779,6 +795,7 @@ async function fetchStatus() {
       timeoutMs: STATUS_FETCH_TIMEOUT_MS,
     })
     statusConnectivityFailures.value = 0
+    reconcilePipelineRun(body)
     status.value = body
     emit('status-change', body)
     maybeOpenActiveInvocation(body)
@@ -824,6 +841,24 @@ async function fetchStatus() {
   } finally {
     statusFetchInFlight = false
     maybeRestartStatusPollTimer()
+  }
+}
+
+function resetWritingPreview() {
+  writingContent.value = ''
+  writingChapterNumber.value = 0
+  writingBeatIndex.value = 0
+  pendingChapterChunk = null
+  flushChapterChunkEmit()
+}
+
+function reconcilePipelineRun(body) {
+  const nextRunId = String(body?.active_pipeline_run_id || '').trim()
+  if (nextRunId && activePreviewRunId && nextRunId !== activePreviewRunId) {
+    resetWritingPreview()
+  }
+  if (nextRunId) {
+    activePreviewRunId = nextRunId
   }
 }
 
@@ -1153,6 +1188,8 @@ watch(
     reconnectAttempts = 0
     lastOpenedInvocationSessionId = ''
     openingInvocationSessionId = ''
+    activePreviewRunId = ''
+    resetWritingPreview()
     stopChapterStream()
   }
 )
@@ -1185,25 +1222,28 @@ async function start() {
     const newWpc = startConfig.value.target_words_per_chapter
     const currentAutoApprove = status.value?.auto_approve_mode ?? false
     const newAutoApprove = startConfig.value.auto_approve_mode
+    activePreviewRunId = ''
+    resetWritingPreview()
 
     // 🔥 乐观更新：立即更新本地状态，用户无需等待后端响应
     const prevStatus = status.value
+    const preserveReviewGate = prevStatus?.current_stage === 'paused_for_review'
     status.value = {
       ...status.value,
       autopilot_status: 'running',
-      current_stage: prevStatus?.current_stage === 'paused_for_review'
-        ? 'writing'  // 审阅恢复时立即显示写作状态
-        : (prevStatus?.current_stage || 'macro_planning'),
+      current_stage: prevStatus?.current_stage || 'macro_planning',
       target_chapters: newTarget,
       target_words_per_chapter: newWpc,
       auto_approve_mode: newAutoApprove,
       consecutive_error_count: 0,
-      needs_review: false,
-      requires_ai_review: false,
-      review_gate: null,
-      has_active_invocation: false,
-      active_invocation_session_id: '',
-      active_invocation_status: '',
+      needs_review: preserveReviewGate ? true : false,
+      requires_ai_review: preserveReviewGate ? prevStatus?.requires_ai_review : false,
+      review_gate: preserveReviewGate ? prevStatus?.review_gate : null,
+      has_active_invocation: preserveReviewGate ? prevStatus?.has_active_invocation : false,
+      active_invocation_session_id: preserveReviewGate ? prevStatus?.active_invocation_session_id : '',
+      active_invocation_status: preserveReviewGate ? prevStatus?.active_invocation_status : '',
+      active_pipeline_step: '',
+      active_pipeline_run_id: '',
     }
     emit('status-change', status.value)
     reconnectAttempts = 0

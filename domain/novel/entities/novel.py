@@ -49,6 +49,10 @@ class Novel(BaseEntity):
         last_chapter_tension: int = 0,
         consecutive_error_count: int = 0,
         current_beat_index: int = 0,
+        autopilot_run_epoch: int = 0,
+        active_pipeline_step: str = "",
+        active_pipeline_run_id: str = "",
+        last_stable_stage: str = "",
         beats_completed: bool = False,  # 当前章节所有节拍是否已完成
         last_audit_chapter_number: Optional[int] = None,
         last_audit_similarity: Optional[float] = None,
@@ -89,6 +93,10 @@ class Novel(BaseEntity):
         self.last_chapter_tension = last_chapter_tension
         self.consecutive_error_count = consecutive_error_count
         self.current_beat_index = current_beat_index
+        self.autopilot_run_epoch = autopilot_run_epoch
+        self.active_pipeline_step = active_pipeline_step
+        self.active_pipeline_run_id = active_pipeline_run_id
+        self.last_stable_stage = last_stable_stage
         self.beats_completed = beats_completed
 
         # 全托管章末审阅快照

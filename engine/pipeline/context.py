@@ -65,6 +65,9 @@ class PipelineContext:
     chapter_content: str = ""                    # 章节正文（最终版）
     word_count: int = 0                          # 实际字数
     raw_beat_contents: List[str] = field(default_factory=list)
+    active_pipeline_run_id: str = ""             # 当前 StoryPipeline 运行 ID
+    chapter_generation_workspace: Any = None     # 临时正文预览工作区
+    generation_interrupted: bool = False         # stop/restart 导致本步骤中断
 
     # ═══ 步骤5产出：策略验证 ═══
     validation_passed: bool = True
