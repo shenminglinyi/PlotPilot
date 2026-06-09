@@ -1155,8 +1155,9 @@ class BaseStoryPipeline(ABC):
 
         保留给子类/实验路径显式调用；默认管线不再把它作为兜底。
         """
+        import re
+
         try:
-            import re
             from application.ai_invocation.autopilot.factory import get_or_create_autopilot_helper_invoker
             from application.ai_invocation.autopilot.helper_invoker import AutopilotHelperRequest
             from infrastructure.ai.prompt_keys import TENSION_SCORING
@@ -1177,13 +1178,14 @@ class BaseStoryPipeline(ABC):
                     config={"max_tokens": 10, "temperature": 0.3},
                 )
             )
-            match = re.search(r'(\d+)', content)
-            if match:
-                score = int(match.group(1))
-                return min(score, 10) * 10  # 1-10 → 0-100
         except Exception as e:
             logger.warning("[%s] 单维张力评分失败: %s", ctx.novel_id, e)
-        return None
+            return None
+        match = re.search(r"(\d+)", str(content))
+        if not match:
+            return 50
+        score = int(match.group(1))
+        return min(score, 10) * 10  # 1-10 → 0-100
 
     def _make_result(
         self,

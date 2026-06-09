@@ -150,7 +150,7 @@ class LLMControlService:
             api_key=row['api_key'] or '',
             model=row['model'] or '',
             temperature=row['temperature'],
-            max_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
+            max_tokens=int(row.get('max_tokens') or DEFAULT_MAX_OUTPUT_TOKENS),
             timeout_seconds=row['timeout_seconds'],
             extra_headers=json.loads(row.get('extra_headers') or '{}'),
             extra_query=json.loads(row.get('extra_query') or '{}'),

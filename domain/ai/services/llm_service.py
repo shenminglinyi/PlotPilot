@@ -1,11 +1,10 @@
-# domain/ai/services/llm_service.py
 from abc import ABC, abstractmethod
 from typing import AsyncIterator, Dict, Optional
 from domain.ai.value_objects.prompt import Prompt
 from domain.ai.value_objects.token_usage import TokenUsage
 
 
-DEFAULT_MAX_OUTPUT_TOKENS = 16000
+DEFAULT_MAX_OUTPUT_TOKENS = 120000
 
 
 class GenerationConfig:
@@ -22,7 +21,6 @@ class GenerationConfig:
         self.temperature = temperature
         self.response_format = response_format
         self.__post_init__()
-        self.max_tokens = DEFAULT_MAX_OUTPUT_TOKENS
 
     def __post_init__(self):
         """验证配置参数"""
@@ -30,6 +28,7 @@ class GenerationConfig:
             raise ValueError("Temperature must be between 0.0 and 2.0")
         if self.max_tokens <= 0:
             raise ValueError("max_tokens must be greater than 0")
+        self.max_tokens = max(int(self.max_tokens), DEFAULT_MAX_OUTPUT_TOKENS)
 
 
 class GenerationResult:

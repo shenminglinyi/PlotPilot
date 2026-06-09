@@ -1585,10 +1585,13 @@ class DaemonHostMixin:
                     config={"max_tokens": 5, "temperature": 0.1},
                 )
             )
-            score = int(''.join(filter(str.isdigit, raw[:3])))
-            return max(1, min(10, score))
         except Exception:
             return 0
+        digits = "".join(filter(str.isdigit, str(raw)[:3]))
+        if not digits:
+            return 5
+        score = int(digits)
+        return max(1, min(10, score))
 
     async def _stream_llm_with_stop_watch(
         self,

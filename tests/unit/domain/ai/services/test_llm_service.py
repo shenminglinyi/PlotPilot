@@ -18,6 +18,11 @@ class TestGenerationConfig:
         assert config.max_tokens == DEFAULT_MAX_OUTPUT_TOKENS
         assert config.temperature == 1.0
 
+    def test_generation_config_preserves_values_above_global_floor(self):
+        config = GenerationConfig(max_tokens=DEFAULT_MAX_OUTPUT_TOKENS + 1000)
+
+        assert config.max_tokens == DEFAULT_MAX_OUTPUT_TOKENS + 1000
+
     def test_generation_config_default_values(self):
         """测试默认值"""
         config = GenerationConfig()

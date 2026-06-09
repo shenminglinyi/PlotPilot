@@ -7,7 +7,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import List, Optional, Tuple, Type, TypeVar
+from dataclasses import dataclass
+from typing import Generic, List, Optional, Tuple, Type, TypeVar
 
 from json_repair import repair_json
 from pydantic import BaseModel, ValidationError
@@ -26,6 +27,17 @@ from infrastructure.ai.trace_recorder import get_trace_recorder
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
+
+
+@dataclass(frozen=True)
+class StructuredJSONGenerateResult(Generic[T]):
+    payload: Optional[T]
+    failure_stage: str = ""
+    errors: Tuple[str, ...] = ()
+
+    @property
+    def ok(self) -> bool:
+        return self.payload is not None
 
 # 校验或解析失败后的额外重试轮数；总次数 = 1 + 该值，且不超过全局上限。
 DEFAULT_MAX_RETRIES = LLM_MAX_TOTAL_ATTEMPTS - 1
@@ -118,6 +130,25 @@ async def structured_json_generate(
     max_retries: int = DEFAULT_MAX_RETRIES,
 ) -> Optional[T]:
     """调用 LLM 获取结构化 JSON 输出，并经过清洗、修复、校验管线。"""
+    result = await structured_json_generate_with_status(
+        llm=llm,
+        prompt=prompt,
+        config=config,
+        schema_model=schema_model,
+        max_retries=max_retries,
+    )
+    return result.payload
+
+
+async def structured_json_generate_with_status(
+    llm: LLMService,
+    prompt: Prompt,
+    config: GenerationConfig,
+    schema_model: Type[T],
+    *,
+    max_retries: int = DEFAULT_MAX_RETRIES,
+) -> StructuredJSONGenerateResult[T]:
+    """Like structured_json_generate, but preserves failure category."""
     current_prompt = prompt
     last_errors: List[str] = []
     total_attempts = min(1 + max(0, max_retries), LLM_MAX_TOTAL_ATTEMPTS)
@@ -151,7 +182,11 @@ async def structured_json_generate(
                 )
                 await asyncio.sleep(delay)
                 continue
-            return None
+            return StructuredJSONGenerateResult(
+                payload=None,
+                failure_stage="llm_generate",
+                errors=tuple(last_errors),
+            )
 
         cleaned = sanitize_llm_output(raw)
         data, parse_errors = parse_and_repair_json(cleaned)
@@ -187,7 +222,7 @@ async def structured_json_generate(
                 )
                 if attempt > 0:
                     logger.info("结构化 JSON 管线重试成功 (attempt=%d)", attempt)
-                return instance
+                return StructuredJSONGenerateResult(payload=instance)
             last_errors = parse_errors + schema_errors
             recorder.record_span(
                 phase="schema_validated",
@@ -249,4 +284,8 @@ async def structured_json_generate(
             "total_attempts": total_attempts,
         },
     )
-    return None
+    return StructuredJSONGenerateResult(
+        payload=None,
+        failure_stage="parse_or_schema",
+        errors=tuple(last_errors),
+    )
