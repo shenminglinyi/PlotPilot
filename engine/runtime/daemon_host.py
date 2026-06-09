@@ -1557,9 +1557,14 @@ class DaemonHostMixin:
             logger.warning(f"[{novel_id}] 宏观诊断后台任务失败: {e}", exc_info=True)
 
     async def _score_tension(self, content: str) -> int:
-        """给章节打张力分（1-10），用于判断是否插入缓冲章"""
+        """Legacy single-axis tension probe.
+
+        Kept only for explicit emergency callers. Formal chapter auditing uses
+        the multidimensional aftermath score; this helper must not synthesize a
+        neutral score when evaluation fails.
+        """
         if not content or len(content) < 200:
-            return 5  # 默认中等张力
+            return 0
 
         snippet = content[:500]  # 只取前 500 字，节省 token
 
@@ -1583,7 +1588,7 @@ class DaemonHostMixin:
             score = int(''.join(filter(str.isdigit, raw[:3])))
             return max(1, min(10, score))
         except Exception:
-            return 5  # 解析失败，返回默认值
+            return 0
 
     async def _stream_llm_with_stop_watch(
         self,
