@@ -213,6 +213,44 @@ def _persist_autopilot_running_sync(
     return {"decision": decision, "run_epoch": new_epoch}
 
 
+def _persist_autopilot_resume_sync(
+    novel_id: str,
+    *,
+    next_stage: str,
+    current_act: int,
+    max_auto_chapters: int,
+    target_chapters: int,
+    target_words_per_chapter: int,
+) -> Dict[str, Any]:
+    """Persist an explicit review-resume transition.
+
+    Start recovery intentionally preserves ``paused_for_review``. A resume has
+    already validated the review gate and computed the real next stage, so it
+    must write that stage after the generic RUNNING persistence path.
+    """
+    result = _persist_autopilot_running_sync(
+        novel_id,
+        max_auto_chapters=max_auto_chapters,
+        target_chapters=target_chapters,
+        target_words_per_chapter=target_words_per_chapter,
+    )
+    try:
+        resolved_stage = NovelStage(next_stage)
+    except ValueError:
+        resolved_stage = NovelStage.ACT_PLANNING
+    get_novel_repository().patch(
+        NovelId(novel_id),
+        autopilot_status=AutopilotStatus.RUNNING,
+        current_stage=resolved_stage,
+        current_act=current_act or 0,
+        consecutive_error_count=0,
+        active_pipeline_step="",
+        active_pipeline_run_id="",
+        last_stable_stage=resolved_stage.value,
+    )
+    return result
+
+
 def _macro_structure_exists(novel_id: str) -> bool:
     """Macro planning is usable when it has at least a volume root for act planning."""
     try:
@@ -1711,8 +1749,10 @@ async def resume_from_review(novel_id: str):
             novel = repo.get_by_id(NovelId(novel_id))
             if not novel:
                 return
-            _persist_autopilot_running_sync(
+            _persist_autopilot_resume_sync(
                 novel_id,
+                next_stage=next_stage,
+                current_act=current_act,
                 max_auto_chapters=getattr(novel, "max_auto_chapters", 9999) or 9999,
                 target_chapters=novel.target_chapters or 1,
                 target_words_per_chapter=getattr(novel, "target_words_per_chapter", None) or 2500,
