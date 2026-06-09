@@ -136,6 +136,46 @@ def test_autopilot_full_chapter_accept_completes_once_and_moves_to_audit(monkeyp
     }
 
 
+def test_story_pipeline_full_chapter_continuation_does_not_write_formal_chapter(monkeypatch):
+    db = _Db()
+    _patch_db(monkeypatch, db)
+    register_autopilot_continuations()
+    session = InvocationSession(
+        id="session-story-pipeline",
+        operation="autopilot.chapter.prose",
+        node_key="chapter-prose-generation",
+        policy=InvocationPolicy.AUTOPILOT_PAUSE,
+        status=InvocationSessionStatus.AWAITING_COMMIT,
+        context={"novel_id": "novel-1", "chapter_number": 4, "beat_index": 0},
+        metadata={"commit_owner": "story_pipeline_save_step"},
+        continuation=ContinuationRef(handler_key="autopilot_prose_generation"),
+    )
+    decision = AdoptionDecision(
+        id="decision-story-pipeline",
+        session_id="session-story-pipeline",
+        attempt_id="attempt-story-pipeline",
+        accepted_content="完整章节正文。",
+    )
+
+    result = execute_continuation(ContinuationContext(session=session, decision=decision))
+
+    chapter = db.fetch_one(
+        "SELECT content, status FROM chapters WHERE novel_id = ? AND number = ?",
+        ("novel-1", 4),
+    )
+    novel = db.fetch_one(
+        "SELECT current_stage, current_auto_chapters, current_chapter_in_act FROM novels WHERE id = ?",
+        ("novel-1",),
+    )
+    assert chapter is None
+    assert novel == {
+        "current_stage": "writing",
+        "current_auto_chapters": 0,
+        "current_chapter_in_act": 0,
+    }
+    assert result["commit_owner"] == "story_pipeline_save_step"
+
+
 def test_autopilot_aftermath_accepts_legacy_markdown_payload():
     register_autopilot_continuations()
     session = InvocationSession(

@@ -4,7 +4,7 @@
     <div v-if="isStreaming" class="writing-stream-bar mode-streaming">
     <div class="stream-header-line">
       <span class="stream-info">
-        正在生成第 {{ writingChapterNumber }} 章
+        {{ streamTitle }}
         <span v-if="writingChapterNumber > 0" class="beat-badge">节拍 {{ (writingBeatIndex || 0) + 1 }}</span>
         <span v-if="substepLabel" class="substep-indicator" :class="substepClass">{{ substepLabel }}</span>
       </span>
@@ -12,8 +12,8 @@
         <template v-if="chapterTarget > 0">
           <span class="stats-plan">目标 {{ chapterTarget }} 字/章</span>
           <span class="stats-detail">
-            · 已定稿 {{ lockedWords }} 字
-            <span v-if="streamOverflow > 0" class="stats-extra"> · 流式 +{{ streamOverflow }}（节拍末收束）</span>
+            · {{ props.uncommittedPreview ? '预览' : '已定稿' }} {{ props.uncommittedPreview ? writingWordCount : lockedWords }} 字
+            <span v-if="!props.uncommittedPreview && streamOverflow > 0" class="stats-extra"> · 流式 +{{ streamOverflow }}（节拍末收束）</span>
           </span>
         </template>
         <template v-else>
@@ -98,10 +98,13 @@ const props = withDefaults(
     statusChapterNumber?: number | null
     /** 是否为撰写阶段；false 时空闲占位与顶栏一致，避免审计/规划时出现「等待流式正文」误导 */
     isWritingPhase?: boolean
+    /** 停止后保留的正文流只作为临时预览，不代表正式章节 */
+    uncommittedPreview?: boolean
   }>(),
   {
     showRunnerStageInIdle: false,
     isWritingPhase: true,
+    uncommittedPreview: false,
   }
 )
 
@@ -125,6 +128,13 @@ const isStreaming = computed(
 const writingWordCount = computed(() => props.writingContent?.length || 0)
 const writingChapterNumber = computed(() => props.writingChapterNumber || 0)
 const writingBeatIndex = computed(() => props.writingBeatIndex || 0)
+const streamTitle = computed(() => {
+  if (props.uncommittedPreview) {
+    const ch = writingChapterNumber.value || displayChapter.value
+    return ch > 0 ? `第 ${ch} 章未提交预览` : '未提交预览'
+  }
+  return `正在生成第 ${writingChapterNumber.value} 章`
+})
 
 /** 本章目标字数（与后端 chapter_target_words 一致） */
 const chapterTarget = computed(() => Math.max(0, Number(props.chapterTargetWords || 0)))

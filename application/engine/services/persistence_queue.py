@@ -470,19 +470,25 @@ def register_persistence_handlers() -> None:
             db = get_database()
             novel_id = payload.get("novel_id")
             chapter_number = payload.get("chapter_number")
+            chapter_id = payload.get("chapter_id") or f"autopilot:{novel_id}:{chapter_number}"
+            title = payload.get("title") or f"第{chapter_number}章"
+            outline = payload.get("outline") or ""
             content = payload.get("content", "")
             status = payload.get("status", "draft")
+            word_count = int(payload.get("word_count") or len(str(content or "")))
 
             # 使用轻量 SQL 更新
             db.execute(
-                """INSERT INTO chapters (novel_id, number, content, status, word_count, updated_at)
-                VALUES (?, ?, ?, ?, LENGTH(?), CURRENT_TIMESTAMP)
+                """INSERT INTO chapters (id, novel_id, number, title, outline, content, status, word_count, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 ON CONFLICT(novel_id, number) DO UPDATE SET
+                    title = COALESCE(NULLIF(excluded.title, ''), chapters.title),
+                    outline = COALESCE(NULLIF(excluded.outline, ''), chapters.outline),
                     content = excluded.content,
                     status = excluded.status,
                     word_count = excluded.word_count,
                     updated_at = CURRENT_TIMESTAMP""",
-                (novel_id, chapter_number, content, status, content)
+                (chapter_id, novel_id, chapter_number, title, outline, content, status, word_count)
             )
             db.get_connection().commit()
             logger.debug(f"[PersistenceQueue] 章节已持久化: novel={novel_id} ch={chapter_number}")

@@ -465,8 +465,31 @@ def register_autopilot_continuations() -> None:
         novel_id = str(ctx.session.context.get("novel_id") or "")
         chapter_number = int(ctx.session.context.get("chapter_number") or 0)
         beat_index = int(ctx.session.context.get("beat_index") or 0)
+        session_meta = dict(ctx.session.metadata or {})
         if novel_id and ctx.session.policy != InvocationPolicy.DIRECT and chapter_number > 0:
             is_full_chapter = ctx.session.operation == "autopilot.chapter.prose"
+            story_pipeline_commit_owner = (
+                is_full_chapter
+                and session_meta.get("commit_owner") == "story_pipeline_save_step"
+            )
+            if story_pipeline_commit_owner:
+                _clear_invocation_state(
+                    novel_id,
+                    autopilot_status="running",
+                    current_stage="writing",
+                    current_beat_index=0,
+                    current_chapter_number=chapter_number,
+                    accumulated_words=len(content),
+                    writing_substep="chapter_generated",
+                    writing_substep_label="正文生成完成，等待管线提交",
+                )
+                return {
+                    "content": content,
+                    "beat_content": content,
+                    "chapter_number": chapter_number,
+                    "beat_index": beat_index,
+                    "commit_owner": "story_pipeline_save_step",
+                }
             write_result = _write_chapter_draft(
                 novel_id,
                 chapter_number,

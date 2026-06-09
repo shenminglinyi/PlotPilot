@@ -196,7 +196,7 @@ class StreamingBus:
             except Full:
                 pass
 
-    def publish_stop_signal(self, novel_id: str):
+    def publish_stop_signal(self, novel_id: str, *, epoch: int | None = None):
         """发布停止信号消息（主进程 /stop API 调用）
 
         守护进程消费到后调用 novel_stop_signal.set_local_novel_stop()。
@@ -212,6 +212,8 @@ class StreamingBus:
             "type": "stop_signal",
             "timestamp": time.time(),
         }
+        if epoch is not None:
+            message["epoch"] = int(epoch)
 
         try:
             queue.put_nowait(message)
@@ -230,7 +232,7 @@ class StreamingBus:
         except Exception as e:
             logger.error("[StreamingBus] 发布停止信号失败: %s", e)
 
-    def publish_start_signal(self, novel_id: str):
+    def publish_start_signal(self, novel_id: str, *, epoch: int | None = None):
         """发布启动信号消息（主进程 /start API 调用）
 
         守护进程消费到后调用 novel_stop_signal.clear_local_novel_stop()，
@@ -245,6 +247,8 @@ class StreamingBus:
             "type": "start_signal",
             "timestamp": time.time(),
         }
+        if epoch is not None:
+            message["epoch"] = int(epoch)
 
         try:
             queue.put_nowait(message)
@@ -290,8 +294,11 @@ class StreamingBus:
 
                 if msg_type == "stop_signal":
                     if novel_id is None or msg_novel_id == novel_id:
-                        set_local_novel_stop(msg_novel_id)
-                        affected_novels.append(msg_novel_id)
+                        if self._is_stale_stop_signal(message):
+                            logger.info("[StreamingBus] 忽略过期停止信号: %s", msg_novel_id)
+                        else:
+                            set_local_novel_stop(msg_novel_id)
+                            affected_novels.append(msg_novel_id)
                     else:
                         other_messages.append(message)
                 elif msg_type == "start_signal":
@@ -354,8 +361,11 @@ class StreamingBus:
                     if msg_type == "stop_signal":
                         try:
                             from application.engine.services.novel_stop_signal import set_local_novel_stop
-                            set_local_novel_stop(msg_novel_id)
-                            logger.info("[StreamingBus] get_chunks_batch: 消费到停止信号: %s", msg_novel_id)
+                            if self._is_stale_stop_signal(message):
+                                logger.info("[StreamingBus] get_chunks_batch: 忽略过期停止信号: %s", msg_novel_id)
+                            else:
+                                set_local_novel_stop(msg_novel_id)
+                                logger.info("[StreamingBus] get_chunks_batch: 消费到停止信号: %s", msg_novel_id)
                         except Exception:
                             pass
                         continue
@@ -440,8 +450,11 @@ class StreamingBus:
                     if msg_type == "stop_signal":
                         try:
                             from application.engine.services.novel_stop_signal import set_local_novel_stop
-                            set_local_novel_stop(msg_novel_id)
-                            logger.info("[StreamingBus] get_chunks_and_events_batch: 消费到停止信号: %s", msg_novel_id)
+                            if self._is_stale_stop_signal(message):
+                                logger.info("[StreamingBus] get_chunks_and_events_batch: 忽略过期停止信号: %s", msg_novel_id)
+                            else:
+                                set_local_novel_stop(msg_novel_id)
+                                logger.info("[StreamingBus] get_chunks_and_events_batch: 消费到停止信号: %s", msg_novel_id)
                         except Exception:
                             pass
                         continue
@@ -503,6 +516,21 @@ class StreamingBus:
             return str(batch["content"])
         deltas = batch.get("deltas") or []
         return deltas[0] if deltas else None
+
+    def _is_stale_stop_signal(self, message: Dict[str, Any]) -> bool:
+        msg_epoch = message.get("epoch")
+        if msg_epoch is None:
+            return False
+        novel_id = str(message.get("novel_id") or "")
+        if not novel_id:
+            return False
+        try:
+            from application.engine.services.novel_stop_signal import read_autopilot_run_epoch
+
+            current_epoch = read_autopilot_run_epoch(novel_id)
+            return current_epoch is not None and int(msg_epoch) < int(current_epoch)
+        except Exception:
+            return False
 
     async def get_chunk_async(self, novel_id: str, timeout: float = 0.05) -> Optional[str]:
         """异步获取单个 chunk"""

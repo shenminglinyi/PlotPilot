@@ -1,7 +1,13 @@
 import { apiRoutes } from './endpoints'
 import { fetchJson, fetchOk, fetchUrl, HttpError, type FetchJsonOptions } from './http'
 
-export type AutopilotStatus = Record<string, any>
+export type AutopilotStatus = Record<string, any> & {
+  active_pipeline_step?: string
+  active_pipeline_run_id?: string
+  last_stable_stage?: string
+  autopilot_run_epoch?: number
+  autopilot_recovery_reason?: string
+}
 
 export interface AutopilotStartRequest {
   max_auto_chapters: number

@@ -62,6 +62,23 @@ def is_novel_stopped(novel_id: str) -> bool:
     return _local_stop_events[novel_id].is_set()
 
 
+def read_autopilot_run_epoch(novel_id: str) -> Optional[int]:
+    """Read the DB run epoch used to reject stale cross-process stop messages."""
+    try:
+        from application.paths import get_db_path
+        from infrastructure.persistence.database.connection import get_database
+
+        row = get_database(get_db_path()).fetch_one(
+            "SELECT autopilot_run_epoch FROM novels WHERE id = ?",
+            (novel_id,),
+        )
+        if row is None:
+            return None
+        return int(row.get("autopilot_run_epoch") or 0)
+    except Exception:
+        return None
+
+
 def publish_stop_signal(novel_id: str) -> None:
     """通过 mp.Queue 发布停止信号（API /stop 调用，主进程侧）
 
@@ -69,7 +86,7 @@ def publish_stop_signal(novel_id: str) -> None:
     守护进程消费到后调用 set_local_novel_stop()。
     """
     from application.engine.services.streaming_bus import streaming_bus
-    streaming_bus.publish_stop_signal(novel_id)
+    streaming_bus.publish_stop_signal(novel_id, epoch=read_autopilot_run_epoch(novel_id))
     logger.info("[NovelStopSignal] 停止信号已通过 StreamingBus 发布: %s", novel_id)
 
 
@@ -80,7 +97,7 @@ def publish_start_signal(novel_id: str) -> None:
     清除本地 threading.Event 以便小说可以重新启动。
     """
     from application.engine.services.streaming_bus import streaming_bus
-    streaming_bus.publish_start_signal(novel_id)
+    streaming_bus.publish_start_signal(novel_id, epoch=read_autopilot_run_epoch(novel_id))
     logger.info("[NovelStopSignal] 启动信号已通过 StreamingBus 发布: %s", novel_id)
 
 
