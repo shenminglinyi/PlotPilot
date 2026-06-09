@@ -83,6 +83,99 @@ export interface AddCharacterRequest {
   description: string
 }
 
+type SilentAxiosRequestConfig = AxiosRequestConfig & { silentGlobalFeedback?: boolean }
+
+function createRequestId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `req_${Date.now()}_${Math.random().toString(16).slice(2)}`
+}
+
+function bibleWriteSnapshot(bible: BibleDTO | null | undefined): string {
+  if (!bible) return ''
+  return JSON.stringify({
+    characters: bible.characters ?? [],
+    world_settings: bible.world_settings ?? [],
+    locations: bible.locations ?? [],
+    timeline_notes: bible.timeline_notes ?? [],
+    style_notes: bible.style_notes ?? [],
+  })
+}
+
+function bibleUpdatePayloadSnapshot(data: {
+  characters: CharacterDTO[]
+  world_settings: WorldSettingDTO[]
+  locations: LocationDTO[]
+  timeline_notes: TimelineNoteDTO[]
+  style_notes: StyleNoteDTO[]
+}): string {
+  return JSON.stringify({
+    characters: data.characters ?? [],
+    world_settings: data.world_settings ?? [],
+    locations: data.locations ?? [],
+    timeline_notes: data.timeline_notes ?? [],
+    style_notes: data.style_notes ?? [],
+  })
+}
+
+async function verifyBibleWrite(
+  novelId: string,
+  expectedPayload: {
+    characters: CharacterDTO[]
+    world_settings: WorldSettingDTO[]
+    locations: LocationDTO[]
+    timeline_notes: TimelineNoteDTO[]
+    style_notes: StyleNoteDTO[]
+  },
+): Promise<BibleDTO | null> {
+  try {
+    const current = await apiClient.get<BibleDTO>(`/bible/novels/${novelId}/bible`, {
+      silentGlobalFeedback: true,
+    } as SilentAxiosRequestConfig)
+    return bibleWriteSnapshot(current) === bibleUpdatePayloadSnapshot(expectedPayload) ? current : null
+  } catch {
+    return null
+  }
+}
+
+async function updateBibleWithVerification(
+  novelId: string,
+  data: {
+    characters: CharacterDTO[]
+    world_settings: WorldSettingDTO[]
+    locations: LocationDTO[]
+    timeline_notes: TimelineNoteDTO[]
+    style_notes: StyleNoteDTO[]
+  },
+): Promise<BibleDTO> {
+  const requestId = createRequestId()
+  const config: SilentAxiosRequestConfig = {
+    headers: {
+      'X-Request-Id': requestId,
+      'X-Idempotency-Key': requestId,
+    },
+  }
+  try {
+    return await apiClient.put<BibleDTO>(`/bible/novels/${novelId}/bible`, data, config)
+  } catch (err) {
+    const verified = await verifyBibleWrite(novelId, data)
+    if (verified) {
+      return verified
+    }
+    try {
+      const secondAttempt = await apiClient.put<BibleDTO>(`/bible/novels/${novelId}/bible`, data, config)
+      return secondAttempt
+    } catch (secondErr) {
+      const verifiedAgain = await verifyBibleWrite(novelId, data)
+      if (verifiedAgain) {
+        return verifiedAgain
+      }
+      throw secondErr ?? err
+    }
+  }
+}
+
 export const bibleApi = {
   /**
    * Create bible for a novel
@@ -138,8 +231,7 @@ export const bibleApi = {
       timeline_notes: TimelineNoteDTO[]
       style_notes: StyleNoteDTO[]
     }
-  ) =>
-    apiClient.put<BibleDTO>(`/bible/novels/${novelId}/bible`, data) as Promise<BibleDTO>,
+  ) => updateBibleWithVerification(novelId, data),
 
   /**
    * AI generate (or regenerate) Bible for a novel

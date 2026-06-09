@@ -13,7 +13,7 @@ from json_repair import repair_json
 from pydantic import BaseModel, ValidationError
 
 from application.ai.llm_output_sanitize import strip_reasoning_artifacts
-from application.ai.llm_retry_policy import LLM_MAX_TOTAL_ATTEMPTS
+from application.ai.llm_retry_policy import LLM_MAX_TOTAL_ATTEMPTS, is_retryable_llm_error
 from application.ai.structured_json_settings import (
     StructuredJSONSettings,
     get_structured_json_settings,
@@ -29,23 +29,6 @@ T = TypeVar("T", bound=BaseModel)
 
 # 校验或解析失败后的额外重试轮数；总次数 = 1 + 该值，且不超过全局上限。
 DEFAULT_MAX_RETRIES = LLM_MAX_TOTAL_ATTEMPTS - 1
-
-
-def _is_retryable_llm_error(exc: Exception) -> bool:
-    """识别上游临时故障，避免 429/5xx/超时直接短路。"""
-    message = str(exc).lower()
-    retryable_markers = (
-        "overloaded_error",
-        "rate limit",
-        "timeout",
-        "temporar",
-        "connection reset",
-        "service unavailable",
-    )
-    retryable_statuses = (" 429", " 500", " 502", " 503", " 504", " 529")
-    return any(marker in message for marker in retryable_markers) or any(
-        status in message for status in retryable_statuses
-    )
 
 
 def _retry_delay_seconds(attempt: int, settings: StructuredJSONSettings | None = None) -> float:
@@ -158,7 +141,7 @@ async def structured_json_generate(
                     "stage": "llm_generate",
                 },
             )
-            if attempt < total_attempts - 1 and _is_retryable_llm_error(exc):
+            if attempt < total_attempts - 1 and is_retryable_llm_error(exc):
                 delay = _retry_delay_seconds(attempt, settings)
                 logger.info(
                     "结构化 JSON 管线遇到可重试错误，%.1f 秒后重试 (attempt=%d/%d)",

@@ -59,12 +59,34 @@ class ChapterContinuityPolicy:
     warn_threshold: float = 0.6
     auto_fix_threshold: float = 0.4
     max_fix_rounds: int = 2
+    min_fix_chars: int = 50
+    min_rewrite_length_ratio: float = 0.8
+    max_rewrite_length_ratio: float = 1.35
 
     def needs_attention(self, score: float) -> bool:
         return score < self.warn_threshold
 
     def should_auto_fix(self, score: float) -> bool:
         return score < self.auto_fix_threshold
+
+    def validate_rewrite(self, original: str, rewritten: str) -> Tuple[bool, str]:
+        """Check whether an automated opening rewrite is safe to apply.
+
+        The bridge fixer is allowed to improve continuity, but it must not
+        become an unreviewed content deletion mechanism. Length is a conservative
+        proxy here: if the new opening is much shorter/longer than the original,
+        skip applying it and keep the generated chapter intact.
+        """
+        if len(rewritten) < self.min_fix_chars:
+            return False, "rewritten_opening_too_short"
+        if not original:
+            return False, "original_opening_empty"
+        ratio = len(rewritten) / max(1, len(original))
+        if ratio < self.min_rewrite_length_ratio:
+            return False, "rewritten_opening_drops_too_much_content"
+        if ratio > self.max_rewrite_length_ratio:
+            return False, "rewritten_opening_expands_too_much_content"
+        return True, ""
 
 
 @dataclass
@@ -556,7 +578,8 @@ class ChapterBridgeService:
             )
             new_head = new_head.strip()
 
-            if new_head and len(new_head) >= 50:
+            safe, reason = self.policy.validate_rewrite(head, new_head)
+            if safe:
                 # 拼接修整后的首段 + 原文剩余部分
                 fixed_content = new_head + rest
                 logger.info(
@@ -565,6 +588,13 @@ class ChapterBridgeService:
                     check_result.score, 0.7,  # 修整后预估
                 )
                 return fixed_content
+            logger.warning(
+                "首段衔接修整已跳过 ch=%s reason=%s 原头=%d字 新头=%d字",
+                chapter_number,
+                reason,
+                len(head),
+                len(new_head),
+            )
         except Exception as e:
             logger.warning("首段衔接修整失败 ch=%s: %s", chapter_number, e)
 
