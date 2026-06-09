@@ -483,6 +483,7 @@ def register_autopilot_continuations() -> None:
                     writing_substep="chapter_generated",
                     writing_substep_label="正文生成完成，等待管线提交",
                 )
+                _resume_autopilot_stage(novel_id, "writing", current_beat_index=0)
                 return {
                     "content": content,
                     "beat_content": content,

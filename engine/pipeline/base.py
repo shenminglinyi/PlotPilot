@@ -701,6 +701,9 @@ class BaseStoryPipeline(ABC):
             # 尝试推持久化队列
             pushed = self._push_persistence_command(ctx)
             if pushed:
+                self._wait_for_chapter_persistence(ctx)
+                if not self._chapter_completed_in_repository(ctx):
+                    await self._save_chapter_via_repository(ctx)
                 ctx.chapter_saved = True
                 ctx.save_method = "queue"
                 self._discard_generation_workspace(ctx)
@@ -714,6 +717,32 @@ class BaseStoryPipeline(ABC):
             return StepResult.ok()
         except Exception as e:
             return StepResult.fail(f"章节保存失败: {e}")
+
+    def _wait_for_chapter_persistence(self, ctx: PipelineContext) -> None:
+        try:
+            from application.engine.services.persistence_queue import get_persistence_queue
+
+            pq = get_persistence_queue()
+            if pq is not None:
+                pq.wait_until_idle(timeout=5.0)
+        except Exception as exc:
+            logger.debug("[%s] wait chapter persistence skipped: %s", ctx.novel_id, exc)
+
+    def _chapter_completed_in_repository(self, ctx: PipelineContext) -> bool:
+        try:
+            from domain.novel.value_objects.novel_id import NovelId
+
+            chapter = ctx.chapter_repository.get_by_novel_and_number(
+                NovelId(ctx.novel_id),
+                int(ctx.chapter_number),
+            )
+        except Exception:
+            return False
+        if chapter is None:
+            return False
+        status = getattr(chapter, "status", "")
+        status_value = status.value if hasattr(status, "value") else str(status)
+        return status_value == "completed" and bool(str(getattr(chapter, "content", "") or "").strip())
 
     async def _step_validate_voice(self, ctx: PipelineContext) -> StepResult:
         """步骤7：文风审计（声线漂移检测+定向改写）

@@ -1482,6 +1482,14 @@ async def start_autopilot(novel_id: str, body: StartRequest = StartRequest()):
             active_invocation_status="",
             active_invocation_policy="",
             autopilot_pause_reason="",
+            autopilot_pending_macro_plan=None,
+            autopilot_pending_macro_target_chapters=None,
+            autopilot_pending_act_plan_id=None,
+            autopilot_pending_act_chapters=None,
+            autopilot_pending_chapter_number=None,
+            autopilot_pending_chapter_plan=None,
+            planned_micro_beats=None,
+            outline_plan_mode="",
         )
         logger.debug("autopilot start: 已刷新共享内存状态 novel=%s", novel_id)
     except Exception as e:
@@ -1601,6 +1609,14 @@ async def stop_autopilot(novel_id: str):
             active_invocation_status="",
             active_invocation_policy="",
             autopilot_pause_reason="",
+            autopilot_pending_macro_plan=None,
+            autopilot_pending_macro_target_chapters=None,
+            autopilot_pending_act_plan_id=None,
+            autopilot_pending_act_chapters=None,
+            autopilot_pending_chapter_number=None,
+            autopilot_pending_chapter_plan=None,
+            planned_micro_beats=None,
+            outline_plan_mode="",
         )
         logger.debug("autopilot stop: 已更新共享内存状态 novel=%s", novel_id)
     except Exception as e:
@@ -1609,6 +1625,8 @@ async def stop_autopilot(novel_id: str):
     # 通道 2：DB 持久化（降级兜底，守护进程重启后仍能读到 STOPPED）
     def _stop_sync():
         from application.paths import get_db_path
+        from application.engine.services.autopilot_recovery_policy import AutopilotRecoveryPolicy
+        from application.engine.services.chapter_generation_workspace import ChapterGenerationWorkspace
         from infrastructure.persistence.database.connection import get_database
 
         db = get_database(get_db_path())
@@ -1619,6 +1637,12 @@ async def stop_autopilot(novel_id: str):
         )
         db.commit()
         logger.info("autopilot stop: novel_id=%s committed STOPPED (DB 兜底)", novel_id)
+        try:
+            policy = AutopilotRecoveryPolicy(db, workspace=ChapterGenerationWorkspace())
+            decision = policy.decide_on_start(novel_id)
+            policy.apply_transient_cleanup(decision)
+        except Exception as cleanup_err:
+            logger.debug("autopilot stop: interrupted artifact cleanup skipped novel=%s: %s", novel_id, cleanup_err)
 
     try:
         await asyncio.get_running_loop().run_in_executor(_SSE_THREAD_POOL, _stop_sync)

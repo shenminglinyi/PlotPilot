@@ -1,4 +1,5 @@
 import sqlite3
+import json
 
 from application.engine.services.autopilot_recovery_policy import AutopilotRecoveryPolicy
 
@@ -20,13 +21,19 @@ class _Db:
                 number INTEGER NOT NULL,
                 status TEXT DEFAULT 'draft',
                 content TEXT DEFAULT '',
+                outline TEXT DEFAULT '',
+                word_count INTEGER DEFAULT 0,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(novel_id, number)
             );
             CREATE TABLE story_nodes (
                 id TEXT PRIMARY KEY,
                 novel_id TEXT NOT NULL,
                 number INTEGER NOT NULL,
-                node_type TEXT NOT NULL
+                node_type TEXT NOT NULL,
+                outline TEXT DEFAULT '',
+                metadata TEXT DEFAULT '{}',
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE ai_invocation_sessions (
                 id TEXT PRIMARY KEY,
@@ -42,6 +49,22 @@ class _Db:
                 attempt_id TEXT DEFAULT '',
                 decision TEXT DEFAULT 'accepted',
                 accepted_by TEXT DEFAULT ''
+            );
+            CREATE TABLE variable_values (
+                id TEXT PRIMARY KEY,
+                variable_key TEXT NOT NULL,
+                scope_level TEXT NOT NULL DEFAULT 'global',
+                scope_key TEXT NOT NULL DEFAULT 'global',
+                value_json TEXT NOT NULL,
+                value_hash TEXT NOT NULL DEFAULT '',
+                version_number INTEGER NOT NULL DEFAULT 1,
+                is_current INTEGER NOT NULL DEFAULT 1,
+                source_session_id TEXT NOT NULL DEFAULT '',
+                source_attempt_id TEXT NOT NULL DEFAULT '',
+                source_trace_id TEXT NOT NULL DEFAULT '',
+                source_node_key TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                metadata_json TEXT NOT NULL DEFAULT '{}'
             );
             """
         )
@@ -95,6 +118,89 @@ def test_recovery_policy_preserves_paused_review_gate():
     assert decision.next_stage == "paused_for_review"
     assert decision.preserve_review_gate is True
     assert decision.clear_pending_invocation is False
+    assert decision.discard_transient_invocations is False
+
+
+def test_recovery_policy_discards_stopped_paused_prose_review_gate():
+    db = _Db()
+    db.execute(
+        "INSERT INTO novels (id, current_stage, autopilot_status) VALUES ('novel-1', 'paused_for_review', 'stopped')"
+    )
+    db.execute(
+        "INSERT INTO chapters (id, novel_id, number, status, content) VALUES ('c1', 'novel-1', 1, 'draft', '')"
+    )
+    db.execute(
+        """
+        INSERT INTO ai_invocation_sessions (id, operation, status, context_json, metadata_json)
+        VALUES (
+          's-prose',
+          'autopilot.chapter.prose',
+          'completed',
+          '{"novel_id":"novel-1","chapter_number":1}',
+          '{"stage":"writing","commit_owner":"story_pipeline_save_step"}'
+        )
+        """
+    )
+    db.execute(
+        """
+        INSERT INTO variable_values
+          (id, variable_key, scope_level, scope_key, value_json, is_current, source_session_id)
+        VALUES
+          ('v1', 'chapter.prose.draft', 'novel', 'novel_id:novel-1|chapter_number:1', '"旧正文"', 1, 's-prose')
+        """
+    )
+
+    policy = AutopilotRecoveryPolicy(db)
+    decision = policy.decide_on_start("novel-1")
+
+    assert decision.next_stage == "writing"
+    assert decision.preserve_review_gate is False
+    assert decision.discard_transient_generation is True
+    assert decision.discard_transient_invocations is True
+    assert decision.reason == "discard_interrupted_review_gate"
+
+    policy.apply_transient_cleanup(decision)
+
+    assert db.fetch_one("SELECT status FROM ai_invocation_sessions WHERE id = 's-prose'")["status"] == "cancelled"
+    assert db.fetch_one("SELECT is_current FROM variable_values WHERE id = 'v1'")["is_current"] == 0
+
+
+def test_recovery_policy_discards_stopped_paused_macro_review_gate_before_structure_applied():
+    db = _Db()
+    db.execute(
+        "INSERT INTO novels (id, current_stage, autopilot_status) VALUES ('novel-1', 'paused_for_review', 'stopped')"
+    )
+    db.execute(
+        """
+        INSERT INTO ai_invocation_sessions (id, operation, status, context_json, metadata_json)
+        VALUES (
+          's-macro',
+          'autopilot.macro.plan',
+          'completed',
+          '{"novel_id":"novel-1"}',
+          '{"stage":"planning"}'
+        )
+        """
+    )
+    db.execute(
+        """
+        INSERT INTO variable_values
+          (id, variable_key, scope_level, scope_key, value_json, is_current, source_session_id)
+        VALUES
+          ('v1', 'novel.planning.macro.parts', 'novel', 'novel_id:novel-1', '[]', 1, 's-macro')
+        """
+    )
+
+    policy = AutopilotRecoveryPolicy(db)
+    decision = policy.decide_on_start("novel-1")
+
+    assert decision.next_stage == "macro_planning"
+    assert decision.discard_transient_invocations is True
+
+    policy.apply_transient_cleanup(decision)
+
+    assert db.fetch_one("SELECT status FROM ai_invocation_sessions WHERE id = 's-macro'")["status"] == "cancelled"
+    assert db.fetch_one("SELECT is_current FROM variable_values WHERE id = 'v1'")["is_current"] == 0
 
 
 def test_recovery_policy_preserves_legacy_writing_resume_semantics():
@@ -108,6 +214,76 @@ def test_recovery_policy_preserves_legacy_writing_resume_semantics():
     assert decision.chapter_number == 1
     assert decision.discard_transient_generation is False
     assert decision.reason == "resume_legacy_writing"
+
+
+def test_recovery_cleanup_discards_transient_chapter_preplan_for_writing_retry():
+    db = _Db()
+    preplan_metadata = {
+        "act_chapter_plan": {
+            "number": 1,
+            "title": "第1章",
+            "main_event": "轻量主事件",
+            "handoff_from_previous": "本幕入口",
+            "handoff_to_next": "下一章钩子",
+            "required_threads": ["主线"],
+        },
+        "chapter_preplan": {
+            "detail_outline": "一、开篇切入点：临时七段细纲",
+            "continuity_context": "坏的连续性上下文",
+        },
+    }
+    db.execute(
+        "INSERT INTO novels (id, current_stage, autopilot_status) VALUES ('novel-1', 'writing', 'stopped')"
+    )
+    db.execute(
+        """
+        INSERT INTO story_nodes (id, novel_id, number, node_type, outline, metadata)
+        VALUES ('sn-1', 'novel-1', 1, 'chapter', '一、开篇切入点：临时七段细纲', ?)
+        """,
+        (json.dumps(preplan_metadata, ensure_ascii=False),),
+    )
+    db.execute(
+        """
+        INSERT INTO chapters (id, novel_id, number, status, content)
+        VALUES ('c1', 'novel-1', 1, 'draft', '半章草稿')
+        """
+    )
+    db.execute(
+        """
+        INSERT INTO variable_values
+          (id, variable_key, scope_level, scope_key, value_json, is_current, source_node_key)
+        VALUES
+          ('v-preplan-outline', 'chapter.outline', 'chapter', 'novel_id:novel-1|chapter_number:1', '"七段细纲"', 1, 'planning-chapter-preplan'),
+          ('v-preplan-context', 'chapter.continuity_context', 'chapter', 'novel_id:novel-1|chapter_number:1', '"坏上下文"', 1, 'planning-chapter-preplan'),
+          ('v-act-outline', 'chapter.outline', 'chapter', 'novel_id:novel-1|chapter_number:1', '"轻量链条"', 1, 'planning-act')
+        """
+    )
+
+    policy = AutopilotRecoveryPolicy(db)
+    decision = policy.decide_on_start("novel-1")
+    assert decision.discard_transient_generation is True
+
+    policy.apply_transient_cleanup(decision)
+
+    story_node = db.fetch_one("SELECT outline, metadata FROM story_nodes WHERE id = 'sn-1'")
+    chapter = db.fetch_one("SELECT outline, content, word_count, status FROM chapters WHERE id = 'c1'")
+    preplan_flags = {
+        row["id"]: row["is_current"]
+        for row in db.fetch_all(
+            "SELECT id, is_current FROM variable_values WHERE id LIKE 'v-preplan-%'",
+            (),
+        )
+    }
+    act_flag = db.fetch_one("SELECT is_current FROM variable_values WHERE id = 'v-act-outline'")["is_current"]
+
+    assert "主事件：轻量主事件" in story_node["outline"]
+    assert "chapter_preplan" not in json.loads(story_node["metadata"])
+    assert chapter["content"] == ""
+    assert chapter["word_count"] == 0
+    assert chapter["status"] == "draft"
+    assert "主事件：轻量主事件" in chapter["outline"]
+    assert preplan_flags == {"v-preplan-outline": 0, "v-preplan-context": 0}
+    assert act_flag == 1
 
 
 def test_recovery_cleanup_cancels_only_retryable_pending_invocations():
