@@ -288,10 +288,12 @@ def test_chapter_prose_inputs_are_materialized_to_variable_hub():
 def test_chapter_prose_input_bindings_stay_minimal_for_prose_prompt():
     bindings = {binding.alias: binding for binding in _input_bindings()}
 
-    assert set(bindings) == {"target_words", "chapter_outline", "continuity_context"}
+    assert set(bindings) == {"target_words", "chapter_outline", "continuity_context", "character_context"}
     assert bindings["target_words"].variable_key == "chapter.target_words"
     assert bindings["chapter_outline"].variable_key == "chapter.outline"
     assert bindings["continuity_context"].variable_key == "chapter.continuity_context"
+    assert bindings["character_context"].variable_key == "novel.characters.list"
+    assert bindings["character_context"].projection_key == "characters.brief"
 
 
 class _FakeNode:
@@ -342,7 +344,7 @@ class _LegacyChapterProseNode:
         return "s"
 
     def get_active_user_template(self):
-        return "章节大纲：{chapter_outline}"
+        return "角色：{character_context}\n章节大纲：{chapter_outline}"
 
 
 class _LegacyChapterProseRegistry:
@@ -350,20 +352,29 @@ class _LegacyChapterProseRegistry:
         return _LegacyChapterProseNode()
 
 
-def test_chapter_prose_prompt_does_not_auto_inject_setup_context():
+def test_chapter_prose_prompt_injects_only_bound_character_context():
     spec = InvocationSpec(
         operation="chapter.generate.prose",
         node_key=NODE_KEY,
         prompt_node_version_id="node-v1",
     )
     variable_plan = VariablePlan(
-        aliases={"chapter_outline": "追击"},
+        aliases={
+            "chapter_outline": "追击",
+            "character_context": "- 林亦: 主角；不把命运交给别人",
+        },
         snapshot_items=(
             {
                 "key": "premise",
                 "display_name": "设定",
                 "variable_key": "novel.setup.premise",
                 "value": "变量中心设定",
+            },
+            {
+                "key": "character_context",
+                "display_name": "角色卡摘要",
+                "variable_key": "novel.characters.list",
+                "value": [{"name": "林亦", "role": "主角", "core_belief": "不把命运交给别人"}],
             },
         ),
     )
@@ -374,6 +385,7 @@ def test_chapter_prose_prompt_does_not_auto_inject_setup_context():
     ).compile(spec=spec, variable_plan=variable_plan)
 
     assert "章节大纲：追击" in snapshot.prompt.user
+    assert "林亦" in snapshot.prompt.user
     assert "变量中心" not in snapshot.prompt.user
     assert "变量中心设定" not in snapshot.prompt.user
 

@@ -131,12 +131,12 @@ class SqliteBibleRepository(BibleRepository):
             INSERT OR REPLACE INTO unified_characters (
                 id, novel_id, name, description, public_profile, hidden_profile,
                 reveal_chapter, gender, age, appearance, personality, background,
-                core_motivation, inner_lack, verbal_tic, idle_behavior, voice_style,
+                core_motivation, inner_lack, role, verbal_tic, idle_behavior, voice_style,
                 sentence_pattern, speech_tempo, core_belief, moral_taboos_json,
                 active_wounds_json, mental_state, mental_state_reason,
                 emotional_arc_json, current_state_summary, last_updated_chapter,
                 created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 cid,
@@ -153,6 +153,7 @@ class SqliteBibleRepository(BibleRepository):
                 getattr(char, "background", "") or "",
                 getattr(char, "core_motivation", "") or "",
                 getattr(char, "inner_lack", "") or "",
+                getattr(char, "role", "") or "",
                 getattr(char, "verbal_tic", "") or "",
                 getattr(char, "idle_behavior", "") or "",
                 voice_profile.get("style", "") or voice_profile.get("voice_style", "") or "",
@@ -231,6 +232,7 @@ class SqliteBibleRepository(BibleRepository):
                     "name": row["name"],
                     "description": row["description"] or "",
                     "relationships": self._rels_for_character(row["id"]),
+                    "role": row.get("role") or self._infer_role_from_description(row["description"] or ""),
                     "gender": row.get("gender") or "",
                     "age": row.get("age") or "",
                     "appearance": row.get("appearance") or "",
@@ -279,6 +281,18 @@ class SqliteBibleRepository(BibleRepository):
         except json.JSONDecodeError:
             return default
         return parsed if isinstance(parsed, type(default)) else default
+
+    @staticmethod
+    def _infer_role_from_description(description: str) -> str:
+        desc = (description or "").strip()
+        if not desc:
+            return ""
+        for marker in ("主角", "主人公", "对立角色", "反派", "主要配角", "配角", "盟友", "次要角色", "龙套"):
+            if desc.startswith(marker):
+                return marker
+        if " - " in desc:
+            return desc.split(" - ", 1)[0].strip()
+        return ""
 
     def _world_settings(self, novel_id: str) -> List[Dict[str, Any]]:
         rows = self.db.fetch_all(

@@ -37,12 +37,14 @@ class Character(BaseEntity):
         moral_taboos: Optional[List[str]] = None,
         voice_profile: Optional[Dict[str, Any]] = None,
         active_wounds: Optional[List[Dict[str, str]]] = None,
+        role: str = "",
     ):
         super().__init__(id.value)
         self.character_id = id
         self.name = name
         self.description = description
         self.relationships = relationships or []
+        self.role = role or ""
         self.gender = gender or ""
         self.age = age or ""
         self.appearance = appearance or ""

@@ -123,6 +123,7 @@ class BibleService:
         description: str,
         relationships: list = None,
         *,
+        role: str = "",
         gender: str = "",
         age: str = "",
         appearance: str = "",
@@ -166,6 +167,7 @@ class BibleService:
             name=name,
             description=description,
             relationships=relationships or [],
+            role=role or "",
             gender=gender or "",
             age=age or "",
             appearance=appearance or "",
@@ -199,6 +201,7 @@ class BibleService:
         description: str,
         relationships: list = None,
         *,
+        role: str = "",
         gender: str = "",
         age: str = "",
         appearance: str = "",
@@ -231,6 +234,7 @@ class BibleService:
                 name=name,
                 description=description,
                 relationships=relationships,
+                role=role,
                 gender=gender,
                 age=age,
                 appearance=appearance,
@@ -254,6 +258,7 @@ class BibleService:
         character.name = name
         character.description = description
         character.relationships = list(relationships or [])
+        character.role = role or ""
         character.gender = gender or ""
         character.age = age or ""
         character.appearance = appearance or ""
@@ -595,6 +600,12 @@ class BibleService:
                 gender = getattr(prev, "gender", None) or ""
             else:
                 gender = ""
+            if getattr(char_data, "role", None) is not None:
+                role = char_data.role or ""
+            elif prev is not None:
+                role = getattr(prev, "role", None) or ""
+            else:
+                role = ""
             if getattr(char_data, "age", None) is not None:
                 age = char_data.age or ""
             elif prev is not None:
@@ -702,6 +713,7 @@ class BibleService:
                 name=char_data.name,
                 description=char_data.description,
                 relationships=char_data.relationships,
+                role=role,
                 gender=gender,
                 age=age,
                 appearance=appearance,
@@ -807,7 +819,7 @@ class BibleService:
                         public_profile=getattr(char, "public_profile", "") or "",
                         hidden_profile=getattr(char, "hidden_profile", "") or "",
                         reveal_chapter=getattr(char, "reveal_chapter", None),
-                        role="",  # Bible entity has no role field; stays empty until StateUpdater fills it
+                        role=getattr(char, "role", "") or "",
                         verbal_tic=getattr(char, "verbal_tic", "") or "",
                         idle_behavior=getattr(char, "idle_behavior", "") or "",
                         core_belief=getattr(char, "core_belief", "") or "",

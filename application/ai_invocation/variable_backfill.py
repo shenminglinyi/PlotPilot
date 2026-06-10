@@ -359,6 +359,7 @@ class VariableHubBackfillService:
             "id": str(getattr(char_id, "value", "") or getattr(item, "id", "") or ""),
             "name": str(getattr(item, "name", "") or ""),
             "description": str(getattr(item, "description", "") or ""),
+            "role": str(getattr(item, "role", "") or ""),
             "relationships": list(getattr(item, "relationships", []) or []),
             "public_profile": str(getattr(item, "public_profile", "") or ""),
             "hidden_profile": str(getattr(item, "hidden_profile", "") or ""),

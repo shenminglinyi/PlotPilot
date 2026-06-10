@@ -57,6 +57,7 @@ def _sync_bible_variable_hub(novel_id: str, dto: BibleDTO) -> None:
             "id": str(getattr(item, "id", "") or ""),
             "name": str(getattr(item, "name", "") or ""),
             "description": str(getattr(item, "description", "") or ""),
+            "role": str(getattr(item, "role", "") or ""),
             "gender": str(getattr(item, "gender", "") or ""),
             "age": str(getattr(item, "age", "") or ""),
             "appearance": str(getattr(item, "appearance", "") or ""),
@@ -156,6 +157,7 @@ class AddCharacterRequest(BaseModel):
     character_id: str = Field(..., description="人物 ID")
     name: str = Field(..., description="人物名称")
     description: str = Field(..., description="人物描述")
+    role: str = Field(default="", description="人物定位")
 
 
 class AddWorldSettingRequest(BaseModel):
@@ -205,6 +207,7 @@ class CharacterData(BaseModel):
     id: str = Field(..., description="人物 ID")
     name: str = Field(..., description="人物名称")
     description: str = Field(..., description="人物描述")
+    role: Optional[str] = Field(default=None, description="人物定位；省略则保留库中旧值")
     relationships: list[Union[str, BibleCharacterRelationshipItem]] = Field(
         default_factory=list,
         description="关系列表：字符串或结构化对象",
@@ -884,6 +887,7 @@ async def _sse_bible_generator(
                             name=char_data["name"],
                             description=f"{char_data.get('role', '')} - {char_data.get('description', '')}",
                             relationships=char_data.get("relationships", []),
+                            role=char_data.get("role") or "",
                             gender=char_data.get("gender") or "",
                             age=char_data.get("age") or "",
                             appearance=char_data.get("appearance") or "",
@@ -1138,7 +1142,8 @@ async def add_character(
             novel_id=novel_id,
             character_id=request.character_id,
             name=request.name,
-            description=request.description
+            description=request.description,
+            role=request.role,
         )
     except EntityNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
