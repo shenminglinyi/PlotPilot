@@ -23,5 +23,10 @@ variables:
     type: string
     required: false
     default: ''
+  - name: character_context
+    desc: 角色卡摘要（定位、公开身份、信念、目标、缺口、声线与动作锚点）
+    type: string
+    required: false
+    default: ''
 output_format: text
 sort_order: 10

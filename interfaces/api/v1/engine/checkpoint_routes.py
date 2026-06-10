@@ -531,7 +531,7 @@ def _get_bible_characters(novel_id: str) -> List[Dict[str, Any]]:
                     "public_profile": getattr(char, "public_profile", "") or "",
                     "hidden_profile": getattr(char, "hidden_profile", "") or "",
                     "reveal_chapter": getattr(char, "reveal_chapter", None),
-                    "role": getattr(char, "role", "") or "",
+                    "role": getattr(char, "role", "") or _infer_character_role(getattr(char, "description", "") or ""),
                     "core_belief": getattr(char, "core_belief", "") or "",
                     "moral_taboos": list(getattr(char, "moral_taboos", []) or []),
                     "voice_profile": voice_profile,
@@ -542,6 +542,18 @@ def _get_bible_characters(novel_id: str) -> List[Dict[str, Any]]:
     except Exception as e:
         logger.debug("读取 unified_characters 失败: %s", e)
         return []
+
+
+def _infer_character_role(description: str) -> str:
+    desc = (description or "").strip()
+    if not desc:
+        return ""
+    for marker in ("主角", "主人公", "对立角色", "反派", "主要配角", "配角", "盟友", "次要角色", "龙套"):
+        if desc.startswith(marker):
+            return marker
+    if " - " in desc:
+        return desc.split(" - ", 1)[0].strip()
+    return ""
 
 
 def _merge_character_from_extract(base: Any, data: Dict[str, Any]) -> tuple[Any, List[str]]:
@@ -938,7 +950,11 @@ def _build_psyche_from_bible(
     if cast_char and hasattr(cast_char, "role"):
         role = cast_char.role or ""
     if not role:
+        role = str(char.get("role") or "").strip()
+    if not role:
         # 从 description 推断 role
+        role = _infer_character_role(desc)
+    if not role:
         import re
         role_match = re.search(
             r'(主角|主人公|反派|boss|配角|师父|师傅|师妹|师兄|师弟|师姐|长辈|首领|掌门|长老|圣子|郡主|公子|小姐)',

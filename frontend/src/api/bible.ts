@@ -21,7 +21,7 @@ export interface CharacterDTO {
   background?: string
   core_motivation?: string
   inner_lack?: string
-  /** AI 生成时的角色定位（主角/配角等）— 后端不持久化此字段，仅从 description 解析 */
+  /** AI 生成时的角色定位（主角/配角等） */
   role?: string
   mental_state?: string
   verbal_tic?: string
@@ -81,6 +81,7 @@ export interface AddCharacterRequest {
   character_id: string
   name: string
   description: string
+  role?: string
 }
 
 type SilentAxiosRequestConfig = AxiosRequestConfig & { silentGlobalFeedback?: boolean }
