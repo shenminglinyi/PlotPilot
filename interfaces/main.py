@@ -192,6 +192,16 @@ def create_app(app_settings: BackendSettings | None = None) -> FastAPI:
 
     add_error_handlers(created)
     register_api_routes(created)
+    
+    # [Restored] Inject mock routes for frontend
+    try:
+        from scratch.mock_routes import router as mock_router
+        created.include_router(mock_router, prefix="/api/v1")
+        import logging
+        logging.getLogger(__name__).info("Mock routes injected successfully.")
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Failed to inject mock routes: {e}")
 
     @created.middleware("http")
     async def fix_redirect_host(request, call_next):

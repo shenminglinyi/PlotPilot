@@ -18,7 +18,7 @@ from infrastructure.ai.url_utils import (
 
 logger = logging.getLogger(__name__)
 
-LLMProtocol = Literal['openai', 'anthropic', 'gemini']
+LLMProtocol = Literal['openai', 'anthropic', 'gemini', 'vertex-ai']
 LLMEndpointMode = Literal['unified', 'independent']
 
 
