@@ -18,7 +18,9 @@ from domain.structure.chapter_element import ChapterElement, ElementType, Relati
 from domain.novel.entities.chapter import Chapter, ChapterStatus
 from domain.novel.value_objects.novel_id import NovelId
 from domain.novel.value_objects.chapter_id import ChapterId
+from domain.novel.value_objects.generation_preferences import GenerationPreferences
 from domain.novel.repositories.chapter_repository import ChapterRepository
+from domain.novel.repositories.novel_repository import NovelRepository
 from infrastructure.persistence.database.story_node_repository import StoryNodeRepository
 from infrastructure.persistence.database.chapter_element_repository import ChapterElementRepository
 from domain.ai.services.llm_service import LLMService, GenerationConfig
@@ -473,12 +475,14 @@ class ContinuousPlanningService:
         llm_service: LLMService,
         bible_service=None,
         chapter_repository: Optional[ChapterRepository] = None,
+        novel_repository: Optional[NovelRepository] = None,
     ):
         self.story_node_repo = story_node_repo
         self.chapter_element_repo = chapter_element_repo
         self.llm_service = llm_service
         self.bible_service = bible_service
         self.chapter_repository = chapter_repository
+        self.novel_repository = novel_repository
 
     # CPMS 提示词渲染
 
@@ -2275,6 +2279,50 @@ class ContinuousPlanningService:
         return "\n\n".join(blocks) if blocks else f"【世界观与人物】\n{empty_hint}"
 
     @staticmethod
+    def _format_locations_context(bible_context: Dict, *, limit: int = 5) -> str:
+        locations = bible_context.get("locations") or []
+        if not locations:
+            return ""
+        lines = []
+        for loc in locations[:limit]:
+            name = loc.get("name", "Unknown")
+            desc = loc.get("description", "")
+            significance = loc.get("significance", "")
+            line = f"- {name}: {desc}".strip()
+            if significance:
+                line = f"{line}\n  叙事意义：{significance}"
+            lines.append(line)
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_worldbuilding_context(bible_context: Dict, *, limit: int = 5) -> str:
+        blocks: List[str] = []
+
+        worldview = bible_context.get("worldview") or ""
+        if worldview:
+            blocks.append(str(worldview))
+
+        world_settings = bible_context.get("world_settings") or []
+        if world_settings:
+            lines = []
+            for item in world_settings[:limit]:
+                name = item.get("name", "未命名设定")
+                desc = item.get("description", "")
+                lines.append(f"- {name}: {desc}")
+            blocks.append("\n".join(lines))
+
+        timeline_notes = bible_context.get("timeline_notes") or []
+        if timeline_notes:
+            lines = []
+            for note in timeline_notes[:limit]:
+                event = note.get("event", "")
+                desc = note.get("description", "")
+                lines.append(f"- {event}: {desc}")
+            blocks.append("\n".join(lines))
+
+        return "\n\n".join(block for block in blocks if block.strip())
+
+    @staticmethod
     def _pick_premise_from_context(bible_context: Dict) -> str:
         """从 Bible 上下文中提取宏观规划可用的核心梗概。"""
         for key in ("premise", "summary", "logline", "title"):
@@ -2316,6 +2364,8 @@ class ContinuousPlanningService:
             planning_depth = "full"
 
         story_context = self._format_bible_context(bible_context, character_limit=5, location_limit=5)
+        worldbuilding_context = self._format_worldbuilding_context(bible_context, limit=5)
+        locations_context = self._format_locations_context(bible_context, limit=5)
         character_context = self._format_bible_context(
             {"characters": bible_context.get("characters", []), "relationships": bible_context.get("relationships", [])},
             character_limit=5,
@@ -2325,6 +2375,8 @@ class ContinuousPlanningService:
             "premise": self._pick_premise_from_context(bible_context),
             "target_chapters": target_chapters,
             "worldview": story_context,
+            "worldbuilding": {"content": worldbuilding_context or story_context},
+            "locations": {"list": locations_context},
             "characters": character_context,
             "planning_depth": planning_depth,
             "rec_parts": rec_parts,
@@ -2563,8 +2615,33 @@ class ContinuousPlanningService:
             {
                 "context": "\n\n".join(context_parts),
                 "chapter_count": chapter_count,
+                **self._build_act_contract_variables(act_node.novel_id),
             },
         )
+
+    def _build_act_contract_variables(self, novel_id: str) -> Dict[str, str]:
+        """Collect locked narrative contract fields for CPMS rendering."""
+        prefs = self._get_generation_preferences(novel_id)
+        if not prefs:
+            return {}
+        return {
+            "genre_label": prefs.locked_genre,
+            "world_preset": prefs.locked_world_preset,
+            "story_structure": prefs.locked_story_structure,
+            "pacing_control": prefs.locked_pacing_control,
+            "writing_style": prefs.locked_writing_style,
+            "special_requirements": prefs.locked_special_requirements,
+        }
+
+    def _get_generation_preferences(self, novel_id: str) -> Optional[GenerationPreferences]:
+        if self.novel_repository is None:
+            return None
+        try:
+            novel = self.novel_repository.get_by_id(NovelId(novel_id))
+        except Exception as exc:
+            logger.debug("[ActPlanning] 读取小说题材偏好失败 novel=%s: %s", novel_id, exc)
+            return None
+        return getattr(novel, "generation_prefs", None) if novel is not None else None
 
     async def _get_previous_acts_summary(self, act_node: StoryNode) -> Optional[str]:
         """获取前面幕的摘要"""

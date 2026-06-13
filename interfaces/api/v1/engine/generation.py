@@ -108,7 +108,12 @@ def get_continuous_planning_service() -> ContinuousPlanningService:
     chapter_element_repo = ChapterElementRepository(db_path)
 
     from application.world.services.bible_service import BibleService
-    from interfaces.api.dependencies import get_bible_repository, get_llm_service, get_chapter_repository
+    from interfaces.api.dependencies import (
+        get_bible_repository,
+        get_chapter_repository,
+        get_llm_service,
+        get_novel_repository,
+    )
 
     bible_service = BibleService(get_bible_repository())
     llm_service = get_llm_service()
@@ -119,7 +124,8 @@ def get_continuous_planning_service() -> ContinuousPlanningService:
         chapter_element_repo=chapter_element_repo,
         llm_service=llm_service,
         bible_service=bible_service,
-        chapter_repository=chapter_repository
+        chapter_repository=chapter_repository,
+        novel_repository=get_novel_repository(),
     )
 
 

@@ -97,6 +97,15 @@ def _make_cache_key(profile: LLMProfile) -> str:
         str(profile.timeout_seconds),
         str(profile.use_legacy_chat_completions),
     ]
+    settings = Settings(timeout_seconds=profile.timeout_seconds)
+    key_parts.extend(
+        [
+            str(settings.connect_timeout),
+            str(settings.read_timeout),
+            str(settings.write_timeout),
+            str(settings.pool_timeout),
+        ]
+    )
     return "|".join(key_parts)
 
 
@@ -108,14 +117,14 @@ class DynamicLLMService(LLMService):
         self._cached_provider: Optional[LLMService] = None
         self._cached_key: Optional[str] = None
 
-    def _resolve_provider(self) -> LLMService:
+    async def _resolve_provider(self) -> LLMService:
         profile = self.factory.control_service.resolve_active_profile()
         key = _make_cache_key(profile) if profile else "__mock__"
 
         if key == self._cached_key and self._cached_provider is not None:
             return self._cached_provider
 
-        self._close_cached_provider()
+        await self._close_cached_provider()
 
         provider = self.factory.create_from_profile(profile)
         self._cached_provider = provider
@@ -127,23 +136,36 @@ class DynamicLLMService(LLMService):
         )
         return provider
 
-    def _close_cached_provider(self) -> None:
+    async def _close_cached_provider(self) -> None:
         """关闭旧 Provider 的 HTTP 连接资源。"""
         old = self._cached_provider
         if old is None:
             return
         try:
-            if hasattr(old, "_http_client_sync") and old._http_client_sync is not None:
-                if not old._http_client_sync.is_closed:
-                    old._http_client_sync.close()
-            for attr in ("_http_client_async", "_http_client", "_stream_http_client"):
-                obj = getattr(old, attr, None)
-                if obj is not None and hasattr(obj, "is_closed") and not obj.is_closed:
-                    setattr(old, attr, None)
-        except Exception:
-            pass
-        self._cached_provider = None
-        self._cached_key = None
+            if hasattr(old, "aclose"):
+                await old.aclose()
+            else:
+                self._close_sync_clients(old)
+                await self._close_async_clients(old)
+        except Exception as exc:
+            logger.debug("关闭旧 Provider 时出现可忽略异常: %s", exc)
+        finally:
+            self._cached_provider = None
+            self._cached_key = None
+
+    @staticmethod
+    def _close_sync_clients(provider: LLMService) -> None:
+        for attr in ("_http_client_sync",):
+            client = getattr(provider, attr, None)
+            if client is not None and hasattr(client, "is_closed") and not client.is_closed:
+                client.close()
+
+    @staticmethod
+    async def _close_async_clients(provider: LLMService) -> None:
+        for attr in ("_http_client_async", "_http_client", "_stream_http_client"):
+            client = getattr(provider, attr, None)
+            if client is not None and hasattr(client, "aclose"):
+                await client.aclose()
 
     @staticmethod
     def _merge_config(config: GenerationConfig, provider: LLMService) -> GenerationConfig:
@@ -194,7 +216,7 @@ class DynamicLLMService(LLMService):
         return provider_label, generation_profile, model, metadata
 
     async def generate(self, prompt: Prompt, config: GenerationConfig) -> GenerationResult:
-        provider = self._resolve_provider()
+        provider = await self._resolve_provider()
         effective_config = self._merge_config(config, provider)
         trace = ensure_trace(operation="llm_generate", metadata={"entry": "DynamicLLMService.generate"})
         request_span_id = trace.new_span_id("llm-request")
@@ -256,7 +278,7 @@ class DynamicLLMService(LLMService):
         return result
 
     async def stream_generate(self, prompt: Prompt, config: GenerationConfig) -> AsyncIterator[str]:
-        provider = self._resolve_provider()
+        provider = await self._resolve_provider()
         effective_config = self._merge_config(config, provider)
         trace = ensure_trace(
             operation="llm_stream_generate",
@@ -333,14 +355,4 @@ class DynamicLLMService(LLMService):
 
     async def aclose(self) -> None:
         """异步关闭缓存 Provider。"""
-        old = self._cached_provider
-        if old is None:
-            return
-        try:
-            if hasattr(old, "aclose"):
-                await old.aclose()
-        except Exception as exc:
-            logger.debug("关闭 Provider 时出现可忽略异常: %s", exc)
-        finally:
-            self._cached_provider = None
-            self._cached_key = None
+        await self._close_cached_provider()

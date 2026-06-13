@@ -77,6 +77,35 @@ class SqliteNarrativeEventRepository(NarrativeEventRepository):
         logger.info(f"Appended event {event_id} for novel {novel_id} chapter {chapter_number}")
         return event_id
 
+    def upsert_event(
+        self,
+        event_id: str,
+        novel_id: str,
+        chapter_number: int,
+        event_summary: str,
+        mutations: list[dict],
+        tags: list[str] = None,
+    ) -> str:
+        """Insert or update an event by a caller-provided idempotency key."""
+        mutations_json = json.dumps(mutations, ensure_ascii=False)
+        tags_json = json.dumps(tags if tags is not None else [], ensure_ascii=False)
+
+        sql = """
+            INSERT INTO narrative_events (event_id, novel_id, chapter_number, event_summary, mutations, tags)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(event_id) DO UPDATE SET
+                novel_id = excluded.novel_id,
+                chapter_number = excluded.chapter_number,
+                event_summary = excluded.event_summary,
+                mutations = excluded.mutations,
+                tags = excluded.tags
+        """
+        self.db.execute(sql, (event_id, novel_id, chapter_number, event_summary, mutations_json, tags_json))
+        self.db.get_connection().commit()
+
+        logger.info(f"Upserted event {event_id} for novel {novel_id} chapter {chapter_number}")
+        return event_id
+
     def get_event(self, novel_id: str, event_id: str) -> Optional[dict]:
         """获取单个事件
 
@@ -128,4 +157,3 @@ class SqliteNarrativeEventRepository(NarrativeEventRepository):
         self.db.get_connection().commit()
 
         logger.info(f"Updated event {event_id} for novel {novel_id}")
-

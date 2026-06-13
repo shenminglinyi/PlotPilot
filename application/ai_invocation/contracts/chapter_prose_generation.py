@@ -21,8 +21,7 @@ def chapter_prose_input_bindings() -> list[VariableBinding]:
     return [
         VariableBinding("target_words", "chapter.target_words", False, 2500, scope="chapter", stage="writing", value_type="integer", display_name="文章目标字数"),
         VariableBinding("chapter_outline", "chapter.outline", False, "", scope="chapter", stage="writing", display_name="正文细纲"),
-        VariableBinding("previous_summary", "chapter.previous.summary", False, "", scope="chapter", stage="writing", display_name="前章摘要"),
-        VariableBinding("previous_ending", "chapter.previous.ending", False, "", scope="chapter", stage="writing", display_name="前章结尾"),
+        VariableBinding("continuity_context", "chapter.continuity_context", False, "", scope="chapter", stage="writing", display_name="连续性上下文"),
     ]
 
 

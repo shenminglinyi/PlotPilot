@@ -376,6 +376,15 @@ def get_background_task_service():
     )
 
 
+def shutdown_background_task_service_if_initialized() -> None:
+    """Stop the cached background task service without creating it during shutdown."""
+    if get_background_task_service.cache_info().currsize <= 0:
+        return
+    service = get_background_task_service()
+    service.shutdown()
+    get_background_task_service.cache_clear()
+
+
 @lru_cache
 def get_chapter_aftermath_pipeline():
     """章节保存后统一管线（单例缓存，避免每次 PUT 请求重建 Pipeline + 8 个 Repository）。
@@ -513,7 +522,10 @@ def get_cast_service() -> CastService:
     """获取 Cast 服务（进程内单例，供关系图 TTL 缓存复用）。"""
     storage = get_storage()
     storage_root = storage.base_path
-    return CastService(storage_root, knowledge_repository=get_knowledge_repository())
+    return CastService(
+        storage_root,
+        knowledge_repository=get_knowledge_repository(),
+    )
 
 
 def get_knowledge_service() -> KnowledgeService:

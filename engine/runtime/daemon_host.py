@@ -1557,9 +1557,14 @@ class DaemonHostMixin:
             logger.warning(f"[{novel_id}] 宏观诊断后台任务失败: {e}", exc_info=True)
 
     async def _score_tension(self, content: str) -> int:
-        """给章节打张力分（1-10），用于判断是否插入缓冲章"""
+        """Legacy single-axis tension probe.
+
+        Kept only for explicit emergency callers. Formal chapter auditing uses
+        the multidimensional aftermath score; this helper must not synthesize a
+        neutral score when evaluation fails.
+        """
         if not content or len(content) < 200:
-            return 5  # 默认中等张力
+            return 0
 
         snippet = content[:500]  # 只取前 500 字，节省 token
 
@@ -1580,10 +1585,13 @@ class DaemonHostMixin:
                     config={"max_tokens": 5, "temperature": 0.1},
                 )
             )
-            score = int(''.join(filter(str.isdigit, raw[:3])))
-            return max(1, min(10, score))
         except Exception:
-            return 5  # 解析失败，返回默认值
+            return 0
+        digits = "".join(filter(str.isdigit, str(raw)[:3]))
+        if not digits:
+            return 5
+        score = int(digits)
+        return max(1, min(10, score))
 
     async def _stream_llm_with_stop_watch(
         self,
@@ -2004,7 +2012,7 @@ class DaemonHostMixin:
             except Exception:
                 pass  # 降级：无锚点则不加
 
-        # 输出 token 策略与整章生成一致：固定 16000，不随目标字数动态变化。
+        # 输出 token 策略与整章生成一致：统一走全局输出下限，不随目标字数动态变化。
         from engine.runtime.generation_token_policy import CHAPTER_PROSE_MAX_TOKENS
 
         max_tokens = CHAPTER_PROSE_MAX_TOKENS

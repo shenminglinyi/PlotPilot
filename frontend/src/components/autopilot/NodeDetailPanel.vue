@@ -143,6 +143,7 @@ import { CATEGORY_LABELS } from '@/types/dag'
 import { useDAGStore } from '@/stores/dagStore'
 import { autopilotApi, getAutopilotHttpStatus, isAutopilotNotFoundError } from '@/api/autopilot'
 import { usePolling } from '@/composables/usePolling'
+import { runtimePerformance } from '@/config/performance'
 
 const props = defineProps<{
   show: boolean
@@ -207,7 +208,10 @@ async function fetchWritingTelemetry() {
   }
 }
 
-const writingTelemetryPolling = usePolling(fetchWritingTelemetry, 2500)
+const writingTelemetryPolling = usePolling(
+  fetchWritingTelemetry,
+  runtimePerformance.autopilotPanel.nodeWritingTelemetryPollMs,
+)
 
 watch(
   () => [props.show, props.novelId, meta.value?.node_type ?? ''] as const,

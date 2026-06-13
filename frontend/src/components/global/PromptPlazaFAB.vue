@@ -62,10 +62,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch, defineAsyncComponent, h, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, watch, defineAsyncComponent, h, nextTick } from 'vue'
 import { NDrawer, NDrawerContent, NTag, NSpin } from 'naive-ui'
 import { promptPlazaApi, type PromptStats } from '../../api/llmControl'
 import { usePromptPlazaBridge } from '../../stores/promptPlazaBridge'
+import { runtimePerformance } from '../../config/performance'
 
 const PromptPlaza = defineAsyncComponent({
   loader: () => import('../workbench/PromptPlaza.vue'),
@@ -87,6 +88,19 @@ const showDrawer = ref(false)
 const promptCount = ref(0)
 const stats = ref<PromptStats | null>(null)
 const plazaBridge = usePromptPlazaBridge()
+let selectNodeTimer: ReturnType<typeof setTimeout> | null = null
+
+function scheduleSelectNode(nodeKey: string) {
+  if (selectNodeTimer) {
+    clearTimeout(selectNodeTimer)
+    selectNodeTimer = null
+  }
+  void nextTick()
+  selectNodeTimer = setTimeout(() => {
+    selectNodeTimer = null
+    plazaRef.value?.selectNodeByKey?.(nodeKey)
+  }, runtimePerformance.workbench.promptPlazaSelectDelayMs)
+}
 
 // ★ 监听 DAG → 提示词广场联动请求
 watch(() => plazaBridge.shouldOpenPlaza, (shouldOpen) => {
@@ -94,10 +108,7 @@ watch(() => plazaBridge.shouldOpenPlaza, (shouldOpen) => {
     const nodeKey = plazaBridge.consumeOpenRequest()
     showDrawer.value = true
     if (nodeKey) {
-      void nextTick()
-      setTimeout(() => {
-        plazaRef.value?.selectNodeByKey?.(nodeKey)
-      }, 400)
+      scheduleSelectNode(nodeKey)
     }
   }
 })
@@ -142,11 +153,15 @@ defineExpose({
   close: () => { showDrawer.value = false },
   selectNode: (nodeKey: string) => {
     showDrawer.value = true
-    void nextTick()
-    setTimeout(() => {
-      plazaRef.value?.selectNodeByKey?.(nodeKey)
-    }, 400)
+    scheduleSelectNode(nodeKey)
   },
+})
+
+onUnmounted(() => {
+  if (selectNodeTimer) {
+    clearTimeout(selectNodeTimer)
+    selectNodeTimer = null
+  }
 })
 </script>
 

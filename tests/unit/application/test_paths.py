@@ -29,3 +29,15 @@ def test_frozen_fallback_data_dir_delegates_to_environment_settings():
         paths._frozen_fallback_data_dir(settings)
         == Path("C:/Users/me/AppData/Roaming") / "com.plotpilot.desktop" / "data"
     )
+
+
+def test_resolve_runtime_data_path_anchors_relative_paths(monkeypatch, tmp_path):
+    monkeypatch.setattr(paths, "DATA_DIR", tmp_path)
+
+    assert paths.resolve_runtime_data_path("chromadb") == tmp_path / "chromadb"
+
+
+def test_resolve_runtime_data_path_treats_data_prefix_as_runtime_root(monkeypatch, tmp_path):
+    monkeypatch.setattr(paths, "DATA_DIR", tmp_path)
+
+    assert paths.resolve_runtime_data_path("./data/chromadb") == tmp_path / "chromadb"

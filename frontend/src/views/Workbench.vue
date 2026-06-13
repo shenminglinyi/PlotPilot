@@ -81,9 +81,10 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, computed, ref, watch, type ComponentPublicInstance } from 'vue'
+import { onMounted, onUnmounted, computed, ref, watch, defineAsyncComponent, type ComponentPublicInstance } from 'vue'
 import { useRoute } from 'vue-router'
 import { useMessage } from 'naive-ui'
+import { useDebouncedTask } from '../composables/useDebouncedTask'
 import { useWorkbench } from '../composables/useWorkbench'
 import { useStatsStore } from '../stores/statsStore'
 import { useWorkbenchRefreshStore } from '../stores/workbenchRefreshStore'
@@ -92,7 +93,6 @@ import StatsTopBar from '../components/stats/StatsTopBar.vue'
 import ChapterList from '../components/workbench/ChapterList.vue'
 import WorkArea from '../components/workbench/WorkArea.vue'
 import SettingsPanel from '../components/workbench/SettingsPanel.vue'
-import ActPlanningModal from '../components/workbench/ActPlanningModal.vue'
 import {
   WORKBENCH_CHAPTER_DESK_CHANGE_EVENT,
   WORKBENCH_OPEN_SETTINGS_PANEL_EVENT,
@@ -101,7 +101,10 @@ import {
 } from '../workbench/deskEvents'
 import { WORKBENCH_SPLIT } from '../design/layoutDensity'
 import { storageKeys } from '@/config/storageKeys'
+import { runtimePerformance } from '@/config/performance'
 import { readStorageBoolean, writeStorageBoolean } from '@/utils/storage'
+
+const ActPlanningModal = defineAsyncComponent(() => import('../components/workbench/ActPlanningModal.vue'))
 
 const route = useRoute()
 const message = useMessage()
@@ -126,10 +129,6 @@ async function onSidebarChapterSelect(chapterId: number, title = '') {
   workAreaRef.value?.ensureAssistedMode?.()
 }
 
-/** 合并短时间内的多次「整桌刷新」：全托管状态抖动 / 多源 emit 时只拉一次 API，减轻闪烁与日志刷屏 */
-let chapterDeskReloadTimer: ReturnType<typeof setTimeout> | null = null
-const CHAPTER_DESK_RELOAD_DEBOUNCE_MS = 1100
-
 async function runChapterDeskReload() {
   await loadDesk()
   void statsStore.loadBookStats(slug.value, true).catch(() => {})
@@ -138,12 +137,19 @@ async function runChapterDeskReload() {
   workbenchRefresh.bumpAfterChapterDeskChange()
 }
 
+/** 合并短时间内的多次「整桌刷新」：全托管状态抖动 / 多源 emit 时只拉一次 API，减轻闪烁与日志刷屏 */
+const chapterDeskReload = useDebouncedTask(
+  runChapterDeskReload,
+  () => runtimePerformance.workbench.deskReloadDebounceMs,
+  {
+    onError: () => {
+      message.error('刷新工作台失败，请检查网络与后端是否已启动')
+    },
+  },
+)
+
 const handleChapterUpdated = () => {
-  if (chapterDeskReloadTimer) clearTimeout(chapterDeskReloadTimer)
-  chapterDeskReloadTimer = setTimeout(() => {
-    chapterDeskReloadTimer = null
-    void runChapterDeskReload()
-  }, CHAPTER_DESK_RELOAD_DEBOUNCE_MS)
+  chapterDeskReload.schedule()
 }
 
 function onDeskChangeSignalFromPanels() {
@@ -241,10 +247,7 @@ onUnmounted(() => {
   window.removeEventListener(WORKBENCH_CHAPTER_DESK_CHANGE_EVENT, onDeskChangeSignalFromPanels)
   window.removeEventListener(WORKBENCH_OPEN_SETTINGS_PANEL_EVENT, onOpenSettingsPanelFromChild)
   window.removeEventListener(WORKBENCH_GENERATION_PREFS_UPDATED_EVENT, onGenerationPrefsUpdated)
-  if (chapterDeskReloadTimer) {
-    clearTimeout(chapterDeskReloadTimer)
-    chapterDeskReloadTimer = null
-  }
+  chapterDeskReload.cancel()
 })
 
 watch(

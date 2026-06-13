@@ -92,3 +92,20 @@ def get_db_path() -> str:
     if legacy.is_file():
         return str(legacy)
     return str(primary)
+
+
+def resolve_runtime_data_path(path: str | Path, *, strip_data_prefix: bool = True) -> Path:
+    """Resolve a user-writable runtime data path.
+
+    Absolute paths are honored. Relative paths are anchored under ``DATA_DIR`` so
+    packaged builds do not try to write beside the installed application. When a
+    legacy relative path starts with ``data/``, that prefix is treated as the data
+    root itself.
+    """
+    p = Path(path).expanduser()
+    if p.is_absolute():
+        return p
+    parts = [part for part in p.parts if part not in ("", ".")]
+    if strip_data_prefix and parts and parts[0].lower() == "data":
+        parts = parts[1:]
+    return DATA_DIR.joinpath(*parts) if parts else DATA_DIR

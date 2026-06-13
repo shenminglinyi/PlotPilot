@@ -5,6 +5,7 @@ import httpx
 from openai import AsyncOpenAI
 from domain.ai.services.embedding_service import EmbeddingService
 from infrastructure.ai.embedding_environment import EmbeddingEnvironmentSettings
+from infrastructure.ai.http_timeout import build_httpx_timeout
 
 
 class OpenAIEmbeddingService(EmbeddingService):
@@ -32,7 +33,10 @@ class OpenAIEmbeddingService(EmbeddingService):
             raise ValueError("EMBEDDING_API_KEY or OPENAI_API_KEY environment variable is required")
 
         _base_url = base_url or env.base_url or None
-        self._http_client = httpx.AsyncClient(timeout=httpx.Timeout(120.0), trust_env=False)
+        self._http_client = httpx.AsyncClient(
+            timeout=build_httpx_timeout(env.http_timeout_settings),
+            trust_env=False,
+        )
         self.client = AsyncOpenAI(
             api_key=_api_key,
             base_url=_base_url,

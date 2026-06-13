@@ -6,9 +6,9 @@ from application.workflows.auto_novel_generation_workflow import (
     AutoNovelGenerationWorkflow,
     CHAPTER_CONTEXT_LAYER2_HEADER,
     CHAPTER_CONTEXT_LAYER3_HEADER,
-    ChapterPromptTemplateUnavailable,
     assemble_chapter_bundle_context_text,
 )
+from infrastructure.ai.prompt_utils import PromptTemplateUnavailable
 from application.engine.dtos.generation_result import GenerationResult
 from application.engine.dtos.scene_director_dto import SceneDirectorAnalysis
 from application.engine.services.context_builder import ContextBuilder
@@ -348,7 +348,7 @@ class TestBuildPrompt:
             lambda: EmptyRegistry(),
         )
 
-        with pytest.raises(ChapterPromptTemplateUnavailable, match="system 模板缺失"):
+        with pytest.raises(PromptTemplateUnavailable, match="unavailable or empty"):
             workflow._build_prompt(context="CTX", outline="OL")
 
     def test_build_prompt_beat_mode_filters_planning_without_unbound_error(self, workflow):

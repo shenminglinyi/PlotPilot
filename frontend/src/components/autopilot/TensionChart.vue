@@ -107,10 +107,8 @@ import '../../plugins/echarts'
 import { graphic, init, type ECharts, type EChartsCoreOption } from 'echarts/core'
 import { monitorApi } from '../../api/monitor'
 import type { TensionCurveStats } from '../../api/monitor'
+import { runtimePerformance } from '../../config/performance'
 import { isRequestCanceled } from '../../utils/requestCancel'
-
-/** 自动刷新间隔（秒），0 = 禁用 */
-const AUTO_REFRESH_SECONDS = 30
 
 interface TensionData {
   chapter_number: number
@@ -137,22 +135,23 @@ const loading = ref(false)
 const error = ref<string | null>(null)
 
 /** 倒计时（秒），用于展示下次刷新剩余时间 */
-const countdown = ref(AUTO_REFRESH_SECONDS)
+const countdown = ref(runtimePerformance.autopilotMetrics.tensionAutoRefreshSeconds)
 let autoRefreshTimer: ReturnType<typeof setInterval> | null = null
 let countdownTimer: ReturnType<typeof setInterval> | null = null
 
 function startAutoRefresh() {
   stopAutoRefresh()
-  if (AUTO_REFRESH_SECONDS <= 0) return
-  countdown.value = AUTO_REFRESH_SECONDS
+  const refreshSeconds = runtimePerformance.autopilotMetrics.tensionAutoRefreshSeconds
+  if (refreshSeconds <= 0) return
+  countdown.value = refreshSeconds
   countdownTimer = setInterval(() => {
     countdown.value -= 1
-    if (countdown.value <= 0) countdown.value = AUTO_REFRESH_SECONDS
+    if (countdown.value <= 0) countdown.value = refreshSeconds
   }, 1000)
   autoRefreshTimer = setInterval(() => {
-    countdown.value = AUTO_REFRESH_SECONDS
+    countdown.value = refreshSeconds
     void loadTensionData()
-  }, AUTO_REFRESH_SECONDS * 1000)
+  }, refreshSeconds * 1000)
 }
 
 function stopAutoRefresh() {
@@ -224,11 +223,9 @@ function setupVisibilityObserver() {
 
 /** 容器尚未布局完成时延迟渲染；封顶避免无限 setTimeout（隐藏标签页 / 折叠面板） */
 let renderDimensionAttempts = 0
-const RENDER_DIMENSION_ATTEMPTS_MAX = 40
 
 /** 新拉取开始前取消上一轮，避免后端忙时并发堆积；取消不算错误，不清空已有曲线 */
 let tensionLoadAbort: AbortController | null = null
-const TENSION_FETCH_TIMEOUT_MS = 60_000
 
 // 张力警戒线
 const tensionThreshold = computed(() => props.threshold ?? 5.0)
@@ -278,11 +275,12 @@ async function loadTensionData() {
   loading.value = true
   error.value = null
   renderDimensionAttempts = 0
-  const timeoutId = window.setTimeout(() => ac.abort(), TENSION_FETCH_TIMEOUT_MS)
+  const fetchTimeoutMs = runtimePerformance.autopilotMetrics.tensionFetchTimeoutMs
+  const timeoutId = window.setTimeout(() => ac.abort(), fetchTimeoutMs)
   try {
     const data = await monitorApi.getTensionCurve(props.novelId, {
       signal: ac.signal,
-      timeout: TENSION_FETCH_TIMEOUT_MS,
+      timeout: fetchTimeoutMs,
     })
     if (ac.signal.aborted) {
       return
@@ -305,7 +303,7 @@ async function loadTensionData() {
     // 等 DOM 更新后再渲染图表（解决第五章后不显示的关键）
     await nextTick()
     // 再等一帧确保容器尺寸已计算
-    setTimeout(() => renderChart(), 50)
+    setTimeout(() => renderChart(), runtimePerformance.autopilotMetrics.tensionInitialRenderDelayMs)
   } catch (err: unknown) {
     if (isRequestCanceled(err)) {
       return
@@ -331,8 +329,8 @@ function renderChart() {
     // 仪表盘 v-show 隐藏时尺寸为 0：挂上可见性观察，切回 tab 时再 render
     setupVisibilityObserver()
     renderDimensionAttempts += 1
-    if (renderDimensionAttempts <= RENDER_DIMENSION_ATTEMPTS_MAX) {
-      setTimeout(() => renderChart(), 200)
+    if (renderDimensionAttempts <= runtimePerformance.autopilotMetrics.tensionRenderDimensionAttemptsMax) {
+      setTimeout(() => renderChart(), runtimePerformance.autopilotMetrics.tensionRenderRetryDelayMs)
     } else {
       console.warn('[TensionChart] 容器尺寸长期为 0，等待切换可见标签后重绘')
     }
@@ -540,7 +538,7 @@ watch(tensionData, () => {
   resizeTimer = setTimeout(() => {
     renderChart()
     resizeTimer = null
-  }, 100)
+  }, runtimePerformance.autopilotMetrics.tensionResizeDebounceMs)
 })
 
 watch(chartRef, (el) => {

@@ -1,6 +1,7 @@
 import type { AxiosRequestConfig } from 'axios'
 
 import { WIZARD_STEP_TIMEOUT_MS } from '@/constants/wizard'
+import { runtimePerformance } from '@/config/performance'
 import { apiClient, resolveHttpUrl } from './config'
 
 /** Bible 人物关系：字符串 或 LLM 结构化对象 */
@@ -82,6 +83,99 @@ export interface AddCharacterRequest {
   description: string
 }
 
+type SilentAxiosRequestConfig = AxiosRequestConfig & { silentGlobalFeedback?: boolean }
+
+function createRequestId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `req_${Date.now()}_${Math.random().toString(16).slice(2)}`
+}
+
+function bibleWriteSnapshot(bible: BibleDTO | null | undefined): string {
+  if (!bible) return ''
+  return JSON.stringify({
+    characters: bible.characters ?? [],
+    world_settings: bible.world_settings ?? [],
+    locations: bible.locations ?? [],
+    timeline_notes: bible.timeline_notes ?? [],
+    style_notes: bible.style_notes ?? [],
+  })
+}
+
+function bibleUpdatePayloadSnapshot(data: {
+  characters: CharacterDTO[]
+  world_settings: WorldSettingDTO[]
+  locations: LocationDTO[]
+  timeline_notes: TimelineNoteDTO[]
+  style_notes: StyleNoteDTO[]
+}): string {
+  return JSON.stringify({
+    characters: data.characters ?? [],
+    world_settings: data.world_settings ?? [],
+    locations: data.locations ?? [],
+    timeline_notes: data.timeline_notes ?? [],
+    style_notes: data.style_notes ?? [],
+  })
+}
+
+async function verifyBibleWrite(
+  novelId: string,
+  expectedPayload: {
+    characters: CharacterDTO[]
+    world_settings: WorldSettingDTO[]
+    locations: LocationDTO[]
+    timeline_notes: TimelineNoteDTO[]
+    style_notes: StyleNoteDTO[]
+  },
+): Promise<BibleDTO | null> {
+  try {
+    const current = await apiClient.get<BibleDTO>(`/bible/novels/${novelId}/bible`, {
+      silentGlobalFeedback: true,
+    } as SilentAxiosRequestConfig)
+    return bibleWriteSnapshot(current) === bibleUpdatePayloadSnapshot(expectedPayload) ? current : null
+  } catch {
+    return null
+  }
+}
+
+async function updateBibleWithVerification(
+  novelId: string,
+  data: {
+    characters: CharacterDTO[]
+    world_settings: WorldSettingDTO[]
+    locations: LocationDTO[]
+    timeline_notes: TimelineNoteDTO[]
+    style_notes: StyleNoteDTO[]
+  },
+): Promise<BibleDTO> {
+  const requestId = createRequestId()
+  const config: SilentAxiosRequestConfig = {
+    headers: {
+      'X-Request-Id': requestId,
+      'X-Idempotency-Key': requestId,
+    },
+  }
+  try {
+    return await apiClient.put<BibleDTO>(`/bible/novels/${novelId}/bible`, data, config)
+  } catch (err) {
+    const verified = await verifyBibleWrite(novelId, data)
+    if (verified) {
+      return verified
+    }
+    try {
+      const secondAttempt = await apiClient.put<BibleDTO>(`/bible/novels/${novelId}/bible`, data, config)
+      return secondAttempt
+    } catch (secondErr) {
+      const verifiedAgain = await verifyBibleWrite(novelId, data)
+      if (verifiedAgain) {
+        return verifiedAgain
+      }
+      throw secondErr ?? err
+    }
+  }
+}
+
 export const bibleApi = {
   /**
    * Create bible for a novel
@@ -137,8 +231,7 @@ export const bibleApi = {
       timeline_notes: TimelineNoteDTO[]
       style_notes: StyleNoteDTO[]
     }
-  ) =>
-    apiClient.put<BibleDTO>(`/bible/novels/${novelId}/bible`, data) as Promise<BibleDTO>,
+  ) => updateBibleWithVerification(novelId, data),
 
   /**
    * AI generate (or regenerate) Bible for a novel
@@ -172,7 +265,9 @@ export const bibleApi = {
       error: string | null
       stage: string | null
       at: string | null
-    }>(`/bible/novels/${novelId}/bible/generation-feedback`, { timeout: 30_000 }) as Promise<{
+    }>(`/bible/novels/${novelId}/bible/generation-feedback`, {
+      timeout: runtimePerformance.network.shortTaskTimeoutMs,
+    }) as Promise<{
       novel_id: string
       error: string | null
       stage: string | null
@@ -282,27 +377,47 @@ export async function consumeBibleGenerateStream(
   const dec = new TextDecoder()
   let buf = ''
 
+  function takeNextSseBlock(buffer: string): { block: string; rest: string } | null {
+    const lfIdx = buffer.indexOf('\n\n')
+    const crlfIdx = buffer.indexOf('\r\n\r\n')
+    let sep = -1
+    let sepLen = 2
+    if (lfIdx !== -1 && (crlfIdx === -1 || lfIdx <= crlfIdx)) {
+      sep = lfIdx
+      sepLen = 2
+    } else if (crlfIdx !== -1) {
+      sep = crlfIdx
+      sepLen = 4
+    }
+    if (sep < 0) return null
+    return {
+      block: buffer.slice(0, sep),
+      rest: buffer.slice(sep + sepLen),
+    }
+  }
+
   /** 解析 SSE 块中的 event + data 行 */
   function parseSseBlock(block: string): { event: string; data: string } | null {
     let event = ''
-    let data = ''
-    for (const line of block.split('\n')) {
-      if (line.startsWith('event: ')) {
-        event = line.slice(7).trim()
-      } else if (line.startsWith('data: ')) {
-        data = line.slice(6)
+    const dataLines: string[] = []
+    for (const line of block.split(/\r?\n/)) {
+      if (line.startsWith('event:')) {
+        event = line.startsWith('event: ') ? line.slice(7).trim() : line.slice(6).trim()
+      } else if (line.startsWith('data:')) {
+        dataLines.push(line.startsWith('data: ') ? line.slice(6) : line.slice(5).replace(/^\s/, ''))
       }
     }
+    const data = dataLines.join('\n')
     if (!event && !data) return null
     return { event, data }
   }
 
   try {
     const drainCompleteFrames = (): boolean => {
-      let sep: number
-      while ((sep = buf.indexOf('\n\n')) >= 0) {
-        const block = buf.slice(0, sep)
-        buf = buf.slice(sep + 2)
+      let next: { block: string; rest: string } | null
+      while ((next = takeNextSseBlock(buf))) {
+        const block = next.block
+        buf = next.rest
 
         const parsed = parseSseBlock(block)
         if (!parsed) continue

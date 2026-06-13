@@ -126,6 +126,7 @@ import {
   type AutopilotCircuitBreakerData,
 } from '@/api/autopilot'
 import { usePolling } from '@/composables/usePolling'
+import { runtimePerformance } from '@/config/performance'
 
 const props = defineProps<{
   novelId: string
@@ -273,9 +274,9 @@ function formatTime(timestamp: string): string {
   }
 }
 
-const polling = usePolling(loadBreakerData, 10000)
+const polling = usePolling(loadBreakerData, runtimePerformance.autopilotMetrics.circuitBreakerPollMs)
 
-// 定时轮询（每 10 秒）；先等首包再挂 interval，避免 404 后仍启动定时器
+// Wait for the first packet before starting the interval to avoid polling after 404.
 async function startPolling() {
   polling.stop()
   pollStopped404 = false

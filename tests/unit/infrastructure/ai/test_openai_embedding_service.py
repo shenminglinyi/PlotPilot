@@ -23,6 +23,25 @@ class TestOpenAIEmbeddingService:
         assert service.client is not None
         assert service.model == _EMBED_MODEL
 
+    def test_timeout_uses_embedding_environment(self):
+        env = {
+            "OPENAI_API_KEY": "test-api-key",
+            "EMBEDDING_MODEL": _EMBED_MODEL,
+            "EMBEDDING_TIMEOUT_SECONDS": "41",
+            "EMBEDDING_CONNECT_TIMEOUT_SECONDS": "7",
+            "EMBEDDING_READ_TIMEOUT_SECONDS": "31",
+            "EMBEDDING_WRITE_TIMEOUT_SECONDS": "11",
+            "EMBEDDING_POOL_TIMEOUT_SECONDS": "3",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            service = OpenAIEmbeddingService()
+
+        timeout = service._http_client.timeout
+        assert timeout.connect == 7.0
+        assert timeout.read == 31.0
+        assert timeout.write == 11.0
+        assert timeout.pool == 3.0
+
     def test_get_dimension_before_embed(self, service):
         """首次嵌入前维度未知，返回 0"""
         assert service.get_dimension() == 0

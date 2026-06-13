@@ -19,9 +19,28 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
 
-from infrastructure.persistence.database.sqlite_pragmas import apply_standard_pragmas
+from application.core.config.config_loader import get_config
+from infrastructure.persistence.database.sqlite_pragmas import (
+    apply_standard_pragmas,
+    get_sqlite_pragma_settings,
+)
+from infrastructure.persistence.database.sqlite_retry import (
+    get_sqlite_retry_settings,
+    is_sqlite_lock_error,
+    lock_retry_delay,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _configured_pool_size(default: int) -> int:
+    database = getattr(get_config(), "database", None)
+    pool_cfg = getattr(database, "connection_pool", None)
+    try:
+        value = int(pool_cfg.get("size", default))
+    except (AttributeError, TypeError, ValueError):
+        return default
+    return value if value > 0 else default
 
 
 class SQLiteConnectionPool:
@@ -35,8 +54,6 @@ class SQLiteConnectionPool:
 
     # 与 DatabaseConnection 对齐：过短的 busy_timeout 会加重 database is locked 误报
     DEFAULT_POOL_SIZE = 5
-    DEFAULT_TIMEOUT = 30.0
-
     def __init__(
         self,
         db_path: str,
@@ -44,8 +61,9 @@ class SQLiteConnectionPool:
         timeout: float = None
     ):
         self.db_path = db_path
-        self.pool_size = pool_size or self.DEFAULT_POOL_SIZE
-        self.timeout = timeout if timeout is not None else self.DEFAULT_TIMEOUT
+        self.pool_size = pool_size or _configured_pool_size(self.DEFAULT_POOL_SIZE)
+        configured_timeout = max(1.0, get_sqlite_pragma_settings().busy_timeout_ms / 1000)
+        self.timeout = timeout if timeout is not None else configured_timeout
 
         # 连接池队列
         self._pool: queue.Queue = queue.Queue(maxsize=self.pool_size)
@@ -89,9 +107,6 @@ class SQLiteConnectionPool:
         )
 
         apply_standard_pragmas(conn)
-        # 连接池可适当更频繁 checkpoint，与单连接略区分
-        conn.execute("PRAGMA wal_autocheckpoint=100")
-
         conn.row_factory = sqlite3.Row
 
         return conn
@@ -147,12 +162,14 @@ class SQLiteConnectionPool:
         self,
         sql: str,
         params: tuple = (),
-        max_retries: int = 8
+        max_retries: int = None
     ) -> sqlite3.Cursor:
         """执行 SQL 语句（带重试）"""
         last_error = None
+        retry_settings = get_sqlite_retry_settings()
+        resolved_max_retries = max_retries or retry_settings.lock_max_retries
 
-        for attempt in range(max_retries):
+        for attempt in range(resolved_max_retries):
             try:
                 with self.get_connection() as conn:
                     cursor = conn.execute(sql, params)
@@ -163,11 +180,11 @@ class SQLiteConnectionPool:
                 last_error = e
 
                 # 只重试锁相关错误
-                if "locked" in str(e).lower() or "busy" in str(e).lower():
-                    if attempt < max_retries - 1:
-                        wait = min(0.15 * (2**attempt), 2.5)
+                if is_sqlite_lock_error(e):
+                    if attempt < resolved_max_retries - 1:
+                        wait = lock_retry_delay(attempt, retry_settings)
                         logger.debug(
-                            f"DB 锁定，重试 {attempt + 1}/{max_retries} "
+                            f"DB 锁定，重试 {attempt + 1}/{resolved_max_retries} "
                             f"(等待 {wait*1000:.0f}ms): {sql[:50]}..."
                         )
                         time.sleep(wait)

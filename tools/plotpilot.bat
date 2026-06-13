@@ -187,7 +187,7 @@ for /f "tokens=5" %%a in ('netstat -ano 2^>nul ^| findstr ":8006 .*LISTENING"') 
 ::  ② 用 start "" 把 GUI 进程彻底分离，bat 不等待
 ::  ③ bat 立即 exit，黑框消失，GUI 独立存活
 
-:: 安全提取目录（%~dpI 处理带空格/特殊字符的路径极其稳健）
+rem 安全提取 Python 目录，兼容带空格和特殊字符的路径
 for %%I in ("%PYTHON_EXE%") do set "PYTHON_DIR=%%~dpI"
 set "PYTHONW_EXE=%PYTHON_DIR%pythonw.exe"
 

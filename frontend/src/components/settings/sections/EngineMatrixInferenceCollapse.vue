@@ -20,7 +20,6 @@
           class="em-infer-input"
           :value="maxTokens"
           :min="1"
-          :max="200000"
           :step="256"
           size="small"
           @update:value="onMaxTokens"
@@ -43,6 +42,8 @@
 </template>
 
 <script setup lang="ts">
+import { DEFAULT_MAX_OUTPUT_TOKENS } from '@/constants/llm'
+
 const props = defineProps<{
   temperature: number
   maxTokens: number
@@ -60,7 +61,7 @@ function onTemperature(v: number | null) {
 }
 
 function onMaxTokens(v: number | null) {
-  emit('update:maxTokens', Math.max(1, Math.floor(v ?? 4096)))
+  emit('update:maxTokens', Math.max(1, Math.floor(v ?? DEFAULT_MAX_OUTPUT_TOKENS)))
 }
 
 function onTimeout(v: number | null) {

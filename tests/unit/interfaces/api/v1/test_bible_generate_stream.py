@@ -5,6 +5,13 @@ import pytest
 from interfaces.api.v1.world import bible
 
 
+async def _fake_bible_setup_invocation(**_kwargs):
+    return {
+        "session": {"id": "session-locations-1", "status": "awaiting_pre_call_review"},
+        "next_action": "approval_required",
+    }
+
+
 class _FakeBibleService:
     def __init__(self):
         self._bible = SimpleNamespace(
@@ -69,7 +76,7 @@ class _FakeKnowledgeGenerator:
 
 
 @pytest.mark.asyncio
-async def test_bible_locations_stream_emits_incremental_location(monkeypatch):
+async def test_bible_locations_stream_emits_approval_required(monkeypatch):
     from interfaces.api import dependencies
 
     monkeypatch.setattr(
@@ -84,6 +91,46 @@ async def test_bible_locations_stream_emits_incremental_location(monkeypatch):
             )
         ),
     )
+    monkeypatch.setattr(
+        bible,
+        "_create_bible_setup_invocation",
+        _fake_bible_setup_invocation,
+    )
+
+    chunks = [
+        chunk
+        async for chunk in bible._sse_bible_generator(
+            "novel-1",
+            "locations",
+            _FakeBibleGenerator(),
+            _FakeKnowledgeGenerator(),
+        )
+    ]
+    body = "".join(chunks)
+
+    assert '"type": "approval_required"' in body
+    assert '"session_id": "session-locations-1"' in body
+    assert '"stage": "locations"' in body
+    assert '"type": "location"' not in body
+
+
+@pytest.mark.asyncio
+async def test_bible_legacy_locations_stream_still_emits_incremental_location(monkeypatch):
+    from interfaces.api import dependencies
+
+    monkeypatch.setattr(
+        dependencies,
+        "get_novel_service",
+        lambda: SimpleNamespace(
+            get_novel=lambda _novel_id: SimpleNamespace(
+                id="novel-1",
+                title="测试小说",
+                premise="旧港城少年破局",
+                target_chapters=100,
+            )
+        ),
+    )
+    monkeypatch.setattr(bible, "_BIBLE_SETUP_NODE_BY_STAGE", {})
 
     chunks = [
         chunk

@@ -148,27 +148,28 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, reactive, computed, watch, defineAsyncComponent } from 'vue'
 import {
   FlashOutline, BookmarkOutline, GitBranchOutline,
   DocumentTextOutline, EarthOutline, LibraryOutline,
   PeopleOutline, BriefcaseOutline, SparklesOutline,
 } from '@vicons/ionicons5'
-import BiblePanel from '../panels/BiblePanel.vue'
-import ManuscriptPropsPanel from './ManuscriptPropsPanel.vue'
-import KnowledgePanel from '../knowledge/KnowledgePanel.vue'
-import WorldbuildingPanel from './WorldbuildingPanel.vue'
-import StoryEvolutionPanel from './StoryEvolutionPanel.vue'
-import ForeshadowLedgerPanel from './ForeshadowLedgerPanel.vue'
-import CharacterDialoguePanel from './CharacterDialoguePanel.vue'
-import CurrentChapterContextPanel from './CurrentChapterContextPanel.vue'
-import NarrativeDashboardPanel from './NarrativeDashboardPanel.vue'
 import type { GenerationPrefsDTO } from '@/api/novel'
 import {
   resolveTabName,
   tabGroup,
   type TabGroup,
 } from '@/constants/workbenchTabs'
+
+const BiblePanel = defineAsyncComponent(() => import('../panels/BiblePanel.vue'))
+const ManuscriptPropsPanel = defineAsyncComponent(() => import('./ManuscriptPropsPanel.vue'))
+const KnowledgePanel = defineAsyncComponent(() => import('../knowledge/KnowledgePanel.vue'))
+const WorldbuildingPanel = defineAsyncComponent(() => import('./WorldbuildingPanel.vue'))
+const StoryEvolutionPanel = defineAsyncComponent(() => import('./StoryEvolutionPanel.vue'))
+const ForeshadowLedgerPanel = defineAsyncComponent(() => import('./ForeshadowLedgerPanel.vue'))
+const CharacterDialoguePanel = defineAsyncComponent(() => import('./CharacterDialoguePanel.vue'))
+const CurrentChapterContextPanel = defineAsyncComponent(() => import('./CurrentChapterContextPanel.vue'))
+const NarrativeDashboardPanel = defineAsyncComponent(() => import('./NarrativeDashboardPanel.vue'))
 
 const TAB_GROUPS = [
   { value: 'writing' as TabGroup,   label: '写作支撑' },

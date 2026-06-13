@@ -68,6 +68,24 @@ def get_optional_prompt_user_template(node_key: str) -> str:
     return ""
 
 
+def get_required_prompt_user_template(node_key: str) -> str:
+    """Get a user prompt template from CPMS and fail fast when unavailable."""
+    try:
+        from infrastructure.ai.prompt_registry import get_prompt_registry
+
+        user_template = get_prompt_registry().get_user_template(node_key)
+    except Exception as exc:
+        raise PromptTemplateUnavailable(
+            f"CPMS PromptRegistry 不可用，已阻塞提示词读取: {node_key}"
+        ) from exc
+
+    if not user_template or not user_template.strip():
+        raise PromptTemplateUnavailable(
+            f"CPMS prompt node user template unavailable or empty: {node_key}"
+        )
+    return user_template.strip()
+
+
 def render_required_prompt(node_key: str, variables: Optional[Dict[str, Any]] = None) -> Prompt:
     """Render a complete Prompt from CPMS and fail fast when unavailable."""
     try:

@@ -13,14 +13,8 @@ import subprocess
 import shutil
 import time
 
-# ── 当 tkinter 可用时使用隐藏窗口标志，否则为 0 ──
-try:
-    import tkinter as tk
-    _TK_OK = True
-    NO_WIN = subprocess.CREATE_NO_WINDOW
-except Exception:
-    _TK_OK = False
-    NO_WIN = 0
+# ── Windows 子进程隐藏控制台窗口；不依赖 tkinter 是否可用 ──
+NO_WIN = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
 
 
 # ══════════════════════════════════════════════

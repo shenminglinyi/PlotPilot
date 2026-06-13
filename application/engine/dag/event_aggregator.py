@@ -6,9 +6,12 @@ from __future__ import annotations
 
 import logging
 import threading
-import time
 from typing import Callable, Dict, List, Optional
 
+from application.engine.dag.dag_runtime_settings import (
+    DAGEventAggregatorSettings,
+    get_dag_event_aggregator_settings,
+)
 from application.engine.dag.models import NodeEvent
 
 logger = logging.getLogger(__name__)
@@ -17,10 +20,13 @@ logger = logging.getLogger(__name__)
 class NodeEventAggregator:
     """节点事件聚合器 -- 500ms 窗口内同节点取最新"""
 
-    def __init__(self, flush_interval: float = 0.5):
+    def __init__(self, flush_interval: float | None = None):
+        settings = get_dag_event_aggregator_settings()
         self._buffer: Dict[str, NodeEvent] = {}
-        self._flush_interval = flush_interval
+        self._settings: DAGEventAggregatorSettings = settings
+        self._flush_interval = flush_interval or settings.flush_interval_seconds
         self._lock = threading.Lock()
+        self._stop_event = threading.Event()
         self._on_flush: Optional[Callable[[List[NodeEvent]], None]] = None
         self._running = False
         self._thread: Optional[threading.Thread] = None
@@ -46,6 +52,7 @@ class NodeEventAggregator:
         if self._running:
             return
         self._running = True
+        self._stop_event.clear()
         self._thread = threading.Thread(target=self._flush_loop, daemon=True)
         self._thread.start()
         logger.info(f"NodeEventAggregator 启动，刷新间隔 {self._flush_interval}s")
@@ -53,8 +60,9 @@ class NodeEventAggregator:
     def stop(self):
         """停止刷新线程"""
         self._running = False
+        self._stop_event.set()
         if self._thread:
-            self._thread.join(timeout=2.0)
+            self._thread.join(timeout=self._settings.stop_join_timeout_seconds)
         # 刷新剩余事件
         remaining = self.flush()
         if remaining and self._on_flush:
@@ -62,7 +70,8 @@ class NodeEventAggregator:
 
     def _flush_loop(self):
         while self._running:
-            time.sleep(self._flush_interval)
+            if self._stop_event.wait(self._flush_interval):
+                break
             events = self.flush()
             if events and self._on_flush:
                 try:

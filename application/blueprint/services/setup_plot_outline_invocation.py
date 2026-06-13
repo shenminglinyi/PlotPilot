@@ -70,14 +70,11 @@ def setup_plot_outline_input_bindings() -> list[VariableBinding]:
         "novel.special_requirements": "特殊要求",
         "novel.target_chapters": "目标章节数",
         "novel.target_words_per_chapter": "每章目标字数",
-        "characters.protagonist": "主角",
         "characters.list": "角色列表",
         "locations.list": "地点列表",
-        "worldbuilding.style": "文风公约",
         "worldbuilding.content": "世界观",
     }
     value_types = {
-        "characters.protagonist": "object",
         "characters.list": "list",
         "locations.list": "list",
         "worldbuilding.content": "object",
@@ -125,6 +122,7 @@ def setup_plot_outline_output_bindings() -> list[VariableBinding]:
             variable_key="plot.outline",
             source_path="plot_outline",
             value_type="object",
+            preview_source="continuation",
             display_name="剧情总纲",
             scope="novel",
             stage="planning",
@@ -193,7 +191,7 @@ def setup_plot_outline_spec() -> InvocationSpec:
             "cpms_node_key": SETUP_PLOT_OUTLINE_NODE,
             "required_outputs": ["plot_outline"],
             "output_contract_notes": [
-                "输出必须是 JSON 对象，顶层字段为 plot_outline",
+                "输出必须是 JSON 对象，可由业务 continuation 归一化为 plot_outline",
                 "业务 continuation 只消费结构化剧情总纲，不接收自由文本 context_blob",
             ],
         },

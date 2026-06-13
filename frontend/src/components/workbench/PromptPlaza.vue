@@ -266,13 +266,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, reactive, nextTick, watch, defineAsyncComponent } from 'vue'
+import { ref, computed, onMounted, onUnmounted, reactive, nextTick, watch, defineAsyncComponent } from 'vue'
 import {
   NButton, NTag, NInput, NSpin, NEmpty,
   NModal, NForm, NFormItem, NSelect, NUpload, useMessage,
 } from 'naive-ui'
 import { promptPlazaApi, type PromptNode, type PromptCategoryInfo, type PromptStats, type PlazaInitResult } from '../../api/llmControl'
 import { formatApiError } from '../../utils/apiError'
+import { runtimePerformance } from '../../config/performance'
 import NodeCard from './promptPlaza/NodeCard.vue'
 
 /** 详情 / Anti-AI 惰性分包，缩短首屏解析与请求前排队的链路 */
@@ -301,6 +302,7 @@ const activeCategory = ref<string | null>(null)
 const selectedNode = ref<PromptNode | null>(null)
 const showDetailModal = ref(false)
 const detailEntering = ref(false)
+let closeDetailTimer: ReturnType<typeof setTimeout> | null = null
 const showCreateModal = ref(false)
 const showImportModal = ref(false)
 const importFileText = ref('')
@@ -407,6 +409,10 @@ async function loadData() {
 }
 
 function openDetail(node: PromptNode) {
+  if (closeDetailTimer) {
+    clearTimeout(closeDetailTimer)
+    closeDetailTimer = null
+  }
   selectedNode.value = node
   showDetailModal.value = true
   // 触发进入动画
@@ -417,10 +423,14 @@ function openDetail(node: PromptNode) {
 
 function closeDetail() {
   detailEntering.value = false
-  setTimeout(() => {
+  if (closeDetailTimer) {
+    clearTimeout(closeDetailTimer)
+  }
+  closeDetailTimer = setTimeout(() => {
+    closeDetailTimer = null
     showDetailModal.value = false
     selectedNode.value = null
-  }, 200)
+  }, runtimePerformance.workbench.promptPlazaCloseAnimationMs)
 }
 
 function onNodeUpdated() {
@@ -518,6 +528,13 @@ async function handleCreate() {
 
 onMounted(() => {
   loadData()
+})
+
+onUnmounted(() => {
+  if (closeDetailTimer) {
+    clearTimeout(closeDetailTimer)
+    closeDetailTimer = null
+  }
 })
 
 // 供外部联动调用：按 CPMS node_key 选中并打开提示词详情

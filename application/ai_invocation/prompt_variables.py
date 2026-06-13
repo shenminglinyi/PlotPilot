@@ -168,6 +168,19 @@ def is_reference_to_existing_binding(reference: str, bindings: list[VariableBind
     return False
 
 
+def public_aliases_for_binding(binding: VariableBinding) -> set[str]:
+    aliases = {str(binding.alias or "").strip(), str(binding.variable_key or "").strip()}
+    for key in list(aliases):
+        if key.startswith("novel.setup."):
+            aliases.add(key.removeprefix("novel.setup."))
+        if key.startswith("novel."):
+            short = key.removeprefix("novel.")
+            aliases.add(short)
+            aliases.add(f"novel_{short}")
+    aliases.discard("")
+    return aliases
+
+
 def _prompt_value_for_render(raw_value: Any, rendered_value: Any) -> Any:
     if isinstance(raw_value, (Mapping, list, tuple)):
         return PromptValueView(raw_value, rendered_value)
@@ -238,15 +251,20 @@ def prompt_declared_input_bindings(
 
     bound_variable_keys = {binding.variable_key for binding in bindings if binding.variable_key}
     bound_aliases = {binding.alias for binding in bindings}
+    public_bound_aliases = {
+        alias
+        for binding in bindings
+        for alias in public_aliases_for_binding(binding)
+    }
     added = []
     for variable_key in sorted(declared_keys):
         variable_key = normalize_declared_variable_reference(
             variable_key,
-            bound_variable_keys | bound_aliases,
+            bound_variable_keys | bound_aliases | public_bound_aliases,
         )
         if is_reference_to_existing_binding(variable_key, bindings):
             continue
-        if variable_key in bound_variable_keys or variable_key in bound_aliases:
+        if variable_key in bound_variable_keys or variable_key in bound_aliases or variable_key in public_bound_aliases:
             continue
         alias = alias_for_variable_key(variable_key)
         if alias in bound_aliases:
@@ -271,5 +289,6 @@ def prompt_declared_input_bindings(
         )
         bound_variable_keys.add(variable_key)
         bound_aliases.add(alias)
+        public_bound_aliases.add(alias)
         added.append({"alias": alias, "variable_key": variable_key})
     return bindings, added

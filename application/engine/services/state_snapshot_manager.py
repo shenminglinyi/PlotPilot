@@ -19,6 +19,11 @@ from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from infrastructure.persistence.database.sqlite_pragmas import (
+    apply_standard_pragmas,
+    get_sqlite_pragma_settings,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -77,10 +82,10 @@ class AtomicStateTransaction:
 
     def __enter__(self):
         # 独立物理连接（非 DatabaseConnection）：commit/rollback 会 close，避免与普通线程本地连接混用后被误关。
-        self._conn = sqlite3.connect(self._db_path, timeout=10.0)
+        timeout_seconds = max(1.0, get_sqlite_pragma_settings().busy_timeout_ms / 1000)
+        self._conn = sqlite3.connect(self._db_path, timeout=timeout_seconds)
         self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._conn.execute("PRAGMA synchronous=NORMAL")
+        apply_standard_pragmas(self._conn)
         # BEGIN IMMEDIATE 立即获取写锁，避免死锁
         self._conn.execute("BEGIN IMMEDIATE")
         return self

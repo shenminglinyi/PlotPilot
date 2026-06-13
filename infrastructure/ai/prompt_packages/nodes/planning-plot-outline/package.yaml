@@ -45,18 +45,12 @@ variables:
 - name: novel.target_words_per_chapter
   desc: Target words per chapter
   type: integer
-- name: characters.protagonist
-  desc: Protagonist prompt card
-  type: object
 - name: characters.list
   desc: Character list
   type: list
 - name: locations.list
   desc: Location list
   type: list
-- name: worldbuilding.style
-  desc: Style convention hints
-  type: string
 - name: worldbuilding.content
   desc: Worldbuilding prompt context
   type: object

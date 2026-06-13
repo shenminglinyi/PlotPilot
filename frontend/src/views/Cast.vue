@@ -193,13 +193,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import GraphChart from '../components/charts/GraphChart.vue'
 import KnowledgeTriplesTableEditor from '../components/knowledge/KnowledgeTriplesTableEditor.vue'
 import { convertGraph, type VisNode, type VisEdge, type EChartsNode, type EChartsLink } from '../utils/visToEcharts'
 import { castApi } from '../api/cast'
+import { runtimePerformance } from '../config/performance'
+import { useDebouncedTask } from '../composables/useDebouncedTask'
 
 interface CastCharacter {
   id: string
@@ -393,10 +395,8 @@ const reload = async () => {
   }
 }
 
-let searchTimer: number | null = null
-const onSearch = () => {
-  if (searchTimer) clearTimeout(searchTimer)
-  searchTimer = window.setTimeout(async () => {
+const searchTask = useDebouncedTask(
+  async () => {
     const q = searchQ.value.trim()
     if (!q) {
       highlightIds.value = new Set()
@@ -416,7 +416,12 @@ const onSearch = () => {
     } catch {
       message.error('检索失败')
     }
-  }, 280)
+  },
+  runtimePerformance.editor.castSearchDebounceMs,
+)
+
+const onSearch = () => {
+  searchTask.schedule()
 }
 
 // 编辑功能已移除 - 关系图现为只读，从三元组自动生成
@@ -441,10 +446,6 @@ const onTriplesSaved = async () => {
 
 onMounted(async () => {
   await reload()
-})
-
-onUnmounted(() => {
-  if (searchTimer) clearTimeout(searchTimer)
 })
 </script>
 

@@ -1,4 +1,5 @@
 import { apiAxios } from './config'
+import { runtimePerformance } from '../config/performance'
 import type { BackendFeedbackAppendix } from '../support/feedbackIncident'
 
 export type { BackendFeedbackAppendix } from '../support/feedbackIncident'
@@ -15,7 +16,7 @@ export async function fetchBackendFeedbackAppendix(
   try {
     const body = await apiAxios.get<BackendFeedbackAppendix>('/system/feedback-log-snapshot', {
       params: { max_lines, ring_limit },
-      timeout: 60_000,
+      timeout: runtimePerformance.network.mediumTaskTimeoutMs,
       validateStatus: status => status === 200,
     })
     return body as BackendFeedbackAppendix

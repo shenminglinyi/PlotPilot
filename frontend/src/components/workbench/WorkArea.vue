@@ -810,7 +810,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed, nextTick, onUnmounted, defineAsyncComponent, type Component } from 'vue'
+import { ref, watch, computed, nextTick, onBeforeUnmount, defineAsyncComponent, type Component } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useDialog, useMessage } from 'naive-ui'
 import type { AutopilotStatus } from '../../api/autopilot'
@@ -828,19 +828,13 @@ import { aiInvocationApi } from '../../api/aiInvocation'
 import { llmControlApi, type LLMProfile } from '../../api/llmControl'
 import { tensionApi } from '../../api/tools'
 import type { TensionDiagnosis } from '../../api/tools'
-import ChapterContentPanel from './ChapterContentPanel.vue'
-import ChapterStatusPanel from './ChapterStatusPanel.vue'
 import ChapterWorkbenchShell from './ChapterWorkbenchShell.vue'
-import AutopilotWritingStream from '../autopilot/AutopilotWritingStream.vue'
-
-const ChapterElementPanel = defineAsyncComponent(() => import('./ChapterElementPanel.vue'))
-const QualityGuardrailPanel = defineAsyncComponent(() => import('./QualityGuardrailPanel.vue'))
-const TraceRecordPanel = defineAsyncComponent(() => import('./TraceRecordPanel.vue'))
-const AutopilotWorkspace = defineAsyncComponent(() => import('../autopilot/AutopilotWorkspace.vue'))
 import { useChapterDeskLayout } from '../../composables/useChapterDeskLayout'
+import { useDebouncedTask } from '../../composables/useDebouncedTask'
 import { useWorkbenchRefreshStore } from '../../stores/workbenchRefreshStore'
 import { useAIInvocationStore } from '../../stores/aiInvocationStore'
 import { featureFlags } from '../../config/features'
+import { runtimePerformance } from '../../config/performance'
 import {
   CHAPTER_DESK_AUX_ORDER,
   CHAPTER_DESK_AUX_SURFACES,
@@ -876,6 +870,14 @@ import { narrativeOrdinalLabel } from '@/utils/narrativeUnitLabel'
 import { loadAssistBeatSession, persistAssistBeatSession } from '@/utils/assistBeatSession'
 import { formatApiError, getHttpStatus } from '@/utils/apiError'
 import { AppsOutline, ChevronForwardOutline } from '@vicons/ionicons5'
+
+const ChapterContentPanel = defineAsyncComponent(() => import('./ChapterContentPanel.vue'))
+const ChapterElementPanel = defineAsyncComponent(() => import('./ChapterElementPanel.vue'))
+const ChapterStatusPanel = defineAsyncComponent(() => import('./ChapterStatusPanel.vue'))
+const QualityGuardrailPanel = defineAsyncComponent(() => import('./QualityGuardrailPanel.vue'))
+const TraceRecordPanel = defineAsyncComponent(() => import('./TraceRecordPanel.vue'))
+const AutopilotWorkspace = defineAsyncComponent(() => import('../autopilot/AutopilotWorkspace.vue'))
+const AutopilotWritingStream = defineAsyncComponent(() => import('../autopilot/AutopilotWritingStream.vue'))
 
 interface Chapter {
   id: number
@@ -1146,14 +1148,15 @@ const isAssistedReadOnly = computed(
 const lastAutopilotDeskSnap = ref<string | null>(null)
 
 /** 尾部去抖：SSE + 轮询短时间连发时合并为一次整桌刷新；避免「跳过」导致永不 emit 的旧逻辑 */
-let deskRefreshDebounce: ReturnType<typeof setTimeout> | null = null
-const DESK_REFRESH_EMIT_DEBOUNCE_MS = 1200
-function emitDeskRefreshDebounced() {
-  if (deskRefreshDebounce) clearTimeout(deskRefreshDebounce)
-  deskRefreshDebounce = setTimeout(() => {
-    deskRefreshDebounce = null
+const deskRefreshEmit = useDebouncedTask(
+  () => {
     emit('chapterUpdated')
-  }, DESK_REFRESH_EMIT_DEBOUNCE_MS)
+  },
+  () => runtimePerformance.workbench.deskRefreshEmitDebounceMs,
+)
+
+function emitDeskRefreshDebounced() {
+  deskRefreshEmit.schedule()
 }
 
 function maybeEmitDeskRefresh(status: Record<string, unknown> | null | undefined) {
@@ -1195,6 +1198,30 @@ function applyAutopilotStatusPayload(status: Record<string, unknown> | null | un
 function handleAutopilotDeskRefreshFromStream() {
   emitDeskRefreshDebounced()
 }
+
+let guardrailSnapshotRefreshTimer: number | null = null
+
+function clearGuardrailSnapshotRefreshTimer() {
+  if (guardrailSnapshotRefreshTimer != null) {
+    window.clearTimeout(guardrailSnapshotRefreshTimer)
+    guardrailSnapshotRefreshTimer = null
+  }
+}
+
+function scheduleGuardrailSnapshotRefresh() {
+  clearGuardrailSnapshotRefreshTimer()
+  guardrailSnapshotRefreshTimer = window.setTimeout(
+    () => {
+      guardrailSnapshotRefreshTimer = null
+      void loadGuardrailSnapshot({ force: true })
+    },
+    runtimePerformance.workbench.guardrailSnapshotRefreshDelayMs,
+  )
+}
+
+onBeforeUnmount(() => {
+  clearGuardrailSnapshotRefreshTimer()
+})
 
 useAssistedAutopilotStatus({
   slug: computed(() => props.slug),
@@ -1259,13 +1286,6 @@ watch(
     proseChunkLogCount.value = 0
   }
 )
-
-onUnmounted(() => {
-  if (deskRefreshDebounce) {
-    clearTimeout(deskRefreshDebounce)
-    deskRefreshDebounce = null
-  }
-})
 
 /** 左侧切换章节（或路由）导致章 id 变化时回到辅助撰稿 */
 watch(
@@ -1569,7 +1589,7 @@ const handleSave = async () => {
     originalContent.value = chapterContent.value
     message.success('保存成功')
     emit('chapterUpdated')
-    window.setTimeout(() => void loadGuardrailSnapshot({ force: true }), 3500)
+    scheduleGuardrailSnapshotRefresh()
   } catch (error) {
     message.error('保存失败')
   } finally {
@@ -1959,7 +1979,7 @@ const handleSaveGenerated = async () => {
     message.success(`已保存到${ordinalUnit(saveTarget.number)}`)
     emit('chapterUpdated')
     showGenerateModal.value = false
-    window.setTimeout(() => void loadGuardrailSnapshot({ force: true }), 3500)
+    scheduleGuardrailSnapshotRefresh()
   } catch {
     message.error('保存失败')
   } finally {

@@ -64,6 +64,7 @@ class ResourceConfig:
     max_lifetime_seconds: float = 7200.0  # 2小时
     idle_timeout_seconds: float = 300.0   # 5分钟
     max_usage_count: int = 10000
+    max_pending_tasks: int = 100
     auto_cleanup: bool = True
 
 
@@ -161,9 +162,13 @@ class ThreadPoolResource(ManagedResource):
             return True
 
         try:
-            self._executor.shutdown(wait=True, cancel_futures=False)
-            self._shutdown = True
-            logger.info(f"[ResourceManager] 线程池 {self._name} 已关闭")
+            with self._lock:
+                self._shutdown = True
+            self._executor.shutdown(wait=False, cancel_futures=True)
+            logger.info(
+                "[ResourceManager] 线程池 %s 已停止接收新任务，未开始任务已取消",
+                self._name,
+            )
             return True
         except Exception as e:
             logger.warning(f"[ResourceManager] 线程池 {self._name} 关闭失败: {e}")
@@ -176,7 +181,7 @@ class ThreadPoolResource(ManagedResource):
             # 检查是否有过多待处理任务
             if hasattr(self._executor, '_work_queue'):
                 qsize = self._executor._work_queue.qsize()
-                return qsize < 100  # 队列不超过100
+                return qsize < self._config.max_pending_tasks
             return True
         except Exception:
             return False
@@ -648,6 +653,14 @@ class ResourceManager:
 def get_resource_manager() -> ResourceManager:
     """获取资源管理器单例"""
     return ResourceManager()
+
+
+def shutdown_resource_manager_if_initialized(timeout: float = 10.0) -> None:
+    """Shutdown the singleton resource manager without creating it during teardown."""
+    instance = ResourceManager._instance
+    if instance is None or not getattr(instance, "_initialized", False):
+        return
+    instance.shutdown(timeout=timeout)
 
 
 def create_thread_pool(

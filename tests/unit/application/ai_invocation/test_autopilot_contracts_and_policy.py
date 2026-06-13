@@ -30,7 +30,13 @@ def test_policy_resolver_prefers_auto_approve_and_defaults():
     assert resolver.resolve(operation="autopilot.outline.partition", node_key="outline-beat-partition", novel=type("N", (), {"auto_approve_mode": True})()) == InvocationPolicy.DIRECT
     assert resolver.resolve(operation="autopilot.prose.from_script", node_key="autopilot-stream-beat", novel=None) == InvocationPolicy.AUTOPILOT_PAUSE
     assert resolver.resolve(operation="autopilot.prose.from_script", node_key="autopilot-stream-beat", novel=type("N", (), {"auto_approve_mode": True})()) == InvocationPolicy.DIRECT
-    assert resolver.resolve(operation="autopilot.chapter.audit", node_key="audit-node", novel=None) == InvocationPolicy.REVIEW_AFTER_CALL
+    assert resolver.resolve(operation="autopilot.chapter.audit", node_key="audit-node", novel=None) == InvocationPolicy.DIRECT
+    assert resolver.resolve(
+        operation="autopilot.chapter.audit",
+        node_key="audit-node",
+        novel=None,
+        context={"force_interactive": "true"},
+    ) == InvocationPolicy.AUTOPILOT_PAUSE
 
 
 def test_invocation_contract_registry_uses_autopilot_contract_entrypoint(monkeypatch):

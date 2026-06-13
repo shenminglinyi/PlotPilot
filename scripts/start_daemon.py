@@ -83,6 +83,7 @@ def build_daemon():
         llm_service=llm_service,
         bible_service=get_bible_service(),
         chapter_repository=chapter_repo,
+        novel_repository=novel_repo,
     )
 
     # VoiceDriftService：与 FastAPI get_voice_drift_service() 同源（chapter_style_scores.upsert，勿用 VoiceVault）

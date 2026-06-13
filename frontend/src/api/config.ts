@@ -1,5 +1,6 @@
 import axios, { type AxiosError, type AxiosRequestConfig } from 'axios'
 
+import { runtimePerformance } from '../config/performance'
 import { emitAxiosFeedbackIncident } from '../support/feedbackNotifier'
 import { apiRoutes } from './endpoints'
 
@@ -31,7 +32,7 @@ export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1'
 
 const axiosInstance = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 120000,
+  timeout: runtimePerformance.network.apiDefaultTimeoutMs,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -43,7 +44,7 @@ export const apiAxios = axiosInstance
 /** 旧版 /api 路由（book、jobs），与 v1 共用主机 */
 export const legacyBookHttp = axios.create({
   baseURL: '/api',
-  timeout: 30000,
+  timeout: runtimePerformance.network.legacyApiTimeoutMs,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -53,7 +54,7 @@ legacyBookHttp.interceptors.response.use(response => response.data)
 /** 旧版 /api/stats，带 SuccessResponse 解包 */
 export const legacyStatsHttp = axios.create({
   baseURL: '/api',
-  timeout: 30000,
+  timeout: runtimePerformance.network.legacyApiTimeoutMs,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -107,8 +108,6 @@ async function initTauriConnection(): Promise<void> {
 }
 
 /** 桌面壳：后端在后台线程就绪，IPC 端口在健康检查通过前可能为 0 */
-const TAURI_BACKEND_POLL_MS = 200
-const TAURI_BACKEND_WAIT_MS = 30_000  // 30秒，避免长时间卡住
 
 async function waitForTauriBackendPort(
   invoke: (cmd: string) => Promise<number>,
@@ -128,6 +127,89 @@ async function waitForTauriBackendPort(
   return null
 }
 
+function createTimeoutSignal(timeoutMs: number): { signal: AbortSignal; cleanup: () => void } {
+  const abortSignal = AbortSignal as typeof AbortSignal & {
+    timeout?: (milliseconds: number) => AbortSignal
+  }
+  if (typeof abortSignal.timeout === 'function') {
+    return { signal: abortSignal.timeout(timeoutMs), cleanup: () => {} }
+  }
+
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs)
+  return {
+    signal: controller.signal,
+    cleanup: () => window.clearTimeout(timer),
+  }
+}
+
+function hasConcreteTauriBackendBaseUrl(): boolean {
+  const base = axiosInstance.defaults.baseURL || ''
+  return /^https?:\/\/127\.0\.0\.1:\d+\/api\/v1$/i.test(base)
+}
+
+async function waitForTauriBackendHealth(port: number, maxWaitMs: number, intervalMs: number): Promise<boolean> {
+  const deadline = Date.now() + maxWaitMs
+  while (Date.now() < deadline) {
+    const healthTimeout = createTimeoutSignal(runtimePerformance.network.tauriHealthCheckTimeoutMs)
+    try {
+      const healthCheck = await fetch(`http://127.0.0.1:${port}/health`, {
+        method: 'GET',
+        signal: healthTimeout.signal,
+      })
+      if (healthCheck.ok) return true
+    } catch {
+      // Backend may still be binding the socket. Keep polling until the shared deadline.
+    } finally {
+      healthTimeout.cleanup()
+    }
+    await new Promise<void>(resolve => {
+      setTimeout(resolve, intervalMs)
+    })
+  }
+  return false
+}
+
+let tauriBackendReadyPromise: Promise<void> | null = null
+
+async function ensureTauriBackendReady(): Promise<void> {
+  if (!isTauri() || hasConcreteTauriBackendBaseUrl()) {
+    return
+  }
+  if (tauriBackendReadyPromise) {
+    return tauriBackendReadyPromise
+  }
+
+  tauriBackendReadyPromise = (async () => {
+    const { invoke } = await import('@tauri-apps/api/core')
+    const port = await waitForTauriBackendPort(
+      cmd => invoke<number>(cmd),
+      runtimePerformance.network.tauriBackendWaitMs,
+      runtimePerformance.network.tauriBackendPollMs,
+    )
+    if (port == null || port <= 0) {
+      throw new Error('Tauri 后端端口尚未就绪')
+    }
+    const healthy = await waitForTauriBackendHealth(
+      port,
+      runtimePerformance.network.tauriBackendWaitMs,
+      runtimePerformance.network.tauriBackendPollMs,
+    )
+    if (!healthy) {
+      throw new Error(`Tauri 后端健康检查未通过: 127.0.0.1:${port}`)
+    }
+    axiosInstance.defaults.baseURL = `http://127.0.0.1:${port}/api/v1`
+    syncLegacyRootsFromV1()
+    console.log(`[API] 桌面模式 baseURL: ${axiosInstance.defaults.baseURL}`)
+  })()
+
+  try {
+    await tauriBackendReadyPromise
+  } finally {
+    tauriBackendReadyPromise = null
+  }
+}
+
 /**
  * 初始化 API（应用启动时调用一次）
  */
@@ -142,8 +224,8 @@ export async function initApiClient(): Promise<void> {
       console.log('[API] 等待后端就绪...')
       port = await waitForTauriBackendPort(
         cmd => invoke<number>(cmd),
-        TAURI_BACKEND_WAIT_MS,
-        TAURI_BACKEND_POLL_MS,
+        runtimePerformance.network.tauriBackendWaitMs,
+        runtimePerformance.network.tauriBackendPollMs,
       )
     }
   } catch (e) {
@@ -155,21 +237,17 @@ export async function initApiClient(): Promise<void> {
     axiosInstance.defaults.baseURL = newBaseURL
     console.log(`[API] 桌面模式 baseURL: ${newBaseURL}`)
 
-    // 验证后端是否真的响应
-    try {
-      const healthCheck = await fetch(`http://127.0.0.1:${port}/health`, {
-        method: 'GET',
-        signal: AbortSignal.timeout(5000)
-      })
-      if (!healthCheck.ok) {
-        console.warn('[API] 后端健康检查失败，状态码:', healthCheck.status)
-      }
-    } catch (e) {
-      console.warn('[API] 后端健康检查异常:', e)
+    const healthy = await waitForTauriBackendHealth(
+      port,
+      runtimePerformance.network.tauriBackendWaitMs,
+      runtimePerformance.network.tauriBackendPollMs,
+    )
+    if (!healthy) {
+      axiosInstance.defaults.baseURL = API_BASE_URL
+      console.warn('[API] 后端健康检查未通过，等待请求门禁继续处理')
     }
   } else if (isTauri()) {
-    axiosInstance.defaults.baseURL = 'http://127.0.0.1:8005/api/v1'
-    console.warn('[API] Tauri 下未能通过 IPC 取得端口，回退 8005')
+    console.warn('[API] Tauri 下未能通过 IPC 取得端口，等待请求门禁继续处理')
   }
 
   syncLegacyRootsFromV1()
@@ -187,6 +265,11 @@ function formatAxiosUserSummary(err: AxiosError): string {
   const msg = typeof err.message === 'string' ? err.message.trim() : ''
   return msg.length > 0 ? msg : '网络或接口异常'
 }
+
+axiosInstance.interceptors.request.use(async config => {
+  await ensureTauriBackendReady()
+  return config
+})
 
 axiosInstance.interceptors.response.use(
   response => response.data,

@@ -285,16 +285,13 @@ def test_chapter_prose_inputs_are_materialized_to_variable_hub():
     assert session.metadata["input_variable_materialization"]["written"]
 
 
-def test_chapter_prose_input_bindings_use_novel_scope_for_story_setup_fields():
+def test_chapter_prose_input_bindings_stay_minimal_for_prose_prompt():
     bindings = {binding.alias: binding for binding in _input_bindings()}
 
-    assert bindings["novel_title"].scope == "novel"
-    assert bindings["novel_title"].stage == "setup"
-    assert bindings["genre"].scope == "novel"
-    assert bindings["genre"].stage == "setup"
-    assert bindings["style_guide"].scope == "novel"
-    assert bindings["style_guide"].stage == "setup"
-    assert bindings["world_context"].scope == "novel"
+    assert set(bindings) == {"target_words", "chapter_outline", "continuity_context"}
+    assert bindings["target_words"].variable_key == "chapter.target_words"
+    assert bindings["chapter_outline"].variable_key == "chapter.outline"
+    assert bindings["continuity_context"].variable_key == "chapter.continuity_context"
 
 
 class _FakeNode:
@@ -381,11 +378,13 @@ def test_chapter_prose_prompt_does_not_auto_inject_setup_context():
     assert "变量中心设定" not in snapshot.prompt.user
 
 
-def test_chapter_prose_binds_title_and_genre_to_setup_guide_variables():
+def test_chapter_prose_does_not_bind_story_setup_variables():
     bindings = {binding.alias: binding for binding in _input_bindings()}
 
-    assert bindings["novel_title"].variable_key == "novel.setup.title"
-    assert bindings["genre"].variable_key == "novel.setup.genre_label"
+    assert "novel_title" not in bindings
+    assert "genre" not in bindings
+    assert "style_guide" not in bindings
+    assert "world_context" not in bindings
 
 
 def test_prompt_declared_dotted_variable_becomes_binding_and_render_alias():
@@ -464,6 +463,31 @@ def test_prompt_declared_variable_key_child_access_does_not_define_new_variable(
 
     assert added == []
     assert {binding.alias for binding in bindings} == {"characters.list"}
+
+
+def test_prompt_declared_legacy_public_aliases_do_not_define_new_required_variables():
+    bindings, added = prompt_declared_input_bindings(
+        existing_bindings=[
+            VariableBinding(alias="novel.premise", variable_key="novel.premise", required=True),
+            VariableBinding(alias="novel.genre_label", variable_key="novel.genre_label", required=False, default=""),
+            VariableBinding(alias="novel.genre_major", variable_key="novel.genre_major", required=False, default=""),
+            VariableBinding(alias="novel.genre_theme", variable_key="novel.genre_theme", required=False, default=""),
+            VariableBinding(alias="novel.world_preset", variable_key="novel.world_preset", required=False, default=""),
+            VariableBinding(alias="novel.special_requirements", variable_key="novel.special_requirements", required=False, default=""),
+        ],
+        system_template="",
+        user_template="{premise}\n{genre_label}\n{genre_major}\n{genre_theme}\n{world_preset}\n{special_requirements}",
+    )
+
+    assert added == []
+    assert {binding.alias for binding in bindings} == {
+        "novel.premise",
+        "novel.genre_label",
+        "novel.genre_major",
+        "novel.genre_theme",
+        "novel.world_preset",
+        "novel.special_requirements",
+    }
 
 
 def test_prompt_render_variables_keep_projection_text_and_structured_access():

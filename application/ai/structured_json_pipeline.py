@@ -7,13 +7,18 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import List, Optional, Tuple, Type, TypeVar
+from dataclasses import dataclass
+from typing import Generic, List, Optional, Tuple, Type, TypeVar
 
 from json_repair import repair_json
 from pydantic import BaseModel, ValidationError
 
 from application.ai.llm_output_sanitize import strip_reasoning_artifacts
-from application.ai.llm_retry_policy import LLM_MAX_TOTAL_ATTEMPTS
+from application.ai.llm_retry_policy import LLM_MAX_TOTAL_ATTEMPTS, is_retryable_llm_error
+from application.ai.structured_json_settings import (
+    StructuredJSONSettings,
+    get_structured_json_settings,
+)
 from application.ai.trace_context import content_hash, preview_value
 from domain.ai.services.llm_service import GenerationConfig, LLMService
 from domain.ai.value_objects.prompt import Prompt
@@ -23,30 +28,28 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
+
+@dataclass(frozen=True)
+class StructuredJSONGenerateResult(Generic[T]):
+    payload: Optional[T]
+    failure_stage: str = ""
+    errors: Tuple[str, ...] = ()
+
+    @property
+    def ok(self) -> bool:
+        return self.payload is not None
+
 # 校验或解析失败后的额外重试轮数；总次数 = 1 + 该值，且不超过全局上限。
 DEFAULT_MAX_RETRIES = LLM_MAX_TOTAL_ATTEMPTS - 1
 
 
-def _is_retryable_llm_error(exc: Exception) -> bool:
-    """识别上游临时故障，避免 429/5xx/超时直接短路。"""
-    message = str(exc).lower()
-    retryable_markers = (
-        "overloaded_error",
-        "rate limit",
-        "timeout",
-        "temporar",
-        "connection reset",
-        "service unavailable",
-    )
-    retryable_statuses = (" 429", " 500", " 502", " 503", " 504", " 529")
-    return any(marker in message for marker in retryable_markers) or any(
-        status in message for status in retryable_statuses
-    )
-
-
-def _retry_delay_seconds(attempt: int) -> float:
+def _retry_delay_seconds(attempt: int, settings: StructuredJSONSettings | None = None) -> float:
     """简单指数退避，保持总等待可控。"""
-    return min(1.5 * (2 ** attempt), 8.0)
+    resolved = settings or get_structured_json_settings()
+    return min(
+        resolved.retry_backoff_base_seconds * (2 ** attempt),
+        resolved.retry_backoff_max_seconds,
+    )
 
 
 def sanitize_llm_output(raw: str) -> str:
@@ -127,10 +130,30 @@ async def structured_json_generate(
     max_retries: int = DEFAULT_MAX_RETRIES,
 ) -> Optional[T]:
     """调用 LLM 获取结构化 JSON 输出，并经过清洗、修复、校验管线。"""
+    result = await structured_json_generate_with_status(
+        llm=llm,
+        prompt=prompt,
+        config=config,
+        schema_model=schema_model,
+        max_retries=max_retries,
+    )
+    return result.payload
+
+
+async def structured_json_generate_with_status(
+    llm: LLMService,
+    prompt: Prompt,
+    config: GenerationConfig,
+    schema_model: Type[T],
+    *,
+    max_retries: int = DEFAULT_MAX_RETRIES,
+) -> StructuredJSONGenerateResult[T]:
+    """Like structured_json_generate, but preserves failure category."""
     current_prompt = prompt
     last_errors: List[str] = []
     total_attempts = min(1 + max(0, max_retries), LLM_MAX_TOTAL_ATTEMPTS)
     recorder = get_trace_recorder()
+    settings = get_structured_json_settings()
 
     for attempt in range(total_attempts):
         try:
@@ -149,8 +172,8 @@ async def structured_json_generate(
                     "stage": "llm_generate",
                 },
             )
-            if attempt < total_attempts - 1 and _is_retryable_llm_error(exc):
-                delay = _retry_delay_seconds(attempt)
+            if attempt < total_attempts - 1 and is_retryable_llm_error(exc):
+                delay = _retry_delay_seconds(attempt, settings)
                 logger.info(
                     "结构化 JSON 管线遇到可重试错误，%.1f 秒后重试 (attempt=%d/%d)",
                     delay,
@@ -159,7 +182,11 @@ async def structured_json_generate(
                 )
                 await asyncio.sleep(delay)
                 continue
-            return None
+            return StructuredJSONGenerateResult(
+                payload=None,
+                failure_stage="llm_generate",
+                errors=tuple(last_errors),
+            )
 
         cleaned = sanitize_llm_output(raw)
         data, parse_errors = parse_and_repair_json(cleaned)
@@ -195,7 +222,7 @@ async def structured_json_generate(
                 )
                 if attempt > 0:
                     logger.info("结构化 JSON 管线重试成功 (attempt=%d)", attempt)
-                return instance
+                return StructuredJSONGenerateResult(payload=instance)
             last_errors = parse_errors + schema_errors
             recorder.record_span(
                 phase="schema_validated",
@@ -257,4 +284,8 @@ async def structured_json_generate(
             "total_attempts": total_attempts,
         },
     )
-    return None
+    return StructuredJSONGenerateResult(
+        payload=None,
+        failure_stage="parse_or_schema",
+        errors=tuple(last_errors),
+    )

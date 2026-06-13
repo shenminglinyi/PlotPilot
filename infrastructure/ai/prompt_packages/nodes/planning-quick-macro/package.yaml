@@ -21,6 +21,14 @@ variables:
   desc: 世界观、地点、时间线等设定块
   type: string
   default: ''
+- name: worldbuilding.content
+  desc: 世界观与时间线设定块（兼容嵌套模板变量）
+  type: string
+  default: ''
+- name: locations.list
+  desc: 关键地点列表（兼容嵌套模板变量）
+  type: string
+  default: ''
 - name: characters
   desc: 主要角色与关系设定块
   type: string

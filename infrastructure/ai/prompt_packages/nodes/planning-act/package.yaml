@@ -17,5 +17,29 @@ variables:
   desc: 章节数量
   type: integer
   required: true
+- name: genre_label
+  desc: 锁定题材标签
+  type: string
+  required: false
+- name: world_preset
+  desc: 锁定世界观基调
+  type: string
+  required: false
+- name: story_structure
+  desc: 锁定结构承诺
+  type: string
+  required: false
+- name: pacing_control
+  desc: 锁定节奏承诺
+  type: string
+  required: false
+- name: writing_style
+  desc: 锁定文风承诺
+  type: string
+  required: false
+- name: special_requirements
+  desc: 锁定特殊要求
+  type: string
+  required: false
 id: planning-act
 sort_order: 24

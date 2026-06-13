@@ -25,10 +25,10 @@ class AutopilotInvocationPolicyResolver:
         auto_approve_mode = bool(getattr(novel, "auto_approve_mode", False))
         if str(context.get("force_interactive") or "").lower() in {"1", "true", "yes"}:
             return InvocationPolicy.AUTOPILOT_PAUSE
+        if operation in {"autopilot.chapter.aftermath"}:
+            return InvocationPolicy.DIRECT
         if auto_approve_mode:
             return InvocationPolicy.DIRECT
         if operation in {"autopilot.chapter.audit"}:
-            return InvocationPolicy.REVIEW_AFTER_CALL
-        if operation in {"autopilot.chapter.aftermath"}:
             return InvocationPolicy.DIRECT
         return InvocationPolicy.AUTOPILOT_PAUSE

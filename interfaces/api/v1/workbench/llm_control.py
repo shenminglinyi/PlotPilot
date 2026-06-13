@@ -19,6 +19,9 @@ from application.ai.llm_control_service import (
 )
 from infrastructure.ai.provider_factory import LLMProviderFactory
 from infrastructure.ai.prompt_manager import get_prompt_manager, BUILTIN_CATEGORIES
+from interfaces.api.v1.workbench.llm_control_runtime_settings import (
+    get_llm_control_runtime_settings,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix='/llm-control', tags=['llm-control'])
@@ -34,7 +37,7 @@ class ModelListRequest(BaseModel):
     protocol: str = 'openai'
     base_url: str = ''
     api_key: str = ''
-    timeout_ms: int = 30000
+    timeout_ms: Optional[int] = None
 
 
 class ModelItem(BaseModel):
@@ -105,7 +108,9 @@ async def list_models(payload: ModelListRequest) -> ModelListResponse:
         raise HTTPException(status_code=400, detail='API key is required to fetch model list')
 
     base_url = (candidate.get('base_url') or '').strip()
-    timeout = max(1.0, (candidate.get('timeout_ms') or 30000) / 1000)
+    runtime_settings = get_llm_control_runtime_settings()
+    timeout_ms = candidate.get('timeout_ms') or runtime_settings.model_list_timeout_ms
+    timeout = max(1.0, timeout_ms / 1000)
 
     if api_format == 'anthropic':
         url = f"{(base_url or 'https://api.anthropic.com').rstrip('/')}/v1/models"
@@ -166,7 +171,6 @@ async def list_models(payload: ModelListRequest) -> ModelListResponse:
 # LLM 控制面板进程级缓存（写操作时失效）
 _llm_panel_cache: Optional[LLMControlPanelData] = None
 _llm_panel_cache_ts: float = 0.0
-_LLM_PANEL_CACHE_TTL = 10.0  # 10 秒；配置低频变化，短 TTL 即可
 
 
 def _invalidate_llm_panel_cache() -> None:
@@ -183,7 +187,8 @@ async def get_llm_control_panel() -> LLMControlPanelData:
     global _llm_panel_cache, _llm_panel_cache_ts
 
     now = time.time()
-    if _llm_panel_cache is not None and (now - _llm_panel_cache_ts) < _LLM_PANEL_CACHE_TTL:
+    cache_ttl = get_llm_control_runtime_settings().panel_cache_ttl_seconds
+    if _llm_panel_cache is not None and (now - _llm_panel_cache_ts) < cache_ttl:
         return _llm_panel_cache
 
     data = _service.get_control_panel_data()
@@ -262,7 +267,6 @@ class VariableHubBackfillRequest(BaseModel):
 # 进程级缓存：提示词广场首屏聚合数据（写操作时失效）
 _plaza_cache: Dict[str, Any] = {}
 _plaza_cache_ts: float = 0.0
-_PLAZA_CACHE_TTL = 60.0  # 秒；提示词数据变化低频，1 分钟缓存足够
 
 
 def _invalidate_plaza_cache() -> None:
@@ -283,7 +287,8 @@ async def plaza_init() -> Dict[str, Any]:
     global _plaza_cache, _plaza_cache_ts
 
     now = time.time()
-    if _plaza_cache and (now - _plaza_cache_ts) < _PLAZA_CACHE_TTL:
+    cache_ttl = get_llm_control_runtime_settings().plaza_cache_ttl_seconds
+    if _plaza_cache and (now - _plaza_cache_ts) < cache_ttl:
         return _plaza_cache
 
     mgr = get_prompt_manager()

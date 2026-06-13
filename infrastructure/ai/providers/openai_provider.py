@@ -1,4 +1,5 @@
 """OpenAI LLM 提供商实现"""
+import asyncio
 import logging
 import openai
 import httpx
@@ -9,7 +10,9 @@ from openai import AsyncOpenAI
 from domain.ai.services.llm_service import GenerationConfig, GenerationResult
 from domain.ai.value_objects.prompt import Prompt
 from domain.ai.value_objects.token_usage import TokenUsage
+from application.ai.llm_retry_policy import LLM_MAX_TOTAL_ATTEMPTS, is_retryable_llm_error
 from infrastructure.ai.config.settings import Settings
+from infrastructure.ai.http_timeout import build_httpx_timeout
 from .base import BaseProvider
 from .model_resolution import require_resolved_model_id
 
@@ -44,19 +47,8 @@ class OpenAIProvider(BaseProvider):
         if settings.base_url:
             client_kwargs["base_url"] = settings.base_url
 
-        # 🔥 关键修复：分层超时配置
-        # - connect_timeout: TCP 连接建立超时（30s，快速发现网络不可达）
-        # - read_timeout: 等待服务端响应超时（120s，两个 SSE chunk 之间的间隔）
-        # - write_timeout: 发送请求超时（60s）
-        # - pool_timeout: 从连接池获取连接超时（30s）
-        # 之前 httpx.Timeout(300) 是统一 300s，导致 deepseek API 卡住时整个进程挂起 1 小时
         self._http_client = httpx.AsyncClient(
-            timeout=httpx.Timeout(
-                connect=settings.connect_timeout,
-                read=settings.read_timeout,
-                write=60.0,
-                pool=30.0,
-            ),
+            timeout=build_httpx_timeout(settings.http_timeout_settings),
             trust_env=False,
         )
         client_kwargs["http_client"] = self._http_client
@@ -100,43 +92,66 @@ class OpenAIProvider(BaseProvider):
         🔥 自适应容错策略：
         1. 如果指定了 json_schema response_format 但网关返回 400，自动降级到 json_object
         2. 如果内容为空，降级到流式聚合（部分网关非流式返回空但流式正常）
+        3. 如果非流式与流式聚合都为空，按统一 LLM 重试预算进行有限重试
         """
         messages = self._build_messages(prompt)
-        request_kwargs = self._build_chat_request_kwargs(messages, config)
+        last_error: Exception | None = None
 
-        try:
-            response = await self.async_client.chat.completions.create(**request_kwargs)
-        except (openai.BadRequestError, openai.NotFoundError) as e:
-            # 🔥 json_schema 不支持时自动降级
-            if config.response_format and config.response_format.get("type") == "json_schema":
-                base_url = (self.settings.base_url or "").rstrip("/")
-                logger.info(
-                    "json_schema 不支持，自动降级到 json_object: %s (错误: %s)",
-                    base_url, str(e)[:100]
+        for attempt in range(LLM_MAX_TOTAL_ATTEMPTS):
+            request_kwargs = self._build_chat_request_kwargs(messages, config)
+            try:
+                try:
+                    response = await self.async_client.chat.completions.create(**request_kwargs)
+                except (openai.BadRequestError, openai.NotFoundError) as e:
+                    # 🔥 json_schema 不支持时自动降级
+                    if config.response_format and config.response_format.get("type") == "json_schema":
+                        base_url = (self.settings.base_url or "").rstrip("/")
+                        logger.info(
+                            "json_schema 不支持，自动降级到 json_object: %s (错误: %s)",
+                            base_url, str(e)[:100]
+                        )
+                        self.__class__._json_schema_unsupported_cache.add(base_url)
+                        request_kwargs["response_format"] = {"type": "json_object"}
+                        response = await self.async_client.chat.completions.create(**request_kwargs)
+                    else:
+                        raise
+
+                content = self._extract_text_from_response(response)
+
+                if not content:
+                    logger.warning(
+                        "OpenAI-compatible response returned empty non-stream content; "
+                        "falling back to streaming aggregation (attempt=%d/%d)",
+                        attempt + 1,
+                        LLM_MAX_TOTAL_ATTEMPTS,
+                    )
+                    content, token_usage = await self._generate_via_stream(request_kwargs)
+                    return GenerationResult(content=content, token_usage=token_usage)
+
+                input_tokens = response.usage.prompt_tokens if response.usage else 0
+                output_tokens = response.usage.completion_tokens if response.usage else 0
+                return GenerationResult(
+                    content=content,
+                    token_usage=TokenUsage(input_tokens=input_tokens, output_tokens=output_tokens),
                 )
-                self.__class__._json_schema_unsupported_cache.add(base_url)
-                # 重试：降级到 json_object
-                request_kwargs["response_format"] = {"type": "json_object"}
-                response = await self.async_client.chat.completions.create(**request_kwargs)
-            else:
-                raise
+            except Exception as exc:
+                last_error = exc
+                if attempt >= LLM_MAX_TOTAL_ATTEMPTS - 1 or not is_retryable_llm_error(exc):
+                    raise
+                delay = min(1.5 * (2 ** attempt), 8.0)
+                logger.warning(
+                    "OpenAI-compatible provider transient failure; retrying in %.1fs "
+                    "(attempt=%d/%d): %s",
+                    delay,
+                    attempt + 1,
+                    LLM_MAX_TOTAL_ATTEMPTS,
+                    exc,
+                )
+                await asyncio.sleep(delay)
 
-        content = self._extract_text_from_response(response)
-
-        if not content:
-            logger.warning(
-                "OpenAI-compatible response returned empty non-stream content; "
-                "falling back to streaming aggregation"
-            )
-            content, token_usage = await self._generate_via_stream(request_kwargs)
-            return GenerationResult(content=content, token_usage=token_usage)
-
-        input_tokens = response.usage.prompt_tokens if response.usage else 0
-        output_tokens = response.usage.completion_tokens if response.usage else 0
-        return GenerationResult(
-            content=content,
-            token_usage=TokenUsage(input_tokens=input_tokens, output_tokens=output_tokens),
-        )
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("API returned empty content")
 
     async def stream_generate(
         self,

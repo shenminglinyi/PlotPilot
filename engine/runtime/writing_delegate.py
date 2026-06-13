@@ -159,6 +159,28 @@ async def run_story_pipeline_writing(daemon: Any, novel: Any) -> None:
         logger.info("[%s] StoryPipeline 等待 AI Invocation 审阅", novel_id)
         return
 
+    if not result.success and result.error == "interrupted":
+        try:
+            from application.engine.services.autopilot_recovery_policy import AutopilotRecoveryPolicy
+            from application.engine.services.chapter_generation_workspace import ChapterGenerationWorkspace
+
+            policy = AutopilotRecoveryPolicy(workspace=ChapterGenerationWorkspace())
+            decision = policy.decide_on_daemon_tick(novel)
+            policy.apply_transient_cleanup(decision)
+        except Exception:
+            pass
+        daemon._update_shared_state(
+            novel_id,
+            writing_substep="interrupted",
+            writing_substep_label="正文生成已中断，等待重试",
+            current_stage="writing",
+        )
+        if daemon._is_still_running(novel):
+            novel.current_stage = NovelStage.WRITING
+            daemon._flush_novel(novel)
+        logger.info("[%s] StoryPipeline 正文生成中断，未提交正式章节", novel_id)
+        return
+
     if result.success:
         chapter_num = result.chapter_number or ctx.chapter_number
         if getattr(result, "audit_snapshot", None):

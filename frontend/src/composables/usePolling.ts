@@ -24,7 +24,28 @@ export function usePolling(
 ): UsePollingResult {
   const isPolling = ref(false)
   const isExecuting = ref(false)
-  let timer: ReturnType<typeof setInterval> | null = null
+  let timer: ReturnType<typeof setTimeout> | null = null
+  let disposed = false
+
+  function clearTimer() {
+    if (timer != null) {
+      clearTimeout(timer)
+      timer = null
+    }
+  }
+
+  function resolveIntervalMs(): number {
+    return Math.max(0, Number.isFinite(intervalMs) ? intervalMs : 0)
+  }
+
+  function scheduleNext() {
+    clearTimer()
+    if (disposed || !isPolling.value || typeof window === 'undefined') return
+    timer = window.setTimeout(() => {
+      timer = null
+      void execute().catch(() => undefined).finally(scheduleNext)
+    }, resolveIntervalMs())
+  }
 
   async function execute() {
     if (isExecuting.value) return
@@ -37,23 +58,19 @@ export function usePolling(
   }
 
   function stop() {
-    if (timer != null) {
-      clearInterval(timer)
-      timer = null
-    }
+    clearTimer()
     isPolling.value = false
   }
 
   function start(startOptions: StartPollingOptions = {}) {
-    if (isPolling.value || typeof window === 'undefined') return
+    if (disposed || isPolling.value || typeof window === 'undefined') return
     isPolling.value = true
     const shouldRunImmediately = startOptions.immediate ?? options.immediate ?? false
     if (shouldRunImmediately) {
-      void execute()
+      void execute().catch(() => undefined).finally(scheduleNext)
+    } else {
+      scheduleNext()
     }
-    timer = window.setInterval(() => {
-      void execute()
-    }, intervalMs)
   }
 
   function restart(startOptions: StartPollingOptions = {}) {
@@ -65,7 +82,10 @@ export function usePolling(
     start()
   }
 
-  onScopeDispose(stop)
+  onScopeDispose(() => {
+    disposed = true
+    stop()
+  })
 
   return {
     isPolling,

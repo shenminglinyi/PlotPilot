@@ -1,46 +1,54 @@
 # PlotPilot（墨枢）架构
 
-> **PlotPilot（墨枢）** 长篇小说创作平台源代码，采用 DDD（领域驱动设计）四层架构。产品说明与启动入口见根目录 [README.md](../README.md)。
+> **PlotPilot（墨枢）** 是面向长篇 AI 创作的剧情引擎内核。代码结构采用 DDD 分层，并在传统四层之外保留独立的 `engine/` 运行内核，用于承载生产守护进程、章节写作管线和题材扩展。产品说明与启动入口见根目录 [README.md](../README.md)。
 
 ## 系统概览
 
 - **输入**：书名、梗概、类型、章数、每章目标字数、风格提示。
 - **输出**：完整的小说项目，包含 Bible（设定库）、Outline（大纲）、Beat Sheets（章纲）、Chapters（正文）。
 
-## DDD 四层架构
+## 架构分层
 
 ```
 （项目根目录）/
-├── domain/                 # 领域层 - 核心业务逻辑
-│   ├── novel/             # 小说聚合根、章节实体、故事线
-│   ├── bible/             # 设定库聚合根、人物、地点、世界设定
-│   ├── cast/              # 人物关系图
+├── domain/                 # 领域层 - 小说、Bible、人物、知识、记忆、道具等纯业务模型
+│   ├── novel/             # 小说聚合根、章节、故事线、伏笔、因果与张力值对象
+│   ├── bible/             # 设定库、人物档案、地点、世界设定
+│   ├── character/         # 人物实体与关系能力
 │   ├── knowledge/         # 知识图谱三元组
-│   ├── ai/                # AI 服务接口定义
-│   └── shared/            # 共享内核（基类、异常、事件）
+│   ├── memory/            # 叙事记忆与上下文长期状态
+│   ├── prop/              # 道具生命周期与事件
+│   └── shared/            # 共享内核（基类、异常、事件、ID）
 │
-├── application/           # 应用层 - 用例编排
-│   ├── core/              # 小说/章节基础服务
-│   ├── blueprint/         # 规划服务（宏观规划、幕级规划）
-│   ├── engine/            # 生成引擎、自动驾驶守护进程
-│   ├── world/             # Bible、知识图谱服务
-│   ├── audit/             # 审阅、宏观重构服务
-│   ├── analyst/           # 文风分析、张力分析服务
-│   └── workflows/         # 工作流编排
+├── application/           # 应用层 - 用例编排，协调领域模型、引擎运行时与基础设施
+│   ├── core/              # 小说 / 章节 / 导出等基础用例
+│   ├── onboarding/        # 新书向导、Bible 初始化、前置设定生成
+│   ├── blueprint/         # 宏观规划、连续规划、Beat Sheet、故事结构
+│   ├── engine/            # 上下文构建、章后管线、治理预算、AI 调用编排
+│   ├── governance/        # 叙事治理、质量约束、章节预算
+│   ├── audit/             # 章节审阅、宏观重构、章节元素分析
+│   ├── analyst/           # 文风、张力、伏笔账本、叙事状态分析
+│   ├── world/             # Bible、知识图谱、世界观与人物关系服务
+│   └── workflows/         # 自动生成工作流、兼容编排与后台任务
+│
+├── engine/                # 剧情引擎内核 - 生产运行时、章节写作管线与题材扩展
+│   ├── runtime/           # EngineDaemon、StoryPipelineRunner、守护进程委托、质量守门
+│   ├── pipeline/          # BaseStoryPipeline 十步章节生成管线
+│   ├── pipelines/         # 题材 Pipeline 注册与扩展
+│   ├── core/              # 引擎侧实体、端口、服务契约
+│   └── infrastructure/    # 引擎事件、记忆编排、checkpoint 适配
 │
 ├── infrastructure/        # 基础设施层 - 技术实现
-│   ├── ai/                # LLM 客户端、向量存储、嵌入服务
-│   └── persistence/       # SQLite 仓储实现、数据库连接
+│   ├── ai/                # LLM Provider、Prompt Packages、向量存储、嵌入服务
+│   ├── persistence/       # SQLite 仓储、迁移、Write Dispatch 单写者调度器
+│   ├── export/            # DOCX / EPUB / PDF 导出
+│   └── runtime/           # 数据目录、日志环境与进程级运行配置
 │
-└── interfaces/            # 接口层 - 外部接口
-    └── api/               # REST API 路由（FastAPI）
-        └── v1/            # API 版本化
-            ├── core/      # 小说/章节 API
-            ├── world/     # Bible/知识图谱 API
-            ├── blueprint/ # 规划 API
-            ├── engine/    # 生成/自动驾驶 API
-            ├── audit/     # 审阅 API
-            └── analyst/   # 分析 API
+├── interfaces/            # 接口层 - FastAPI、依赖注入、运行状态与外部边界
+│   └── api/v1/            # REST API（core / world / blueprint / engine / audit / analyst 等）
+│
+├── frontend/              # 官方工作台 - Vue 3 + TypeScript + Tauri 桌面壳
+└── shared/                # 跨端共享配置与分类体系资源
 ```
 
 ## 核心模块
@@ -51,7 +59,10 @@
 |------|------|
 | `novel/` | 小说聚合根、章节实体、故事线、伏笔注册表 |
 | `bible/` | 设定库、人物实体（含 POV 防火墙）、地点、时间线 |
+| `character/` | 人物实体、关系与调度相关模型 |
 | `knowledge/` | 知识三元组、故事知识 |
+| `memory/` | 长期记忆、叙事状态与上下文相关模型 |
+| `prop/` | 道具生命周期与道具事件 |
 | `ai/` | LLM 服务接口、提示词值对象、Token 使用统计 |
 
 ### Application 层
@@ -60,9 +71,19 @@
 |------|------|
 | `core/` | 小说/章节的 CRUD 服务 |
 | `blueprint/` | 宏观规划（部-卷-幕）、幕级规划（章节规划）|
-| `engine/` | AI 生成服务、自动驾驶守护进程、上下文构建 |
+| `engine/` | 上下文构建、章后管线、治理预算、AI 调用编排 |
+| `governance/` | 叙事治理、章节预算、质量约束 |
 | `world/` | Bible 管理、知识图谱构建、人物关系 |
 | `audit/` | 章节审阅、宏观重构、陈词滥调扫描 |
+
+### Engine 层
+
+| 模块 | 职责 |
+|------|------|
+| `runtime/` | `EngineDaemon`、`StoryPipelineRunner`、守护进程委托与质量守门 |
+| `pipeline/` | `BaseStoryPipeline` 十步章节生成管线 |
+| `pipelines/` | 题材 Pipeline 注册与扩展 |
+| `core/` | 引擎侧实体、端口和服务契约 |
 
 ### Infrastructure 层
 
@@ -80,10 +101,11 @@
 ```
 1. 宏观规划 → 生成部-卷-幕结构
 2. 幕级规划 → 为当前幕生成章节大纲
-3. 章节生成 → 节拍放大器生成正文
-4. 章后管线 → 向量存储、伏笔提取、知识图谱更新
-5. 审阅审计 → 文风检测、一致性检查
-6. 循环至完成
+3. EngineDaemon → StoryPipelineRunner 调度章节写作
+4. BaseStoryPipeline → 治理预算、章节计划、上下文装配、正文生成
+5. 章后管线 → 摘要、事件、因果边、伏笔、人物状态、知识图谱与向量索引更新
+6. 审阅审计 → 文风检测、张力评分、一致性检查、状态落库
+7. 循环至完成
 ```
 
 ### 人工辅助模式
@@ -107,7 +129,7 @@ uvicorn interfaces.main:app --host 127.0.0.1 --port 8005 --reload
 # 直接运行 FastAPI 模块（默认 0.0.0.0:8000，与 README 的 8005 不同，需自行改端口或改用 uvicorn）
 python interfaces/main.py
 
-# 自动驾驶守护进程（当前维护入口）
+# EngineDaemon 守护进程（当前维护入口）
 python scripts/start_daemon.py
 ```
 

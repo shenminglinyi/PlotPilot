@@ -10,7 +10,7 @@ from typing import Any
 
 from application.ai.llm_json_extract import parse_llm_json_to_dict
 from application.blueprint.services.chapter_continuity_ledger import ChapterContinuityLedgerService
-from application.blueprint.services.chapter_plan_renderer import render_chapter_execution_plan
+from application.blueprint.services.chapter_plan_renderer import render_chapter_execution_plan, stringify_plan_value
 from application.blueprint.services.chapter_planning_policy import (
     DEFAULT_CHAPTER_PLANNING_POLICY,
     ChapterPlanningPolicy,
@@ -58,17 +58,32 @@ class ChapterPreplanningService:
         """Return a seven-section execution plan, generating it when needed."""
         outline = (current_outline or "").strip()
         if has_rendered_chapter_execution_plan(outline):
+            continuity_context = self.ledger_service.build_for_chapter(novel_id, chapter_number).to_planning_context_text()
+            self._write_plan_variables(
+                novel_id,
+                chapter_number,
+                outline,
+                continuity_context=continuity_context,
+            )
             return outline
 
         node = chapter_node or self._get_chapter_node(novel_id, chapter_number)
         act_plan = self._extract_act_plan(node, outline)
         legacy_plan = self._extract_legacy_chapter_plan(node)
+        ledger = self.ledger_service.build_for_chapter(novel_id, chapter_number)
+        continuity_context = ledger.to_planning_context_text()
         if legacy_plan and has_rendered_chapter_execution_plan(render_chapter_execution_plan(legacy_plan)):
             rendered = render_chapter_execution_plan(legacy_plan)
-            await self._persist_outline(novel_id, chapter_number, node, rendered, legacy_plan)
+            await self._persist_outline(
+                novel_id,
+                chapter_number,
+                node,
+                rendered,
+                legacy_plan,
+                continuity_context=continuity_context,
+            )
             return rendered
 
-        ledger = self.ledger_service.build_for_chapter(novel_id, chapter_number)
         title = str(getattr(node, "title", "") or f"第{chapter_number}章")
         prompt = get_prompt_gateway().render(
             PLANNING_CHAPTER_PREPLAN_CONTRACT,
@@ -76,12 +91,7 @@ class ChapterPreplanningService:
                 "chapter_number": chapter_number,
                 "chapter_title": title,
                 "act_chapter_plan": json.dumps(act_plan, ensure_ascii=False) if isinstance(act_plan, dict) else str(act_plan),
-                "continuity_ledger": ledger.to_prompt_text(),
-                "previous_ending": ledger.previous_ending,
-                "recent_chapters": json.dumps(ledger.recent_events, ensure_ascii=False),
-                "character_state": "、".join(ledger.character_state),
-                "unresolved_threads": "、".join(ledger.unresolved_threads),
-                "legacy_chapter_plan": json.dumps(legacy_plan, ensure_ascii=False) if legacy_plan else "",
+                "continuity_context": continuity_context,
             },
         ).prompt
         config = generation_config_from_profile("planning_chapter_preplan")
@@ -91,14 +101,35 @@ class ChapterPreplanningService:
             raise ValueError("chapter_preplan_requires_json_object: " + "; ".join(errors))
 
         chapter_plan = data.get("chapter_plan")
+        if not isinstance(chapter_plan, dict):
+            raise ValueError("chapter_preplan_requires_chapter_plan_object")
         rendered = render_chapter_execution_plan(chapter_plan)
-        outline_from_model = str(data.get("outline") or "").strip()
-        if not rendered and has_rendered_chapter_execution_plan(outline_from_model):
-            rendered = outline_from_model
         if not has_rendered_chapter_execution_plan(rendered):
             raise ValueError("chapter_preplan_requires_seven_section_execution_plan")
 
-        await self._persist_outline(novel_id, chapter_number, node, rendered, chapter_plan)
+        key_plot_points = self._normalize_string_list(
+            data.get("key_plot_points")
+            or data.get("key_points")
+            or data.get("critical_plot_points")
+        ) or self._derive_key_plot_points(chapter_plan)
+        chapter_characters = self._normalize_string_list(
+            data.get("chapter_characters")
+            or data.get("characters")
+            or data.get("cast")
+        ) or self._derive_chapter_characters(chapter_plan, act_plan)
+        detail_title = str(data.get("detail_title") or title).strip() or title
+
+        await self._persist_outline(
+            novel_id,
+            chapter_number,
+            node,
+            rendered,
+            chapter_plan,
+            detail_title=detail_title,
+            key_plot_points=key_plot_points,
+            chapter_characters=chapter_characters,
+            continuity_context=continuity_context,
+        )
         logger.info(
             "[ChapterPreplan] novel=%s chapter=%s generated execution plan chars=%d target_words=%s",
             novel_id,
@@ -107,6 +138,9 @@ class ChapterPreplanningService:
             target_words,
         )
         return rendered
+
+    def build_continuity_context(self, novel_id: str, chapter_number: int) -> str:
+        return self.ledger_service.build_for_chapter(novel_id, chapter_number).to_planning_context_text()
 
     async def _generate_text(self, prompt, config) -> str:
         import inspect
@@ -167,15 +201,35 @@ class ChapterPreplanningService:
         except Exception:
             return None
 
-    async def _persist_outline(self, novel_id: str, chapter_number: int, node: Any, outline: str, chapter_plan: Any) -> None:
+    async def _persist_outline(
+        self,
+        novel_id: str,
+        chapter_number: int,
+        node: Any,
+        outline: str,
+        chapter_plan: Any,
+        *,
+        detail_title: str = "",
+        key_plot_points: list[str] | None = None,
+        chapter_characters: list[str] | None = None,
+        continuity_context: str = "",
+    ) -> None:
+        key_plot_points = key_plot_points or self._derive_key_plot_points(chapter_plan)
+        chapter_characters = chapter_characters or self._derive_chapter_characters(chapter_plan, self._extract_act_plan(node, outline))
+        preplan_payload = {
+            "source_node_key": PLANNING_CHAPTER_PREPLAN,
+            "detail_title": detail_title or str(getattr(node, "title", "") or f"第{chapter_number}章"),
+            "detail_outline": outline,
+            "key_plot_points": key_plot_points,
+            "chapter_characters": chapter_characters,
+            "continuity_context": continuity_context,
+            "chapter_plan": chapter_plan,
+        }
         if node is not None:
             try:
                 node.outline = outline
                 metadata = dict(getattr(node, "metadata", {}) or {})
-                metadata["chapter_preplan"] = {
-                    "source_node_key": PLANNING_CHAPTER_PREPLAN,
-                    "chapter_plan": chapter_plan,
-                }
+                metadata["chapter_preplan"] = preplan_payload
                 node.metadata = metadata
                 update = getattr(self.story_node_repo, "update", None) if self.story_node_repo is not None else None
                 if callable(update):
@@ -203,9 +257,21 @@ class ChapterPreplanningService:
                     )
             except Exception as exc:
                 logger.debug("[ChapterPreplan] chapter outline persist failed: %s", exc)
-        self._write_plan_variables(novel_id, chapter_number, outline)
+        self._write_plan_variables(
+            novel_id,
+            chapter_number,
+            outline,
+            continuity_context=continuity_context,
+        )
 
-    def _write_plan_variables(self, novel_id: str, chapter_number: int, outline: str) -> None:
+    def _write_plan_variables(
+        self,
+        novel_id: str,
+        chapter_number: int,
+        outline: str,
+        *,
+        continuity_context: str,
+    ) -> None:
         if not outline:
             return
         try:
@@ -214,17 +280,82 @@ class ChapterPreplanningService:
             from infrastructure.persistence.database.sqlite_ai_invocation_repository import SqliteVariableHubRepository
 
             repo = SqliteVariableHubRepository(get_database())
-            repo.set_value(
+            context_key = f"novel_id:{novel_id}|chapter_number:{chapter_number}"
+            writes = [
                 VariableWrite(
                     key="chapter.outline",
                     value=outline,
-                    context_key=f"novel_id:{novel_id}|chapter_number:{chapter_number}",
+                    context_key=context_key,
                     source_node_key=PLANNING_CHAPTER_PREPLAN,
                     source_trace_id=PLANNING_CHAPTER_PREPLAN,
                     display_name="章节执行剧本",
                     scope="chapter",
                     stage="planning",
-                )
-            )
+                ),
+                VariableWrite(
+                    key="chapter.continuity_context",
+                    value=continuity_context,
+                    context_key=context_key,
+                    source_node_key=PLANNING_CHAPTER_PREPLAN,
+                    source_trace_id=PLANNING_CHAPTER_PREPLAN,
+                    display_name="连续性上下文",
+                    scope="chapter",
+                    stage="planning",
+                ),
+            ]
+            for write in writes:
+                repo.set_value(write)
         except Exception as exc:
             logger.debug("[ChapterPreplan] variable hub persist failed: %s", exc)
+
+    @staticmethod
+    def _normalize_string_list(value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            stripped = value.strip()
+            return [stripped] if stripped else []
+        if isinstance(value, list):
+            out: list[str] = []
+            for item in value:
+                text = stringify_plan_value(item)
+                if text and text not in out:
+                    out.append(text)
+            return out
+        text = stringify_plan_value(value)
+        return [text] if text else []
+
+    @classmethod
+    def _derive_key_plot_points(cls, chapter_plan: Any) -> list[str]:
+        if not isinstance(chapter_plan, dict):
+            return []
+        events = chapter_plan.get("event_chain") or chapter_plan.get("events") or []
+        if not isinstance(events, list):
+            return cls._normalize_string_list(events)
+        points: list[str] = []
+        for item in events:
+            text = stringify_plan_value(item)
+            if text and text not in points:
+                points.append(text)
+        return points
+
+    @classmethod
+    def _derive_chapter_characters(cls, chapter_plan: Any, act_plan: Any = None) -> list[str]:
+        characters: list[str] = []
+
+        def add_many(value: Any) -> None:
+            for text in cls._normalize_string_list(value):
+                if text and text not in characters:
+                    characters.append(text)
+
+        if isinstance(act_plan, dict):
+            add_many(act_plan.get("cast_hint") or act_plan.get("characters"))
+        if isinstance(chapter_plan, dict):
+            for scene in chapter_plan.get("scene_transitions") or chapter_plan.get("scenes") or []:
+                if isinstance(scene, dict):
+                    add_many(scene.get("cast") or scene.get("characters") or scene.get("roles"))
+            for dialogue in chapter_plan.get("key_dialogues") or chapter_plan.get("dialogues") or []:
+                if isinstance(dialogue, dict):
+                    add_many(dialogue.get("speaker") or dialogue.get("from") or dialogue.get("role"))
+                    add_many(dialogue.get("reply_actor"))
+        return characters

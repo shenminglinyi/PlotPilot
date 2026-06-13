@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from application.world.worldbuilding_merge import WORLD_BUILDING_DIMENSION_KEYS
 from application.world.worldbuilding_schema import (
+    schema_field_order,
     schema_field_keys,
     validate_complete_dimension_fields,
 )
@@ -83,8 +84,9 @@ def _dimension_key_start(buf: str, dim_key: str) -> Optional[int]:
 class WorldbuildingStreamIncrementalParser:
     """累积 LLM 流式文本，按规范字段 / 维度产出事件。"""
 
-    def __init__(self) -> None:
+    def __init__(self, root_dimension: Optional[str] = None) -> None:
         self._buf = JsonStreamBuffer()
+        self._root_dimension = root_dimension if root_dimension in _DIM_KEYS_ORDER else None
         self._emitted_dims: Set[str] = set()
         self._started_dims: Set[str] = set()
         self._emitted_fields: Dict[str, Dict[str, str]] = {d: {} for d in _DIM_KEYS_ORDER}
@@ -99,6 +101,11 @@ class WorldbuildingStreamIncrementalParser:
         self._buf.feed(chunk)
         buf = self._buf.text
         events: List[Dict[str, Any]] = []
+
+        if self._root_dimension:
+            events.extend(self._feed_root_dimension(buf))
+            if self._root_dimension in self._emitted_dims:
+                return events
 
         for dim_key in _DIM_KEYS_ORDER:
             if dim_key in self._emitted_dims:
@@ -164,6 +171,57 @@ class WorldbuildingStreamIncrementalParser:
 
         return events
 
+    def _feed_root_dimension(self, buf: str) -> List[Dict[str, Any]]:
+        """Accept a bare current-dimension object, e.g. ``{"power_system": "..."}``.
+
+        Split dimension generation asks the model for one dimension at a time.
+        Some providers obey by omitting the outer ``worldbuilding/core_rules``
+        wrapper. This path keeps those streams incremental instead of waiting
+        until a strict wrapped object appears.
+        """
+        dim_key = self._root_dimension
+        if not dim_key or dim_key in self._emitted_dims:
+            return []
+
+        events: List[Dict[str, Any]] = []
+        first_obj = re.search(r'\{\s*"([^"]+)"', buf)
+        if not first_obj:
+            return events
+
+        first_key = first_obj.group(1)
+        if first_key in {"style", "worldbuilding"} or first_key in _DIM_KEYS_ORDER:
+            return events
+        if first_key not in schema_field_keys(dim_key):
+            return events
+
+        brace = first_obj.start()
+        if dim_key not in self._started_dims:
+            self._started_dims.add(dim_key)
+            events.append({"type": "dimension_start", "key": dim_key})
+
+        end = scan_balanced_brace_end(buf, brace)
+        if end is None:
+            return events
+
+        try:
+            obj = json.loads(buf[brace:end])
+        except json.JSONDecodeError:
+            return events
+        if not isinstance(obj, dict):
+            return events
+
+        content = validate_complete_dimension_fields(dim_key, obj)
+        if not content or not _is_complete_dimension(dim_key, content):
+            return events
+
+        for fk, fv in content.items():
+            if self._emitted_fields[dim_key].get(fk) != fv:
+                self._emitted_fields[dim_key][fk] = fv
+                events.append({"type": "field", "key": dim_key, "field": fk, "value": fv})
+        self._emitted_dims.add(dim_key)
+        events.append({"type": "dimension", "key": dim_key, "content": content})
+        return events
+
     def _flush_started_dimensions_before(
         self,
         events: List[Dict[str, Any]],
@@ -220,6 +278,11 @@ class WorldbuildingStreamIncrementalParser:
         wb = parsed.get("worldbuilding")
         if isinstance(wb, dict):
             parsed = wb
+
+        if self._root_dimension and any(key in parsed for key in schema_field_order(self._root_dimension)):
+            norm = validate_complete_dimension_fields(self._root_dimension, parsed)
+            if norm:
+                return {self._root_dimension: norm}
 
         out: Dict[str, Dict[str, str]] = {}
         for dim_key in _DIM_KEYS_ORDER:

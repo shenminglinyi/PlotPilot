@@ -195,7 +195,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { RefreshOutline, CreateOutline } from '@vicons/ionicons5'
 import { worldbuildingApi } from '@/api/worldbuilding'
 import { characterPsycheApi, type CharacterPsycheDTO } from '@/api/engineCore'
@@ -209,6 +209,7 @@ import {
   getForeshadowImportanceChipClass,
   getForeshadowImportanceLabel,
 } from '@/domain/foreshadow'
+import { runtimePerformance } from '@/config/performance'
 
 interface Chapter {
   id: number
@@ -254,11 +255,20 @@ const worldRules = ref({ power_system: '', physics_rules: '', magic_tech: '' })
 const hasWorldRules = computed(() =>
   !!(worldRules.value.power_system || worldRules.value.physics_rules || worldRules.value.magic_tech)
 )
+let worldFetchSeq = 0
 
 async function fetchWorld() {
+  const slug = props.slug
+  const seq = ++worldFetchSeq
+  if (!slug) {
+    worldRules.value = { power_system: '', physics_rules: '', magic_tech: '' }
+    loadingWorld.value = false
+    return
+  }
   loadingWorld.value = true
   try {
-    const wb = await worldbuildingApi.getWorldbuilding(props.slug)
+    const wb = await worldbuildingApi.getWorldbuilding(slug)
+    if (seq !== worldFetchSeq || props.slug !== slug) return
     const cr = wb?.core_rules
     worldRules.value = {
       power_system: cr?.power_system ?? '',
@@ -268,7 +278,7 @@ async function fetchWorld() {
   } catch {
     /* silent */
   } finally {
-    loadingWorld.value = false
+    if (seq === worldFetchSeq) loadingWorld.value = false
   }
 }
 
@@ -276,6 +286,7 @@ async function fetchWorld() {
 const loadingChars = ref(false)
 const characters = ref<CharacterPsycheDTO[]>([])
 const visibleChars = computed(() => characters.value.slice(0, 5))
+let charsFetchSeq = 0
 
 const AVATAR_COLORS = [
   '#2563eb', '#7c3aed', '#db2777', '#dc2626',
@@ -289,14 +300,22 @@ function charAvatarColor(name: string): string {
 }
 
 async function fetchChars() {
+  const slug = props.slug
+  const seq = ++charsFetchSeq
+  if (!slug) {
+    characters.value = []
+    loadingChars.value = false
+    return
+  }
   loadingChars.value = true
   try {
-    const res = await characterPsycheApi.list(props.slug)
+    const res = await characterPsycheApi.list(slug)
+    if (seq !== charsFetchSeq || props.slug !== slug) return
     characters.value = (res?.characters ?? []).slice(0, 8)
   } catch {
     /* silent */
   } finally {
-    loadingChars.value = false
+    if (seq === charsFetchSeq) loadingChars.value = false
   }
 }
 
@@ -305,6 +324,7 @@ const loadingFs = ref(false)
 const allPendingFs = ref<ForeshadowEntryWithPriority[]>([])
 const consumeLoadingId = ref<string | null>(null)
 const priorityLoadingId = ref<string | null>(null)
+let foreshadowFetchSeq = 0
 
 const dueForeshadows = computed(() => {
   const ch = props.currentChapter?.number ?? null
@@ -325,41 +345,55 @@ const importanceChipClass = getForeshadowImportanceChipClass
 const importanceAccentColor = getForeshadowImportanceAccentColor
 
 async function fetchForeshadows() {
+  const slug = props.slug
+  const seq = ++foreshadowFetchSeq
+  if (!slug) {
+    allPendingFs.value = []
+    loadingFs.value = false
+    return
+  }
   loadingFs.value = true
   try {
-    allPendingFs.value = await foreshadowApi.list(props.slug, 'pending')
+    const entries = await foreshadowApi.list(slug, 'pending')
+    if (seq !== foreshadowFetchSeq || props.slug !== slug) return
+    allPendingFs.value = entries
   } catch {
     /* silent */
   } finally {
-    loadingFs.value = false
+    if (seq === foreshadowFetchSeq) loadingFs.value = false
   }
 }
 
 async function markConsumed(f: ForeshadowEntryWithPriority) {
   const ch = props.currentChapter?.number
-  if (ch == null) return
+  const slug = props.slug
+  if (ch == null || !slug) return
   consumeLoadingId.value = f.id
   try {
-    await foreshadowApi.markConsumed(props.slug, f.id, ch)
+    await foreshadowApi.markConsumed(slug, f.id, ch)
+    if (props.slug !== slug || props.currentChapter?.number !== ch) return
     allPendingFs.value = allPendingFs.value.filter(e => e.id !== f.id)
   } catch {
     /* silent */
   } finally {
-    consumeLoadingId.value = null
+    if (consumeLoadingId.value === f.id) consumeLoadingId.value = null
   }
 }
 
 async function togglePriority(f: ForeshadowEntryWithPriority) {
+  const slug = props.slug
+  if (!slug) return
   priorityLoadingId.value = f.id
   try {
     const newPriority = !f.is_priority_for_chapter
-    await foreshadowApi.update(props.slug, f.id, { is_priority_for_chapter: newPriority })
+    await foreshadowApi.update(slug, f.id, { is_priority_for_chapter: newPriority })
+    if (props.slug !== slug) return
     const idx = allPendingFs.value.findIndex(e => e.id === f.id)
     if (idx !== -1) allPendingFs.value[idx] = { ...allPendingFs.value[idx], is_priority_for_chapter: newPriority }
   } catch {
     /* silent */
   } finally {
-    priorityLoadingId.value = null
+    if (priorityLoadingId.value === f.id) priorityLoadingId.value = null
   }
 }
 
@@ -367,6 +401,8 @@ async function togglePriority(f: ForeshadowEntryWithPriority) {
 const generationHint = ref('')
 const hintSaveStatus = ref<'' | 'saving' | 'saved' | 'error'>('')
 let hintSaveTimer: ReturnType<typeof setTimeout> | null = null
+let hintFetchSeq = 0
+let hintSaveSeq = 0
 
 const hintStatusLabel = computed(() => {
   if (hintSaveStatus.value === 'saving') return '保存中…'
@@ -384,13 +420,22 @@ const hintStatusChipClass = computed(() => {
 
 async function saveHint() {
   const ch = props.currentChapter?.number
-  if (ch == null || !props.slug) return
+  const slug = props.slug
+  if (ch == null || !slug) return
+  const seq = ++hintSaveSeq
   if (hintSaveTimer) clearTimeout(hintSaveTimer)
   hintSaveStatus.value = 'saving'
   try {
-    await chapterApi.updateGenerationHint(props.slug, ch, generationHint.value)
+    await chapterApi.updateGenerationHint(slug, ch, generationHint.value)
+    if (seq !== hintSaveSeq || props.slug !== slug || props.currentChapter?.number !== ch) {
+      if (seq === hintSaveSeq) hintSaveStatus.value = ''
+      return
+    }
     hintSaveStatus.value = 'saved'
-    hintSaveTimer = setTimeout(() => { hintSaveStatus.value = '' }, 2000)
+    hintSaveTimer = setTimeout(() => {
+      hintSaveStatus.value = ''
+      hintSaveTimer = null
+    }, runtimePerformance.workbench.chapterHintSavedNoticeMs)
   } catch {
     hintSaveStatus.value = 'error'
   }
@@ -398,9 +443,15 @@ async function saveHint() {
 
 async function fetchHint() {
   const ch = props.currentChapter?.number
-  if (ch == null || !props.slug) return
+  const slug = props.slug
+  const seq = ++hintFetchSeq
+  if (ch == null || !slug) {
+    generationHint.value = ''
+    return
+  }
   try {
-    const chapter = await chapterApi.getChapter(props.slug, ch)
+    const chapter = await chapterApi.getChapter(slug, ch)
+    if (seq !== hintFetchSeq || props.slug !== slug || props.currentChapter?.number !== ch) return
     generationHint.value = chapter.generation_hint ?? ''
   } catch {
     /* silent */
@@ -422,6 +473,18 @@ watch(() => props.slug, reload)
 watch(() => props.currentChapter?.number, () => {
   fetchForeshadows()
   fetchHint()
+})
+
+onUnmounted(() => {
+  worldFetchSeq++
+  charsFetchSeq++
+  foreshadowFetchSeq++
+  hintFetchSeq++
+  hintSaveSeq++
+  if (hintSaveTimer) {
+    clearTimeout(hintSaveTimer)
+    hintSaveTimer = null
+  }
 })
 </script>
 

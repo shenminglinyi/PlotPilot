@@ -209,18 +209,31 @@ export const useDAGStore = defineStore('dag', () => {
 
   // ─── SSE 事件处理 ───
 
+  function normalizeNumericMetrics(metrics?: Record<string, unknown>): Record<string, number> {
+    if (!metrics) return {}
+    return Object.fromEntries(
+      Object.entries(metrics)
+        .map(([key, value]) => [key, Number(value)] as const)
+        .filter(([, value]) => Number.isFinite(value)),
+    )
+  }
+
   function handleSSEEvent(event: NodeEvent) {
     switch (event.type) {
       case 'node_status_change':
         if (event.node_id) {
           const existing = nodeStates.value.get(event.node_id)
+          const nextMetrics = {
+            ...(existing?.metrics ?? {}),
+            ...normalizeNumericMetrics(event.metrics),
+          }
           nodeStates.value.set(event.node_id, {
             node_id: event.node_id,
             status: (event.status ?? 'idle') as NodeStatus,
             duration_ms: existing?.duration_ms ?? 0,
             outputs: existing?.outputs ?? {},
-            metrics: existing?.metrics ?? (event.metrics as Record<string, number>) ?? {},
-            progress: existing?.progress ?? 0,
+            metrics: nextMetrics,
+            progress: nextMetrics.progress ?? existing?.progress ?? 0,
             error: event.error ?? null,
           })
         }
@@ -229,17 +242,26 @@ export const useDAGStore = defineStore('dag', () => {
       case 'node_output':
         if (event.node_id) {
           const existing = nodeStates.value.get(event.node_id)
+          const nextMetrics = {
+            ...(existing?.metrics ?? {}),
+            ...normalizeNumericMetrics(event.metrics),
+          }
           if (existing) {
-            existing.outputs = event.outputs ?? {}
-            existing.duration_ms = event.duration_ms ?? 0
+            nodeStates.value.set(event.node_id, {
+              ...existing,
+              outputs: event.outputs ?? {},
+              duration_ms: event.duration_ms ?? 0,
+              metrics: nextMetrics,
+              progress: nextMetrics.progress ?? existing.progress,
+            })
           } else {
             nodeStates.value.set(event.node_id, {
               node_id: event.node_id,
               status: 'success',
               outputs: event.outputs ?? {},
               duration_ms: event.duration_ms ?? 0,
-              metrics: (event.metrics as Record<string, number>) ?? {},
-              progress: 1.0,
+              metrics: nextMetrics,
+              progress: nextMetrics.progress ?? 1.0,
             })
           }
         }

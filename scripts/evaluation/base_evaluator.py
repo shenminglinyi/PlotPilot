@@ -220,6 +220,7 @@ class BaseEvaluator(ABC):
                 llm,
                 self._get_service("bible_service"),
                 chapter_repository=SqliteChapterRepository(get_database()),
+                novel_repository=self._get_service("novel_repository"),
             )
 
         elif service_name == "beat_sheet":

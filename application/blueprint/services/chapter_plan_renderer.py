@@ -157,9 +157,14 @@ def render_chapter_execution_plan(chapter_plan: Any) -> str:
 
 def render_lightweight_act_chapter_outline(row: dict[str, Any]) -> str:
     """Render the slim act-chain row as a readable placeholder before preplanning."""
+    try:
+        number = int(row.get("number") or 0)
+    except (TypeError, ValueError):
+        number = 0
+    handoff_label = "开篇入口" if number == 1 else "承接上一章"
     lines = [
         f"主事件：{stringify_plan_value(row.get('main_event'))}",
-        f"承接上一章：{stringify_plan_value(row.get('handoff_from_previous'))}",
+        f"{handoff_label}：{stringify_plan_value(row.get('handoff_from_previous'))}",
         f"交给下一章：{stringify_plan_value(row.get('handoff_to_next'))}",
     ]
     threads = stringify_plan_value(row.get("required_threads"))

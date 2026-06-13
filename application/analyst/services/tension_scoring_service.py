@@ -14,7 +14,7 @@ from application.ai.tension_scoring_contract import (
     tension_scoring_payload_to_domain,
     tension_scoring_response_format,
 )
-from application.ai.structured_json_pipeline import structured_json_generate
+from application.ai.structured_json_pipeline import structured_json_generate_with_status
 from infrastructure.ai.generation_profiles import generation_config_from_profile
 from infrastructure.ai.prompt_contract import PromptContract
 from infrastructure.ai.prompt_gateway import PromptGatewayError, get_prompt_gateway
@@ -82,17 +82,22 @@ class TensionScoringService:
         )
 
         try:
-            payload = await structured_json_generate(
+            parsed = await structured_json_generate_with_status(
                 llm=self._llm,
                 prompt=prompt,
                 config=config,
                 schema_model=TensionScoringLlmPayload,
             )
+            payload = parsed.payload
         except Exception as e:
             logger.warning("张力评分管线异常: %s", e)
             payload = None
+            parsed = None
 
         if payload is None:
+            if parsed is not None and parsed.failure_stage == "parse_or_schema":
+                logger.warning("张力评分解析失败，使用中性 50: %s", list(parsed.errors[:4]))
+                return TensionDimensions.neutral()
             return TensionDimensions.unevaluated()
 
         dims = tension_scoring_payload_to_domain(payload)

@@ -21,6 +21,12 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
+from application.engine.services.persistence_queue_settings import (
+    PersistentQueueSettings,
+    get_persistent_queue_settings,
+)
+from infrastructure.persistence.database.sqlite_pragmas import apply_standard_pragmas
+
 logger = logging.getLogger(__name__)
 
 
@@ -113,25 +119,14 @@ class PersistentQueueV2:
     - DB锁指数退避重试
     """
 
-    # 批量处理大小
-    BATCH_SIZE = 10
-
-    # 清理阈值
-    CLEANUP_THRESHOLD = 1000
-
-    # 僵尸任务超时时间（分钟）
-    ZOMBIE_TIMEOUT_MINUTES = 5
-
-    # 队列膨胀警告阈值
-    QUEUE_BLOAT_WARNING = 5000
-
-    def __init__(self, db_pool):
+    def __init__(self, db_pool, settings: PersistentQueueSettings | None = None):
         """初始化持久化队列
 
         Args:
             db_pool: SQLiteConnectionPool 实例
         """
         self._db_pool = db_pool
+        self._settings = settings or get_persistent_queue_settings()
         self._consumer_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._handlers: Dict[str, Callable] = {}
@@ -156,10 +151,7 @@ class PersistentQueueV2:
         """配置SQLite WAL模式（性能提升2-3倍）"""
         try:
             with self._db_pool.get_connection() as conn:
-                conn.execute("PRAGMA journal_mode=WAL")       # 读写互不阻塞
-                conn.execute("PRAGMA synchronous=NORMAL")      # 性能提升2-3倍
-                conn.execute("PRAGMA busy_timeout=5000")       # 锁等待5秒
-                conn.execute("PRAGMA wal_autocheckpoint=100")  # WAL自动检查点
+                apply_standard_pragmas(conn)
                 conn.commit()
                 logger.debug("SQLite WAL模式已配置")
         except Exception as e:
@@ -216,7 +208,7 @@ class PersistentQueueV2:
         command_type: str,
         payload: Dict[str, Any],
         priority: int = 0,
-        max_retries: int = 3
+        max_retries: int | None = None
     ) -> int:
         """推入持久化命令
 
@@ -229,13 +221,14 @@ class PersistentQueueV2:
         Returns:
             命令 ID
         """
+        resolved_max_retries = self._settings.max_retries if max_retries is None else max_retries
         try:
             with self._db_pool.get_connection() as conn:
                 cursor = conn.execute(
                     """INSERT INTO persistence_queue
                        (command_type, payload, priority, max_retries)
                        VALUES (?, ?, ?, ?)""",
-                    (command_type, json.dumps(payload), priority, max_retries)
+                    (command_type, json.dumps(payload), priority, resolved_max_retries)
                 )
                 conn.commit()
 
@@ -267,9 +260,9 @@ class PersistentQueueV2:
                 for command_type, payload in commands:
                     cursor = conn.execute(
                         """INSERT INTO persistence_queue
-                           (command_type, payload)
-                           VALUES (?, ?)""",
-                        (command_type, json.dumps(payload))
+                           (command_type, payload, max_retries)
+                           VALUES (?, ?, ?)""",
+                        (command_type, json.dumps(payload), self._settings.max_retries)
                     )
                     command_ids.append(cursor.lastrowid)
 
@@ -293,8 +286,8 @@ class PersistentQueueV2:
         Returns:
             命令列表
         """
-        batch_size = batch_size or self.BATCH_SIZE
-        zombie_timeout = zombie_timeout_minutes or self.ZOMBIE_TIMEOUT_MINUTES
+        batch_size = batch_size or self._settings.batch_size
+        zombie_timeout = zombie_timeout_minutes or self._settings.zombie_timeout_minutes
 
         try:
             with self._db_pool.get_connection() as conn:
@@ -431,7 +424,7 @@ class PersistentQueueV2:
         """停止消费者线程"""
         self._stop_event.set()
         if self._consumer_thread:
-            self._consumer_thread.join(timeout=5)
+            self._consumer_thread.join(timeout=self._settings.consumer_stop_timeout_seconds)
         logger.info("持久化队列消费者已停止")
 
     def _consume_loop(self):
@@ -444,8 +437,7 @@ class PersistentQueueV2:
                 commands = self.pop()
 
                 if not commands:
-                    # 队列为空，休眠 0.5 秒
-                    time.sleep(0.5)
+                    time.sleep(self._settings.consumer_idle_sleep_seconds)
                     continue
 
                 # 处理每个命令
@@ -456,12 +448,14 @@ class PersistentQueueV2:
                     self._process_command(command)
 
                 # 定期清理
-                if self._stats["processed"] % 100 == 0:
+                if self._stats["processed"] > 0 and self._settings.cleanup_every_processed > 0 and (
+                    self._stats["processed"] % self._settings.cleanup_every_processed == 0
+                ):
                     self._cleanup_old_tasks()
 
             except Exception as e:
                 logger.error(f"消费者异常: {e}", exc_info=True)
-                time.sleep(1)
+                time.sleep(self._settings.consumer_error_sleep_seconds)
 
         logger.info("持久化队列消费者已退出")
 
@@ -495,7 +489,7 @@ class PersistentQueueV2:
                        WHERE status = 'processing'
                          AND updated_at < datetime('now', ?)
                          AND retry_count < max_retries""",
-                    (f'-{self.ZOMBIE_TIMEOUT_MINUTES} minutes',)
+                    (f'-{self._settings.zombie_timeout_minutes} minutes',)
                 )
                 conn.commit()
 
@@ -507,29 +501,30 @@ class PersistentQueueV2:
             logger.warning(f"僵尸任务恢复失败: {e}")
 
     def _cleanup_old_tasks(self):
-        """清理旧任务（7天前）+ 队列膨胀检查"""
+        """清理旧任务并检查队列膨胀。"""
         try:
             with self._db_pool.get_connection() as conn:
-                # 清理旧任务
-                result = conn.execute(
-                    """DELETE FROM persistence_queue
-                       WHERE status IN ('completed', 'failed')
-                       AND completed_at < datetime('now', '-7 days')"""
-                )
-                conn.commit()
-
-                if result.rowcount > 0:
-                    logger.info(f"已清理 {result.rowcount} 个旧任务")
-
-                # 队列膨胀检查
                 total_row = conn.execute(
                     "SELECT COUNT(*) as total FROM persistence_queue"
                 ).fetchone()
+                total = int(total_row["total"] if total_row else 0)
 
-                if total_row and total_row["total"] > self.QUEUE_BLOAT_WARNING:
+                if total > self._settings.cleanup_threshold:
+                    result = conn.execute(
+                        """DELETE FROM persistence_queue
+                           WHERE status IN ('completed', 'failed')
+                           AND completed_at < datetime('now', ?)""",
+                        (f'-{self._settings.cleanup_days} days',)
+                    )
+                    conn.commit()
+
+                    if result.rowcount > 0:
+                        logger.info(f"已清理 {result.rowcount} 个旧任务")
+
+                if total > self._settings.queue_bloat_warning:
                     logger.warning(
-                        f"队列膨胀警告：当前 {total_row['total']} 条记录，"
-                        f"超过阈值 {self.QUEUE_BLOAT_WARNING}"
+                        f"队列膨胀警告：当前 {total} 条记录，"
+                        f"超过阈值 {self._settings.queue_bloat_warning}"
                     )
 
         except Exception as e:
@@ -546,8 +541,9 @@ class PersistentQueueV2:
                         SUM(CASE WHEN status = 'processing' THEN 1 ELSE 0 END) as processing,
                         SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
                         SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
-                        SUM(CASE WHEN status = 'processing' AND updated_at < datetime('now', '-5 minutes') THEN 1 ELSE 0 END) as zombie
-                    FROM persistence_queue"""
+                        SUM(CASE WHEN status = 'processing' AND updated_at < datetime('now', ?) THEN 1 ELSE 0 END) as zombie
+                    FROM persistence_queue""",
+                    (f'-{self._settings.zombie_timeout_minutes} minutes',),
                 ).fetchone()
 
                 return {
@@ -555,7 +551,7 @@ class PersistentQueueV2:
                     "consumer_stats": self._stats,
                     "consumer_running": self._consumer_thread.is_alive() if self._consumer_thread else False,
                     "wal_mode": True,
-                    "zombie_timeout_minutes": self.ZOMBIE_TIMEOUT_MINUTES,
+                    "zombie_timeout_minutes": self._settings.zombie_timeout_minutes,
                 }
 
         except Exception as e:

@@ -45,63 +45,65 @@ class SqliteNarrativeMemoryRepository:
         return entity
 
     def upsert_atom(self, atom: MemoryAtom) -> MemoryAtom:
+        dedupe_params = (
+            atom.novel_id,
+            atom.entity_id,
+            atom.memory_type,
+            atom.source,
+            atom.chapter_number,
+            atom.text_span,
+        )
+        payload_json = json.dumps(atom.payload, ensure_ascii=False)
+        self.db.execute(
+            """
+            INSERT OR IGNORE INTO memory_atoms
+            (id, novel_id, entity_id, entity_type, memory_type, scope, source, status,
+             payload_json, chapter_number, text_span, confidence, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            """,
+            (
+                atom.id,
+                atom.novel_id,
+                atom.entity_id,
+                atom.entity_type,
+                atom.memory_type,
+                atom.scope,
+                atom.source,
+                atom.status,
+                payload_json,
+                atom.chapter_number,
+                atom.text_span,
+                atom.confidence,
+            ),
+        )
+        self.db.execute(
+            """
+            UPDATE memory_atoms
+            SET entity_type = ?, scope = ?, status = ?, payload_json = ?,
+                confidence = ?, updated_at = datetime('now')
+            WHERE novel_id = ? AND entity_id = ? AND memory_type = ? AND source = ?
+              AND IFNULL(chapter_number, -1) = IFNULL(?, -1) AND text_span = ?
+            """,
+            (
+                atom.entity_type,
+                atom.scope,
+                atom.status,
+                payload_json,
+                atom.confidence,
+                *dedupe_params,
+            ),
+        )
+        self.db.get_connection().commit()
         existing = self.db.fetch_one(
             """
             SELECT id FROM memory_atoms
             WHERE novel_id = ? AND entity_id = ? AND memory_type = ? AND source = ?
               AND IFNULL(chapter_number, -1) = IFNULL(?, -1) AND text_span = ?
             """,
-            (
-                atom.novel_id,
-                atom.entity_id,
-                atom.memory_type,
-                atom.source,
-                atom.chapter_number,
-                atom.text_span,
-            ),
+            dedupe_params,
         )
         if existing:
             atom.id = str(existing["id"])
-            self.db.execute(
-                """
-                UPDATE memory_atoms
-                SET entity_type = ?, scope = ?, status = ?, payload_json = ?,
-                    confidence = ?, updated_at = datetime('now')
-                WHERE id = ?
-                """,
-                (
-                    atom.entity_type,
-                    atom.scope,
-                    atom.status,
-                    json.dumps(atom.payload, ensure_ascii=False),
-                    atom.confidence,
-                    atom.id,
-                ),
-            )
-        else:
-            self.db.execute(
-                """
-                INSERT INTO memory_atoms
-                (id, novel_id, entity_id, entity_type, memory_type, scope, source, status,
-                 payload_json, chapter_number, text_span, confidence, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-                """,
-                (
-                    atom.id,
-                    atom.novel_id,
-                    atom.entity_id,
-                    atom.entity_type,
-                    atom.memory_type,
-                    atom.scope,
-                    atom.source,
-                    atom.status,
-                    json.dumps(atom.payload, ensure_ascii=False),
-                    atom.chapter_number,
-                    atom.text_span,
-                    atom.confidence,
-                ),
-            )
-        self.db.get_connection().commit()
         return atom
 
     def get_atoms_for_entity(

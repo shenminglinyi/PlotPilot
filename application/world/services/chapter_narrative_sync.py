@@ -33,6 +33,21 @@ from application.world.services.storyline_normalization import (
 logger = logging.getLogger(__name__)
 
 
+def _stable_artifact_id(prefix: str, novel_id: str, chapter_number: int, *parts: Any) -> str:
+    """Build a deterministic artifact id for chapter aftermath idempotency."""
+    normalized = "|".join(_normalize_artifact_part(part) for part in parts)
+    key = f"{prefix}|{novel_id}|{int(chapter_number)}|{normalized}"
+    return f"{prefix}-{uuid.uuid5(uuid.NAMESPACE_URL, key).hex}"
+
+
+def _normalize_artifact_part(value: Any) -> str:
+    if isinstance(value, (list, tuple, set)):
+        return ",".join(sorted(_normalize_artifact_part(v) for v in value))
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+    return re.sub(r"\s+", " ", str(value or "").strip()).lower()
+
+
 def _extract_json_object(text: str) -> dict:
     """从模型输出中解析 JSON 对象，优先走通用清洗/修复管线。"""
     cleaned = sanitize_llm_output(text or "")
@@ -448,7 +463,7 @@ def persist_bundle_triples_and_foreshadows(
                 if not (s and p and o):
                     continue
                 row = {
-                    "id": str(uuid.uuid4()),
+                    "id": _stable_artifact_id("triple", novel_id, chapter_number, s, p, o, "autopilot_extract"),
                     "subject": s,
                     "predicate": p,
                     "object": o,
@@ -539,9 +554,17 @@ def persist_bundle_triples_and_foreshadows(
                 try:
                     # 计算预期回收章节 = 埋设章节 + 偏移量
                     suggested_resolve = chapter_number + resolve_offset
+                    stable_id = _stable_artifact_id(
+                        "foreshadow",
+                        novel_id,
+                        chapter_number,
+                        desc,
+                        suggested_resolve,
+                        importance_val,
+                    )
                     registry.register(
                         Foreshadowing(
-                            id=str(uuid.uuid4()),
+                            id=stable_id,
                             planted_in_chapter=max(1, chapter_number),
                             description=desc,
                             importance=_importance_str_to_level(importance_val),
@@ -685,6 +708,16 @@ def persist_causal_edges(
         state_change = str(item.get("state_change", "")).strip()
 
         edge = CausalEdge(
+            id=_stable_artifact_id(
+                "causal",
+                novel_id,
+                chapter_number,
+                source_event,
+                causal_type.value,
+                target_event,
+                state_change,
+                involved,
+            ),
             novel_id=novel_id,
             source_event_summary=source_event,
             source_chapter=chapter_number,
@@ -877,13 +910,23 @@ def persist_character_mutations(
                 pass
 
             scar = Scar(
+                id=_stable_artifact_id(
+                    "scar",
+                    novel_id,
+                    chapter_number,
+                    character_id,
+                    source_event,
+                    impact_or_desc,
+                    sensitivity_tags,
+                ),
                 source_event=source_event,
                 source_chapter=chapter_number,
                 impact=impact_or_desc,
                 sensitivity_tags=sensitivity_tags,
                 intensity=intensity,
             )
-            state.add_scar(scar)
+            if not any(existing.id == scar.id for existing in state.scars):
+                state.add_scar(scar)
 
         elif mutation_type == "motivation":
             tags_or_priority = item.get("sensitivity_tags_or_priority", 5)
@@ -894,12 +937,22 @@ def persist_character_mutations(
                 priority = 5
 
             motivation = Motivation(
+                id=_stable_artifact_id(
+                    "motivation",
+                    novel_id,
+                    chapter_number,
+                    character_id,
+                    source_event,
+                    impact_or_desc,
+                    priority,
+                ),
                 description=impact_or_desc,
                 source_event=source_event,
                 source_chapter=chapter_number,
                 priority=priority,
             )
-            state.add_motivation(motivation)
+            if not any(existing.id == motivation.id for existing in state.motivations):
+                state.add_motivation(motivation)
 
         elif mutation_type == "emotional_arc":
             arc_node = EmotionalArcNode(
@@ -909,17 +962,33 @@ def persist_character_mutations(
                 intensity=intensity,
                 is_breakout=intensity >= 8,  # 高强度情感转折视为 breakout
             )
-            state.add_emotional_arc_node(arc_node)
+            if not any(
+                existing.chapter == arc_node.chapter
+                and existing.emotion == arc_node.emotion
+                and existing.trigger == arc_node.trigger
+                for existing in state.emotional_arc
+            ):
+                state.add_emotional_arc_node(arc_node)
 
         else:
             # 未知类型，默认当 scar 处理
             scar = Scar(
+                id=_stable_artifact_id(
+                    "scar",
+                    novel_id,
+                    chapter_number,
+                    character_id,
+                    source_event,
+                    impact_or_desc,
+                    "fallback",
+                ),
                 source_event=source_event,
                 source_chapter=chapter_number,
                 impact=impact_or_desc,
                 intensity=intensity,
             )
-            state.add_scar(scar)
+            if not any(existing.id == scar.id for existing in state.scars):
+                state.add_scar(scar)
 
         # 更新状态摘要和章节号
         state.current_state_summary = _build_state_summary(state)
@@ -999,10 +1068,16 @@ def persist_character_end_states(
             chapter=chapter_number,
             emotion=mental_state,
             trigger="章末状态快照",
-            intensity=5.0,
+            intensity=5,
             is_breakout=False,
         )
-        state.add_emotional_arc_node(arc_node)
+        if not any(
+            existing.chapter == arc_node.chapter
+            and existing.emotion == arc_node.emotion
+            and existing.trigger == arc_node.trigger
+            for existing in state.emotional_arc
+        ):
+            state.add_emotional_arc_node(arc_node)
         state.current_state_summary = mental_state
         state.last_updated_chapter = chapter_number
 
@@ -1257,6 +1332,15 @@ def update_narrative_debts(
         due_chapter = chapter_number + due_offset
 
         debt = NarrativeDebt(
+            id=_stable_artifact_id(
+                "debt",
+                novel_id,
+                chapter_number,
+                DebtType.CAUSAL_CHAIN.value,
+                source_event,
+                target_event,
+                involved_chars,
+            ),
             novel_id=novel_id,
             debt_type=DebtType.CAUSAL_CHAIN,
             description=f"{source_event} → {target_event}",
@@ -1304,6 +1388,15 @@ def update_narrative_debts(
         due_chapter = chapter_number + 20  # 执念通常需要更长时间闭环
 
         debt = NarrativeDebt(
+            id=_stable_artifact_id(
+                "debt",
+                novel_id,
+                chapter_number,
+                DebtType.CHARACTER_ARC.value,
+                character_name,
+                impact_or_desc,
+                priority,
+            ),
             novel_id=novel_id,
             debt_type=DebtType.CHARACTER_ARC,
             description=f"{character_name}的执念: {impact_or_desc}",
@@ -1957,14 +2050,32 @@ def persist_bundle_extras(
                 if context:
                     tags.append(f"场景:{context}")
 
-                # 写入 narrative_events
-                narrative_event_repository.append_event(
-                    novel_id=novel_id,
-                    chapter_number=chapter_number,
-                    event_summary=event_summary,
-                    mutations=mutations,
-                    tags=tags
+                event_id = _stable_artifact_id(
+                    "event",
+                    novel_id,
+                    chapter_number,
+                    "dialogue",
+                    speaker,
+                    content,
+                    context,
                 )
+                if hasattr(narrative_event_repository, "upsert_event"):
+                    narrative_event_repository.upsert_event(
+                        event_id=event_id,
+                        novel_id=novel_id,
+                        chapter_number=chapter_number,
+                        event_summary=event_summary,
+                        mutations=mutations,
+                        tags=tags,
+                    )
+                else:
+                    narrative_event_repository.append_event(
+                        novel_id=novel_id,
+                        chapter_number=chapter_number,
+                        event_summary=event_summary,
+                        mutations=mutations,
+                        tags=tags,
+                    )
 
             logger.info("对话提取完成 novel=%s ch=%s count=%d", novel_id, chapter_number, len(dialogues))
         except Exception as e:

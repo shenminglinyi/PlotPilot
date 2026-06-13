@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from application.ai.llm_control_service import LLMControlService
-from application.paths import DATA_DIR
+from application.paths import DATA_DIR, resolve_runtime_data_path
 from domain.ai.services.vector_store import VectorStore
 from infrastructure.ai.provider_factory import DynamicLLMService, LLMProviderFactory
 from infrastructure.persistence.storage.file_storage import FileStorage
@@ -80,10 +80,14 @@ class AppContainer:
 
             from infrastructure.ai.chromadb_vector_store import ChromaDBVectorStore
 
-            self._vector_store = ChromaDBVectorStore(
-                persist_directory=vector_settings.persist_directory
+            persist_directory = resolve_runtime_data_path(
+                vector_settings.persist_directory
             )
-            logger.info("本地向量存储初始化成功: %s", vector_settings.persist_directory)
+            persist_directory.mkdir(parents=True, exist_ok=True)
+            self._vector_store = ChromaDBVectorStore(
+                persist_directory=str(persist_directory)
+            )
+            logger.info("本地向量存储初始化成功: %s", persist_directory)
             return self._vector_store
         except Exception as exc:
             self._vector_store_init_failed = True
