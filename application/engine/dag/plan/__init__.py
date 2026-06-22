@@ -4,6 +4,7 @@
 扩展新规划能力时请增加 atoms / extensions，避免改 core 字段语义。
 """
 
+from application.engine.dag.plan import outline_beat_planner
 from application.engine.dag.plan.outline_beat_planner import render_cpms_outline_partition_prompts
 from application.engine.dag.plan.schema import (
     ChapterExecutionPlan,
@@ -17,5 +18,6 @@ __all__ = [
     "ChapterExecutionPlan",
     "PlanningEnvelope",
     "PlanAtomSpec",
+    "outline_beat_planner",
     "render_cpms_outline_partition_prompts",
 ]

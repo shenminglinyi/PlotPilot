@@ -4,10 +4,12 @@ from __future__ import annotations
 import json
 import logging
 import re
+from hashlib import sha256
 from typing import Any, AsyncIterator, Dict, List, Mapping, Optional, Tuple
 
 from domain.ai.services.llm_service import GenerationConfig, LLMService
 from domain.ai.value_objects.prompt import Prompt
+from application.workflows.plotpilot_sidecar_m4_adapter import enhance_prompt_for_plotpilot_m4
 from application.world.services.bible_service import BibleService
 from application.core.services.novel_service import NovelService
 from application.blueprint.services.setup_context_builder import SetupContextBuilder
@@ -112,6 +114,34 @@ class SetupMainPlotSuggestionService:
             bible_service=bible_service,
             novel_service=novel_service,
         )
+        self._sidecar_traces: List[Dict[str, Any]] = []
+        self._last_sidecar_trace: Optional[Dict[str, Any]] = None
+
+    def _apply_sidecar_m4_enhancement(self, prompt: Prompt, *, source_function: str) -> Prompt:
+        enhanced_prompt, sidecar_trace = enhance_prompt_for_plotpilot_m4(
+            prompt,
+            node_type="main_plot",
+            native_call_boundary={
+                "source_file": "systems/PlotPilot/application/blueprint/services/setup_main_plot_suggestion_service.py",
+                "source_function": source_function,
+            },
+        )
+        if not hasattr(self, "_sidecar_traces"):
+            self._sidecar_traces = []
+        self._last_sidecar_trace = sidecar_trace
+        self._sidecar_traces.append(sidecar_trace)
+        return enhanced_prompt
+
+    def _record_sidecar_output_evidence(self, content: str) -> None:
+        trace = getattr(self, "_last_sidecar_trace", None)
+        if not trace or not trace.get("enhancement_applied"):
+            return
+        output = (content or "").strip()
+        trace["enhanced_before_native_call"] = True
+        trace["output_evidence"] = {
+            "output_char_count": len(output),
+            "output_excerpt_hash": sha256(output[:1200].encode("utf-8")).hexdigest(),
+        }
 
     def build_context(self, novel_id: str) -> Dict[str, Any]:
         """公开的向导上下文构建入口，供 AI Invocation 路由复用。"""
@@ -344,8 +374,13 @@ class SetupMainPlotSuggestionService:
 
     async def suggest_options(self, novel_id: str) -> List[Dict[str, Any]]:
         ctx, prompt, config = self._build_prompt_and_config(novel_id)
+        prompt = self._apply_sidecar_m4_enhancement(
+            prompt,
+            source_function="SetupMainPlotSuggestionService.suggest_options",
+        )
         try:
             result = await self._llm.generate(prompt, config)
+            self._record_sidecar_output_evidence(result.content)
             return self.parse_suggested_options(result.content, ctx=ctx)
         except Exception as e:
             logger.warning("Main plot suggestion LLM parse failed: %s", e)
@@ -354,6 +389,10 @@ class SetupMainPlotSuggestionService:
     async def stream_suggest_options(self, novel_id: str) -> AsyncIterator[Dict[str, Any]]:
         """流式推演主线候选：chunk 透传 + option 增量解析；不合同时返回错误事件。"""
         ctx, prompt, config = self._build_prompt_and_config(novel_id)
+        prompt = self._apply_sidecar_m4_enhancement(
+            prompt,
+            source_function="SetupMainPlotSuggestionService.stream_suggest_options",
+        )
         buf = ""
         full_buf = ""
         parsed_options: List[Dict[str, Any]] = []
@@ -396,6 +435,7 @@ class SetupMainPlotSuggestionService:
             if len(parsed_options) < 3:
                 raise MainPlotSuggestionContractError("主线候选数量不足：需要至少 3 条有效方案")
 
+            self._record_sidecar_output_evidence(full_buf)
             yield {"type": "done", "plot_options": parsed_options[:3]}
         except Exception as e:
             logger.warning("Main plot suggestion stream failed: %s", e)

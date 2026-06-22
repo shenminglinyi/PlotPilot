@@ -6,6 +6,7 @@
 import uuid
 import json
 import logging
+from hashlib import sha256
 from typing import Dict, List, Optional, TYPE_CHECKING
 from datetime import datetime
 
@@ -17,6 +18,7 @@ from domain.novel.repositories.storyline_repository import StorylineRepository
 from domain.ai.services.llm_service import LLMService, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
 from application.ai.trace_context import ensure_trace
+from application.workflows.plotpilot_sidecar_m4_adapter import enhance_prompt_for_plotpilot_m4
 
 if TYPE_CHECKING:
     from infrastructure.ai.chromadb_vector_store import ChromaDBVectorStore
@@ -47,6 +49,32 @@ class BeatSheetService:
         self.llm_service = llm_service
         self.vector_store = vector_store
         self.bible_service = bible_service
+        self._sidecar_traces: List[Dict] = []
+        self._last_sidecar_trace: Optional[Dict] = None
+
+    def _apply_sidecar_m4_enhancement(self, prompt: Prompt) -> Prompt:
+        enhanced_prompt, sidecar_trace = enhance_prompt_for_plotpilot_m4(
+            prompt,
+            node_type="beat_sheet",
+            native_call_boundary={
+                "source_file": "systems/PlotPilot/application/blueprint/services/beat_sheet_service.py",
+                "source_function": "BeatSheetService.generate_beat_sheet",
+            },
+        )
+        self._last_sidecar_trace = sidecar_trace
+        self._sidecar_traces.append(sidecar_trace)
+        return enhanced_prompt
+
+    def _record_sidecar_output_evidence(self, content: str) -> None:
+        trace = self._last_sidecar_trace
+        if not trace or not trace.get("enhancement_applied"):
+            return
+        output = (content or "").strip()
+        trace["enhanced_before_native_call"] = True
+        trace["output_evidence"] = {
+            "output_char_count": len(output),
+            "output_excerpt_hash": sha256(output[:1200].encode("utf-8")).hexdigest(),
+        }
 
     async def generate_beat_sheet(
         self,
@@ -69,11 +97,15 @@ class BeatSheetService:
 
         # 2. 构建提示词
         prompt = self._build_beat_sheet_prompt(outline, context)
+        prompt = self._apply_sidecar_m4_enhancement(prompt)
 
         # 3. 调用 LLM 生成节拍表
         ensure_trace(novel_id="", stage="blueprint.beat.generate", stage_label="节拍生成")
         config = GenerationConfig(max_tokens=2048, temperature=0.7)
         response = await self.llm_service.generate(prompt, config)
+        self._record_sidecar_output_evidence(
+            response.content if hasattr(response, "content") else str(response)
+        )
 
         # 4. 解析响应
         scenes = self._parse_llm_response(response)

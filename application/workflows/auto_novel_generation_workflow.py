@@ -5,6 +5,7 @@
 import asyncio
 import logging
 import re
+from hashlib import sha256
 from typing import Tuple, Dict, Any, AsyncIterator, Optional, List, Callable, Awaitable
 from application.engine.services.context_builder import ContextBuilder
 from application.analyst.services.state_extractor import StateExtractor
@@ -27,6 +28,7 @@ from domain.ai.services.llm_service import LLMService, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
 from application.ai.llm_output_sanitize import strip_reasoning_artifacts
 from application.ai.prose_fragment_aggregator import aggregate_inline_prose_fragments
+from application.workflows.plotpilot_sidecar_m4_adapter import enhance_prompt_for_plotpilot_m4
 from application.workflows.beat_continuation import format_prior_draft_for_prompt
 from application.workflows.prose_discipline import build_prose_discipline_block
 
@@ -277,6 +279,8 @@ class AutoNovelGenerationWorkflow:
         # V6 运行时上下文缓存（供 _build_prompt 使用）
         self._current_novel_id: str = ""
         self._current_chapter_number: int = 0
+        self._sidecar_traces: List[Dict[str, Any]] = []
+        self._last_sidecar_trace: Optional[Dict[str, Any]] = None
         
         # 强制初始化 StateExtractor（如果未提供）
         if state_extractor is None:
@@ -587,6 +591,8 @@ class AutoNovelGenerationWorkflow:
         # ★ V6: 缓存当前 novel_id/chapter_number 供 _build_prompt 中 MemoryEngine 使用
         self._current_novel_id = novel_id
         self._current_chapter_number = chapter_number
+        self._sidecar_traces = []
+        self._last_sidecar_trace = None
 
         logger.info("阶段 1-2: 规划 + 结构化上下文（prepare_chapter_generation）")
         bundle = self.prepare_chapter_generation(
@@ -647,7 +653,8 @@ class AutoNovelGenerationWorkflow:
             context_used=context,
             token_count=token_count,
             ghost_annotations=ghost_annotations,
-            style_warnings=style_warnings
+            style_warnings=style_warnings,
+            sidecar_traces=list(self._sidecar_traces),
         )
 
 
@@ -690,6 +697,8 @@ class AutoNovelGenerationWorkflow:
             logger.info(f"========================================")
             logger.info(f"开始流式生成章节: 小说={novel_id}, 章节={chapter_number}")
             logger.info(f"========================================")
+            self._sidecar_traces = []
+            self._last_sidecar_trace = None
 
             yield {"type": "phase", "phase": "planning"}
             yield {"type": "phase", "phase": "context"}
@@ -800,6 +809,7 @@ class AutoNovelGenerationWorkflow:
                 "total_tokens": total_tokens,
                 "chars": len(content),
                 "beats": [],
+                "sidecar_traces": list(self._sidecar_traces),
                 "ghost_annotations": [ann.to_dict() for ann in ghost_annotations],
                 "style_warnings": [
                     {
@@ -840,10 +850,16 @@ class AutoNovelGenerationWorkflow:
                     f"请写第{chapter_number}章的要点大纲。"
                 ),
             )
+            outline_prompt = self._apply_sidecar_m4_enhancement(
+                outline_prompt,
+                node_type="chapter_outline",
+                source_function="AutoNovelGenerationWorkflow.suggest_outline",
+            )
             cfg = GenerationConfig(max_tokens=1024, temperature=0.7)
             out = await self.llm_service.generate(outline_prompt, cfg)
             text = strip_reasoning_artifacts((out.content or "").strip())
             if text:
+                self._record_sidecar_output_evidence(text)
                 return text
         except Exception as e:
             logger.warning("suggest_outline failed: %s", e)
@@ -1014,6 +1030,40 @@ class AutoNovelGenerationWorkflow:
 
         return "\n".join(parts)
 
+    def _apply_sidecar_m4_enhancement(
+        self,
+        prompt: Prompt,
+        *,
+        source_function: str,
+        node_type: Optional[str] = None,
+        beat_prompt: Optional[str] = None,
+        beat_mode: bool = False,
+    ) -> Prompt:
+        enhanced_prompt, sidecar_trace = enhance_prompt_for_plotpilot_m4(
+            prompt,
+            beat_prompt=beat_prompt,
+            beat_mode=beat_mode,
+            node_type=node_type,
+            native_call_boundary={
+                "source_file": "systems/PlotPilot/application/workflows/auto_novel_generation_workflow.py",
+                "source_function": source_function,
+            },
+        )
+        self._last_sidecar_trace = sidecar_trace
+        self._sidecar_traces.append(sidecar_trace)
+        return enhanced_prompt
+
+    def _record_sidecar_output_evidence(self, content: str) -> None:
+        trace = self._last_sidecar_trace
+        if not trace or not trace.get("enhancement_applied"):
+            return
+        output = (content or "").strip()
+        trace["enhanced_before_native_call"] = True
+        trace["output_evidence"] = {
+            "output_char_count": len(output),
+            "output_excerpt_hash": sha256(output[:1200].encode("utf-8")).hexdigest(),
+        }
+
     def build_chapter_prompt(
         self,
         context: str,
@@ -1060,6 +1110,9 @@ class AutoNovelGenerationWorkflow:
         chapter_draft_so_far: str = "",
         regeneration_guidance: Optional[str] = None,
         chapter_target_words: Optional[int] = None,
+        genre_opening_profile: Optional[Dict[str, Any]] = None,
+        genre_reader_contract: Optional[Dict[str, Any]] = None,
+        genre_rhythm_constraints: Optional[Dict[str, Any]] = None,
     ) -> Prompt:
         """构建 LLM 提示词
 
@@ -1109,6 +1162,14 @@ class AutoNovelGenerationWorkflow:
                 "\n【角色声线与肢体语言（Bible 锚点，必须遵守）】\n"
                 f"{va}\n\n"
             )
+        genre_parts = []
+        if genre_opening_profile:
+            genre_parts.append(f"【类型开篇画像】\n{genre_opening_profile}")
+        if genre_reader_contract:
+            genre_parts.append(f"【类型读者契约】\n{genre_reader_contract}")
+        if genre_rhythm_constraints:
+            genre_parts.append(f"【类型节奏约束】\n{genre_rhythm_constraints}")
+        genre_profile_block = ("\n" + "\n\n".join(genre_parts) + "\n\n") if genre_parts else ""
 
         prior_in_chapter = format_prior_draft_for_prompt(chapter_draft_so_far)
         # 字数控制：像小说家一样自然收束，而非粗暴截断
@@ -1212,6 +1273,9 @@ class AutoNovelGenerationWorkflow:
             "theme_rules": theme_rules,
             "planning_section": planning_section,
             "voice_block": voice_block,
+            "genre_profile_block": genre_profile_block,
+            "behavior_protocol": "",
+            "character_state_lock": "",
             "context": context,
             "fact_lock": fact_lock,
             "shuangwen_directive": shuangwen_directive,
@@ -1219,6 +1283,8 @@ class AutoNovelGenerationWorkflow:
             "length_rule": length_rule,
             "beat_extra": beat_extra,
             "format_rules": format_rules,
+            "nervous_habits": "",
+            "allowlist_block": "",
         }
         system_message = _safe_format(system_template, system_vars)
 
@@ -1307,7 +1373,13 @@ class AutoNovelGenerationWorkflow:
 
         user_message += "\n\n开始撰写："
 
-        return Prompt(system=system_message, user=user_message)
+        prompt = Prompt(system=system_message, user=user_message)
+        return self._apply_sidecar_m4_enhancement(
+            prompt,
+            beat_prompt=beat_prompt,
+            beat_mode=beat_mode,
+            source_function="AutoNovelGenerationWorkflow._build_prompt",
+        )
 
     # ─── CPMS 模板获取辅助方法 ───
 
@@ -1387,10 +1459,16 @@ class AutoNovelGenerationWorkflow:
                 "target_words": str(target_words),
             },
         ).prompt
+        prompt = self._apply_sidecar_m4_enhancement(
+            prompt,
+            node_type="chapter_prose",
+            source_function="AutoNovelGenerationWorkflow._generate_prose_from_script",
+        )
         config = GenerationConfig()
         logger.info("  → 根据剧本生成正文 (node_key=%s)", _PROSE_FROM_SCRIPT_NODE_KEY)
         result = await self.llm_service.generate(prompt, config)
         prose = (result.content or "").strip()
+        self._record_sidecar_output_evidence(prose)
         logger.info("  ✓ 正文生成完成: %d 字符", len(prose))
         return prose
 
@@ -1474,9 +1552,18 @@ class AutoNovelGenerationWorkflow:
                 },
             ).prompt
             logger.info("  → 流式生成正文 (node_key=%s)", _PROSE_FROM_SCRIPT_NODE_KEY)
+        prompt = self._apply_sidecar_m4_enhancement(
+            prompt,
+            node_type="chapter_prose",
+            source_function="AutoNovelGenerationWorkflow._generate_prose_from_script_stream",
+        )
         config = GenerationConfig()
+        prose_parts: List[str] = []
         async for piece in service.stream_generate(prompt, config):
+            if piece:
+                prose_parts.append(piece)
             yield piece
+        self._record_sidecar_output_evidence("".join(prose_parts))
 
     async def _extract_chapter_state(self, content: str, chapter_number: int) -> ChapterState:
         """从生成的内容中提取章节状态

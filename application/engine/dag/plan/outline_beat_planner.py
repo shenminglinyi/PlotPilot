@@ -23,6 +23,7 @@ from application.engine.dag.plan.schema import (
     PlanDecompositionMode,
     PlanningEnvelope,
 )
+from application.workflows.plotpilot_sidecar_m4_adapter import enhance_prompt_for_plotpilot_m4
 
 logger = logging.getLogger(__name__)
 
@@ -288,6 +289,7 @@ def _extract_json_payload(text: str) -> Dict[str, Any]:
 
 
 OutlinePartitionEmitDelta = Optional[Callable[[str], Awaitable[None]]]
+OutlinePartitionTraceSink = Optional[Callable[[Dict[str, Any]], None]]
 
 
 async def llm_decompose_outline(
@@ -297,6 +299,7 @@ async def llm_decompose_outline(
     system: str = "",
     user: str = "",
     emit_delta: OutlinePartitionEmitDelta = None,
+    sidecar_trace_sink: OutlinePartitionTraceSink = None,
     llm_service: Any = None,
 ) -> Optional[List[PlanAtomSpec]]:
     """调用 LLM 拆 atoms。未显式传入 ``user`` 时从 CPMS ``outline-beat-partition`` 渲染。
@@ -320,6 +323,16 @@ async def llm_decompose_outline(
 
         llm = _resolve_llm_service(llm_service)
         prompt = Prompt(system=system.strip() if system else "", user=user)
+        prompt, sidecar_trace = enhance_prompt_for_plotpilot_m4(
+            prompt,
+            node_type="outline_partition",
+            native_call_boundary={
+                "source_file": "systems/PlotPilot/application/engine/dag/plan/outline_beat_planner.py",
+                "source_function": "outline_beat_planner.llm_decompose_outline",
+            },
+        )
+        if sidecar_trace_sink:
+            sidecar_trace_sink(sidecar_trace)
         config = GenerationConfig(max_tokens=2000, temperature=0.45)
         pieces: List[str] = []
         async for piece in llm.stream_generate(prompt, config):
@@ -328,6 +341,12 @@ async def llm_decompose_outline(
                 if emit_delta:
                     await emit_delta(piece)
         raw_text = "".join(pieces).strip()
+        if sidecar_trace.get("enhancement_applied"):
+            sidecar_trace["enhanced_before_native_call"] = True
+            sidecar_trace["output_evidence"] = {
+                "output_char_count": len(raw_text),
+                "output_excerpt_hash": hashlib.sha256(raw_text[:1200].encode("utf-8")).hexdigest(),
+            }
         from application.ai.structured_json_pipeline import sanitize_llm_output
 
         cleaned = sanitize_llm_output(raw_text)
@@ -390,17 +409,21 @@ async def build_chapter_execution_plan_async(
             mode = PlanDecompositionMode.STRUCTURED_OUTLINE.value
 
     if atoms is None and use_llm:
+        sidecar_traces: List[Dict[str, Any]] = []
         llm_atoms = await llm_decompose_outline(
             raw,
             target_chapter_words,
             system=llm_system,
             user=llm_user,
             emit_delta=emit_llm_delta,
+            sidecar_trace_sink=sidecar_traces.append,
             llm_service=llm_service,
         )
         if llm_atoms:
             atoms = llm_atoms
             mode = PlanDecompositionMode.LLM_OUTLINE_DECOMPOSE.value
+        if sidecar_traces:
+            prov["sidecar_traces"] = sidecar_traces
 
     if atoms is None:
         atoms = [

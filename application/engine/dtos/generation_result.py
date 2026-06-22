@@ -1,6 +1,6 @@
 """生成结果 DTO"""
 from dataclasses import dataclass
-from typing import Optional, List, TYPE_CHECKING
+from typing import Optional, List, TYPE_CHECKING, Dict, Any
 from domain.novel.value_objects.consistency_report import ConsistencyReport
 from application.audit.dtos.ghost_annotation import GhostAnnotation
 
@@ -20,6 +20,7 @@ class GenerationResult:
     token_count: int
     ghost_annotations: List[GhostAnnotation] = None  # 幽灵批注（冲突检测结果）
     style_warnings: List['ClicheHit'] = None  # 风格警告（俗套句式检测结果）
+    sidecar_traces: List[Dict[str, Any]] = None  # Sidecar M4 生成前增强 trace
 
     def __post_init__(self):
         if not self.content or not self.content.strip():
@@ -34,3 +35,6 @@ class GenerationResult:
         # 确保 style_warnings 不为 None
         if self.style_warnings is None:
             object.__setattr__(self, 'style_warnings', [])
+        # 确保 sidecar_traces 不为 None
+        if self.sidecar_traces is None:
+            object.__setattr__(self, 'sidecar_traces', [])

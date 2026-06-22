@@ -8,6 +8,9 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, List, Optional, Set, Type
 
+from domain.ai.value_objects.prompt import Prompt
+from application.workflows.plotpilot_sidecar_m4_adapter import enhance_prompt_for_plotpilot_m4
+
 from application.engine.dag.models import (
     CPMSInjectionPoint,
     NodeCategory,
@@ -22,6 +25,13 @@ from application.engine.dag.models import (
 
 logger = logging.getLogger(__name__)
 
+_DAG_SIDECAR_M4_NODE_TYPES = {
+    "planning_beat_sheet": "planning_beat_sheet",
+    "planning_quick_macro": "planning_quick_macro",
+    "planning_act": "planning_act",
+    "exec_writer": "dag_exec_writer",
+}
+
 
 # ─── 节点基类 ───
 
@@ -35,6 +45,8 @@ class BaseNode(ABC):
     def __init__(self, config: Optional[NodeConfig] = None):
         self._config = config or NodeConfig()
         self._cpms_cache: Dict[str, str] = {}  # node_key -> rendered text cache
+        self._sidecar_traces: List[Dict[str, Any]] = []
+        self._last_sidecar_trace: Optional[Dict[str, Any]] = None
 
     @abstractmethod
     async def execute(self, inputs: Dict[str, Any], context: Dict[str, Any]) -> NodeResult:
@@ -154,10 +166,48 @@ class BaseNode(ABC):
             for key, value in var_map.items():
                 user = user.replace(f"{{{{{key}}}}}", str(value))
 
-        return {
+        resolved = {
             "system": system,
             "user": user,
             "source": prompt_dict["source"],
+        }
+        return self._apply_sidecar_m4_to_resolved_prompt(resolved)
+
+    def _apply_sidecar_m4_to_resolved_prompt(self, resolved: Dict[str, str]) -> Dict[str, str]:
+        if not self.meta:
+            return resolved
+        node_type = _DAG_SIDECAR_M4_NODE_TYPES.get(self.meta.node_type)
+        if not node_type:
+            return resolved
+        system = (resolved.get("system") or "").strip()
+        user = (resolved.get("user") or "").strip()
+        if not system or not user:
+            return resolved
+        try:
+            enhanced_prompt, sidecar_trace = enhance_prompt_for_plotpilot_m4(
+                Prompt(system=system, user=user),
+                node_type=node_type,
+                native_call_boundary={
+                    "source_file": "systems/PlotPilot/application/engine/dag/registry.py",
+                    "source_function": "BaseNode.resolve_prompt",
+                    "dag_node_type": self.meta.node_type,
+                },
+            )
+        except Exception as exc:
+            logger.warning("DAG Sidecar M4 prompt enhancement failed: %s", exc)
+            return resolved
+
+        self._last_sidecar_trace = sidecar_trace
+        self._sidecar_traces.append(sidecar_trace)
+        if not sidecar_trace.get("enhancement_applied"):
+            resolved["sidecar_trace"] = sidecar_trace
+            return resolved
+
+        return {
+            **resolved,
+            "system": enhanced_prompt.system,
+            "user": enhanced_prompt.user,
+            "sidecar_trace": sidecar_trace,
         }
 
     def _fetch_cpms_injection(self, injection: CPMSInjectionPoint) -> str:
