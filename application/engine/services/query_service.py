@@ -31,6 +31,8 @@ from application.ai_invocation.autopilot.review_gate import (
 
 logger = logging.getLogger(__name__)
 
+_WORKBENCH_CONTEXT_BACKFILL_ATTEMPTED_KEY = "_workbench_context_backfill_attempted"
+
 # 守护进程经 _update_shared_state 写入、/status 需透出的运行时字段（不在 NovelState 模型内）
 _RUNTIME_STATUS_KEYS: tuple[str, ...] = (
     "writing_substep",
@@ -314,6 +316,7 @@ class QueryService:
 
     def __init__(self, shared_state: Optional[SharedStateRepository] = None):
         self._shared = shared_state or get_shared_state_repository()
+        self._workbench_context_backfill_attempted: set[str] = set()
 
     # ==================== 小说状态 ====================
 
@@ -566,9 +569,16 @@ class QueryService:
             logger.debug(f"共享内存中没有小说 {novel_id} 的工作台数据，从数据库加载")
             return self._fallback_workbench_from_db(novel_id)
 
-        # 旧启动链路可能只预热了章节/故事线，导致作品基础、知识库、剧情弧光等为空。
-        # 这里对缺失面板做一次按需回填，避免 UI 看起来像“基础没有填”。
-        if not chronicles or plot_arc is None or knowledge is None or not foreshadows:
+        # Backfill optional workbench panels once when an older bootstrap path only warmed
+        # chapters/storylines. Empty lists/None may also be a legitimate result for early
+        # novels, so cache the attempt and avoid hitting SQLite on every workbench request.
+        raw_state = self._shared.get_raw_state(novel_id) or {}
+        backfill_attempted = (
+            novel_id in self._workbench_context_backfill_attempted
+            or bool(raw_state.get(_WORKBENCH_CONTEXT_BACKFILL_ATTEMPTED_KEY))
+        )
+        needs_backfill = not chronicles or plot_arc is None or knowledge is None or not foreshadows
+        if needs_backfill and not backfill_attempted:
             try:
                 from application.engine.services.state_bootstrap import StateBootstrap
 
@@ -580,15 +590,21 @@ class QueryService:
                 if knowledge is None:
                     knowledge = bootstrap._load_knowledge(novel_id)
                 if not chronicles:
-                    # 编年史依赖 Bible / snapshots / chapters，按需补齐依赖后再聚合。
+                    # Chronicles depend on Bible / snapshots / chapters, so hydrate them first.
                     bootstrap._load_bible(novel_id)
                     bootstrap._load_snapshots(novel_id)
                     chapters = self._shared.get_chapters(novel_id) or chapters
                     chronicles = bootstrap._load_chronicles(novel_id)
             except Exception as e:
-                logger.debug("工作台上下文按需回填失败: novel=%s err=%s", novel_id, e)
+                logger.debug("Workbench context backfill failed: novel=%s err=%s", novel_id, e)
+            else:
+                self._workbench_context_backfill_attempted.add(novel_id)
+                self._shared.merge_raw_state(
+                    novel_id,
+                    **{_WORKBENCH_CONTEXT_BACKFILL_ATTEMPTED_KEY: True},
+                )
 
-        # 计算最大章节号
+        # Calculate max chapter number
         max_ch = max((c.number for c in chapters), default=1)
         knowledge_graph = self.get_knowledge_graph(novel_id)
 
