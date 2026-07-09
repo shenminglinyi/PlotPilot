@@ -566,8 +566,31 @@ class QueryService:
             logger.debug(f"共享内存中没有小说 {novel_id} 的工作台数据，从数据库加载")
             return self._fallback_workbench_from_db(novel_id)
 
+        # 旧启动链路可能只预热了章节/故事线，导致作品基础、知识库、剧情弧光等为空。
+        # 这里对缺失面板做一次按需回填，避免 UI 看起来像“基础没有填”。
+        if not chronicles or plot_arc is None or knowledge is None or not foreshadows:
+            try:
+                from application.engine.services.state_bootstrap import StateBootstrap
+
+                bootstrap = StateBootstrap()
+                if not foreshadows:
+                    foreshadows = bootstrap._load_foreshadows(novel_id)
+                if plot_arc is None:
+                    plot_arc = bootstrap._load_plot_arc(novel_id)
+                if knowledge is None:
+                    knowledge = bootstrap._load_knowledge(novel_id)
+                if not chronicles:
+                    # 编年史依赖 Bible / snapshots / chapters，按需补齐依赖后再聚合。
+                    bootstrap._load_bible(novel_id)
+                    bootstrap._load_snapshots(novel_id)
+                    chapters = self._shared.get_chapters(novel_id) or chapters
+                    chronicles = bootstrap._load_chronicles(novel_id)
+            except Exception as e:
+                logger.debug("工作台上下文按需回填失败: novel=%s err=%s", novel_id, e)
+
         # 计算最大章节号
         max_ch = max((c.number for c in chapters), default=1)
+        knowledge_graph = self.get_knowledge_graph(novel_id)
 
         return WorkbenchContextResponse(
             novel_id=novel_id,
@@ -581,7 +604,7 @@ class QueryService:
             plot_arc=plot_arc,
             knowledge=knowledge,
             foreshadow_ledger=foreshadows,
-            knowledge_graph={"total_triples": 0, "by_source": {}},  # 需要单独处理
+            knowledge_graph=knowledge_graph,
             macro={"narrative_event_count": 0},  # 需要单独处理
             sandbox={"bible_character_count": 0},  # 需要单独处理
             chapters_digest=[c.to_dict() for c in chapters],
@@ -601,8 +624,18 @@ class QueryService:
             chapters_data = bootstrap._load_chapters(novel_id)
             foreshadows_data = bootstrap._load_foreshadows(novel_id)
             plot_arc_data = bootstrap._load_plot_arc(novel_id)
+            bootstrap._load_bible(novel_id)
+            triples_data = bootstrap._load_triples(novel_id)
+            bootstrap._load_snapshots(novel_id)
             knowledge_data = bootstrap._load_knowledge(novel_id)
             chronicles_data = bootstrap._load_chronicles(novel_id)
+            knowledge_graph = {
+                "total_triples": len(triples_data),
+                "by_source": {},
+            }
+            for t in triples_data:
+                src = t.get("source_type", "unknown")
+                knowledge_graph["by_source"][src] = knowledge_graph["by_source"].get(src, 0) + 1
 
             max_ch = max((c.number for c in chapters_data), default=1) if chapters_data else 1
 
@@ -618,7 +651,7 @@ class QueryService:
                 plot_arc=plot_arc_data,
                 knowledge=knowledge_data,
                 foreshadow_ledger=foreshadows_data,
-                knowledge_graph={"total_triples": 0, "by_source": {}},
+                knowledge_graph=knowledge_graph,
                 macro={"narrative_event_count": 0},
                 sandbox={"bible_character_count": 0},
                 chapters_digest=[c.to_dict() for c in chapters_data],
