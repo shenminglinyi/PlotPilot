@@ -31,7 +31,7 @@ from application.ai_invocation.autopilot.review_gate import (
 
 logger = logging.getLogger(__name__)
 
-_WORKBENCH_CONTEXT_BACKFILL_ATTEMPTED_KEY = "_workbench_context_backfill_attempted"
+_WORKBENCH_CONTEXT_BACKFILL_ATTEMPTED_KEY = "_workbench_context_backfill_v2_attempted"
 
 # 守护进程经 _update_shared_state 写入、/status 需透出的运行时字段（不在 NovelState 模型内）
 _RUNTIME_STATUS_KEYS: tuple[str, ...] = (
@@ -562,6 +562,7 @@ class QueryService:
         plot_arc = self._shared.get_plot_arc(novel_id)
         knowledge = self._shared.get_knowledge(novel_id)
         foreshadows = self._shared.get_foreshadows(novel_id)
+        triples = self._shared.get_triples(novel_id)
         chapters = self._shared.get_chapters(novel_id)
 
         # 如果共享内存中没有数据，降级到数据库查询
@@ -577,12 +578,20 @@ class QueryService:
             novel_id in self._workbench_context_backfill_attempted
             or bool(raw_state.get(_WORKBENCH_CONTEXT_BACKFILL_ATTEMPTED_KEY))
         )
-        needs_backfill = not chronicles or plot_arc is None or knowledge is None or not foreshadows
+        needs_backfill = (
+            not chronicles
+            or plot_arc is None
+            or knowledge is None
+            or not foreshadows
+            or not triples
+        )
         if needs_backfill and not backfill_attempted:
             try:
                 from application.engine.services.state_bootstrap import StateBootstrap
 
                 bootstrap = StateBootstrap()
+                if not triples:
+                    triples = bootstrap._load_triples(novel_id)
                 if not foreshadows:
                     foreshadows = bootstrap._load_foreshadows(novel_id)
                 if plot_arc is None:
