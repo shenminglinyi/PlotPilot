@@ -380,8 +380,8 @@ pytest tests/ --cov=. --cov-report=term-missing
 
 <a href="https://www.star-history.com/?repos=shenminglinyi%2FPlotPilot&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=shenminglinyi/PlotPilot&type=date&theme=dark&legend=top-left&sealed_token=KrgxRp9jAAkQsNx3m6xy1niK6q9wg05hhX1P8hUDvUld2Z5X3PYnzLEs7KK4xgDUexWnbpmXF0EXoRKRT4GfS3N3gDJkWeKAEc7keCwSuzSn5y52O9NgTarw99TSC-fGyMyCgUMezT5jm1LCYX_mHmr6os5VZrcAvS8VHgmW8uro_y1MYlYwKVicgNcW" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=shenminglinyi/PlotPilot&type=date&legend=top-left&sealed_token=KrgxRp9jAAkQsNx3m6xy1niK6q9wg05hhX1P8hUDvUld2Z5X3PYnzLEs7KK4xgDUexWnbpmXF0EXoRKRT4GfS3N3gDJkWeKAEc7keCwSuzSn5y52O9NgTarw99TSC-fGyMyCgUMezT5jm1LCYX_mHmr6os5VZrcAvS8VHgmW8uro_y1MYlYwKVicgNcW" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=shenminglinyi/PlotPilot&type=date&legend=top-left&sealed_token=KrgxRp9jAAkQsNx3m6xy1niK6q9wg05hhX1P8hUDvUld2Z5X3PYnzLEs7KK4xgDUexWnbpmXF0EXoRKRT4GfS3N3gDJkWeKAEc7keCwSuzSn5y52O9NgTarw99TSC-fGyMyCgUMezT5jm1LCYX_mHmr6os5VZrcAvS8VHgmW8uro_y1MYlYwKVicgNcW" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=shenminglinyi/PlotPilot&type=date&theme=dark&legend=top-left&sealed_token=Qmu-4BZ0c4GXOPsrgENzFqtlcwjyMvbPoHqRuCsQvTGjzM9KNNuFxSM6wVPAjpHqds0JvtA98UfPy70fY1CXf1VCUCal5k_nxSCh3WIVazjSxrBEg_s1XyOkH2YEzWFRTW0C55SteG6ySN2aYvIEGq8j2wGgyfkqn3hhRGpKVODCbaUw8qIZY6yfstlo" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=shenminglinyi/PlotPilot&type=date&legend=top-left&sealed_token=Qmu-4BZ0c4GXOPsrgENzFqtlcwjyMvbPoHqRuCsQvTGjzM9KNNuFxSM6wVPAjpHqds0JvtA98UfPy70fY1CXf1VCUCal5k_nxSCh3WIVazjSxrBEg_s1XyOkH2YEzWFRTW0C55SteG6ySN2aYvIEGq8j2wGgyfkqn3hhRGpKVODCbaUw8qIZY6yfstlo" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=shenminglinyi/PlotPilot&type=date&legend=top-left&sealed_token=Qmu-4BZ0c4GXOPsrgENzFqtlcwjyMvbPoHqRuCsQvTGjzM9KNNuFxSM6wVPAjpHqds0JvtA98UfPy70fY1CXf1VCUCal5k_nxSCh3WIVazjSxrBEg_s1XyOkH2YEzWFRTW0C55SteG6ySN2aYvIEGq8j2wGgyfkqn3hhRGpKVODCbaUw8qIZY6yfstlo" />
  </picture>
 </a>
