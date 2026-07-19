@@ -375,13 +375,3 @@ pytest tests/ --cov=. --cov-report=term-missing
 详见 [LICENSE](LICENSE)。
 
 ---
-
-## Star History
-
-<a href="https://www.star-history.com/?repos=shenminglinyi%2FPlotPilot&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=shenminglinyi/PlotPilot&type=date&theme=dark&legend=top-left&sealed_token=Qmu-4BZ0c4GXOPsrgENzFqtlcwjyMvbPoHqRuCsQvTGjzM9KNNuFxSM6wVPAjpHqds0JvtA98UfPy70fY1CXf1VCUCal5k_nxSCh3WIVazjSxrBEg_s1XyOkH2YEzWFRTW0C55SteG6ySN2aYvIEGq8j2wGgyfkqn3hhRGpKVODCbaUw8qIZY6yfstlo" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=shenminglinyi/PlotPilot&type=date&legend=top-left&sealed_token=Qmu-4BZ0c4GXOPsrgENzFqtlcwjyMvbPoHqRuCsQvTGjzM9KNNuFxSM6wVPAjpHqds0JvtA98UfPy70fY1CXf1VCUCal5k_nxSCh3WIVazjSxrBEg_s1XyOkH2YEzWFRTW0C55SteG6ySN2aYvIEGq8j2wGgyfkqn3hhRGpKVODCbaUw8qIZY6yfstlo" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=shenminglinyi/PlotPilot&type=date&legend=top-left&sealed_token=Qmu-4BZ0c4GXOPsrgENzFqtlcwjyMvbPoHqRuCsQvTGjzM9KNNuFxSM6wVPAjpHqds0JvtA98UfPy70fY1CXf1VCUCal5k_nxSCh3WIVazjSxrBEg_s1XyOkH2YEzWFRTW0C55SteG6ySN2aYvIEGq8j2wGgyfkqn3hhRGpKVODCbaUw8qIZY6yfstlo" />
- </picture>
-</a>
