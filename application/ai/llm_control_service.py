@@ -217,7 +217,7 @@ class LLMControlService:
                 protocol='openai',
                 default_base_url=ATLAS_CLOUD_DEFAULT_BASE_URL,
                 default_model=ATLAS_CLOUD_DEFAULT_MODEL,
-                description='Atlas Cloud OpenAI-compatible 接口，支持统一访问多种文本模型。',
+                description='Atlas Cloud OpenAI-compatible 接口, 支持统一访问多种文本模型。',
                 tags=['cloud', 'openai-compatible', 'preset'],
             ),
             LLMPreset(
