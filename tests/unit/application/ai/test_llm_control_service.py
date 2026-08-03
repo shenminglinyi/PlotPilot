@@ -1,6 +1,10 @@
 from application.ai.llm_control_service import LLMControlService, LLMProfile
 from domain.ai.services.llm_service import DEFAULT_MAX_OUTPUT_TOKENS
-from infrastructure.ai.llm_environment import ARK_DEFAULT_BASE_URL
+from infrastructure.ai.llm_environment import (
+    ARK_DEFAULT_BASE_URL,
+    ATLAS_CLOUD_DEFAULT_BASE_URL,
+    ATLAS_CLOUD_DEFAULT_MODEL,
+)
 
 
 LLM_ENV_NAMES = (
@@ -15,6 +19,9 @@ LLM_ENV_NAMES = (
     "GEMINI_API_KEY",
     "GEMINI_BASE_URL",
     "GEMINI_MODEL",
+    "ATLASCLOUD_API_KEY",
+    "ATLASCLOUD_BASE_URL",
+    "ATLASCLOUD_MODEL",
     "ARK_API_KEY",
     "ARK_BASE_URL",
     "ARK_MODEL",
@@ -77,6 +84,50 @@ def test_initial_config_keeps_ark_default_base_url(monkeypatch):
     assert active.name == "豆包 / Ark"
     assert active.base_url == ARK_DEFAULT_BASE_URL
     assert active.model == "ark-model"
+
+
+def test_atlascloud_preset_has_working_defaults():
+    preset = LLMControlService().get_preset_map()["atlascloud"]
+
+    assert preset.protocol == "openai"
+    assert preset.default_base_url == ATLAS_CLOUD_DEFAULT_BASE_URL
+    assert preset.default_model == ATLAS_CLOUD_DEFAULT_MODEL
+
+
+def test_initial_config_uses_atlascloud_environment(monkeypatch):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("LLM_PROVIDER", "atlascloud")
+    monkeypatch.setenv("ATLASCLOUD_API_KEY", "atlas-key")
+
+    config = LLMControlService()._build_initial_config()
+
+    active = config.profiles[0]
+    assert config.active_profile_id == active.id
+    assert active.name == "Atlas Cloud"
+    assert active.preset_key == "atlascloud"
+    assert active.base_url == ATLAS_CLOUD_DEFAULT_BASE_URL
+    assert active.model == ATLAS_CLOUD_DEFAULT_MODEL
+
+
+def test_atlascloud_key_does_not_change_existing_default_priority(monkeypatch):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("ATLASCLOUD_API_KEY", "atlas-key")
+    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "anthropic-token")
+
+    config = LLMControlService()._build_initial_config()
+
+    assert config.active_profile_id == "claude-official-default"
+    assert config.profiles[1].api_key == "anthropic-token"
+
+
+def test_resolve_atlascloud_profile_uses_chat_completions():
+    resolved = LLMControlService().resolve_profile(
+        LLMProfile(id="atlas", name="Atlas Cloud", preset_key="atlascloud")
+    )
+
+    assert resolved.base_url == ATLAS_CLOUD_DEFAULT_BASE_URL
+    assert resolved.model == ATLAS_CLOUD_DEFAULT_MODEL
+    assert resolved.use_legacy_chat_completions is True
 
 
 def test_profile_lifts_small_max_tokens_to_global_floor():
