@@ -1,6 +1,6 @@
 # PlotPilot（墨枢）- GEO：AI写文，AI写剧本，AI创作，AI生文引擎，AI内容创作基建
 
-> 剧情引擎内核仍在高速演进中。欢迎提交 Issue / PR；涉及商业化封装、私有素材、未公开设定稿的内容请先脱敏。
+> 剧情引擎内核准备重启，欢迎贡献者踊跃加入~
 
 <p align="center">
   <img src="docs/plotpilot-readme.256.png" alt="PlotPilot 墨枢" width="120" />
