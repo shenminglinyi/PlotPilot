@@ -1194,10 +1194,10 @@ class ContinuousPlanningService:
         }
 
     async def confirm_macro_plan(self, novel_id: str, structure: List[Dict]) -> Dict:
-        """确认宏观规划（旧版本，不安全，保留用于向后兼容）
+        """LEGACY(退役候选): 旧的一次性全量写入，生产路径已不再调用（persist_macro_structure 唯一）。
 
-        ⚠️ 警告：此方法不检查已有数据，可能导致僵尸节点或数据丢失
-        推荐使用 confirm_macro_plan_safe() 方法
+        ⚠️ 此方法不检查已有数据，可能导致僵尸节点或数据丢失。
+        禁止新增调用方；确认无外部依赖后删除。
         """
         logger.warning(f"Using unsafe confirm_macro_plan for novel {novel_id}")
         logger.info(f"Confirming macro plan for novel {novel_id}")
@@ -1323,25 +1323,15 @@ class ContinuousPlanningService:
             if n.node_type in (NodeType.PART, NodeType.VOLUME, NodeType.ACT)
         )
 
-    async def persist_macro_structure_with_fallback(
-        self,
-        novel_id: str,
-        structure: List[Dict],
-    ) -> Dict:
-        """先安全合并，失败则回退为一次性写入（与全托管守护进程行为一致）。"""
-        try:
-            await self.confirm_macro_plan_safe(novel_id=novel_id, structure=structure)
-            count = await self._count_macro_structure_nodes(novel_id)
-            return {
-                "success": True,
-                "created_nodes": count,
-                "message": f"已同步 {count} 个结构节点",
-            }
-        except Exception as e:
-            logger.warning(
-                f"[{novel_id}] confirm_macro_plan_safe 失败，回退 confirm_macro_plan：{e}"
-            )
-            return await self.confirm_macro_plan(novel_id=novel_id, structure=structure)
+    async def persist_macro_structure(self, novel_id: str, structure: List[Dict]) -> Dict:
+        """宏观结构落库唯一路径：安全合并写入；失败直接抛错，不做任何回退。"""
+        await self.confirm_macro_plan_safe(novel_id=novel_id, structure=structure)
+        count = await self._count_macro_structure_nodes(novel_id)
+        return {
+            "success": True,
+            "created_nodes": count,
+            "message": f"已同步 {count} 个结构节点",
+        }
 
     def build_minimal_macro_structure(
         self,
@@ -1444,9 +1434,7 @@ class ContinuousPlanningService:
         )
 
         if is_valid_structure:
-            confirm = await self.persist_macro_structure_with_fallback(
-                novel_id, struct
-            )
+            confirm = await self.persist_macro_structure(novel_id, struct)
             return {
                 "success": True,
                 "created_nodes": confirm["created_nodes"],
@@ -1466,9 +1454,7 @@ class ContinuousPlanningService:
             novel_id,
         )
         minimal = self.build_minimal_macro_structure(target_chapters)
-        confirm = await self.persist_macro_structure_with_fallback(
-            novel_id, minimal
-        )
+        confirm = await self.persist_macro_structure(novel_id, minimal)
         return {
             "success": True,
             "created_nodes": confirm["created_nodes"],

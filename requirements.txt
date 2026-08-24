@@ -25,7 +25,9 @@ httpx==0.27.0
 
 # ── AI / LLM SDK ──
 openai>=1.65.0,<2.0.0
-anthropic>=0.40.0
+# anthropic 1.x 起要求 httpx2.Client（破坏性变更），项目传入的是 httpx.Client，
+# 构造 AnthropicProvider 会直接 TypeError；锁定 <1.0 待迁移后再放开。
+anthropic>=0.40.0,<1.0
 volcengine-python-sdk[ark]>=1.0.0
 
 # ── 工具库 ──

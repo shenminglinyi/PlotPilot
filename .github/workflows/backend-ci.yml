@@ -19,6 +19,10 @@ jobs:
           python-version: "3.11"
           cache: "pip"
 
+      # 静默回退守护（docs/FALLBACK_CLEANUP_ROADMAP.md 4.4）：禁止 except 内回退旧接口等模式
+      - name: Check no silent fallback
+        run: python scripts/check_no_silent_fallback.py
+
       - name: Install dependencies
         run: pip install -r requirements.txt
 

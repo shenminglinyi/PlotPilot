@@ -194,20 +194,14 @@ class TestAnthropicProvider:
             AnthropicProvider(settings)
 
     @pytest.mark.asyncio
-    async def test_stream_generate_falls_back_to_sdk_on_httpx_read_error(self, provider):
-        """httpx SSE 被网关提前断开时，应回退到 SDK stream。"""
+    async def test_stream_generate_uses_sdk_single_path(self, provider):
+        """流式唯一路径：官方 SDK stream。"""
         prompt = Prompt(system="You are helpful", user="Hello")
         config = GenerationConfig(max_tokens=128)
 
-        async def _broken_httpx(*args, **kwargs):
-            if False:
-                yield ""
-            raise __import__("httpx").ReadError("")
-
-        provider._stream_via_httpx = _broken_httpx
-
         async def _sdk_text_stream():
-            yield "fallback"
+            yield "hello"
+            yield " world"
 
         provider.async_client.messages.stream = Mock(
             return_value=_AsyncStreamCM(_sdk_text_stream())
@@ -215,25 +209,19 @@ class TestAnthropicProvider:
 
         chunks = [chunk async for chunk in provider.stream_generate(prompt, config)]
 
-        assert chunks == ["fallback"]
+        assert chunks == ["hello", " world"]
         provider.async_client.messages.stream.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_stream_generate_reports_both_failures(self, provider):
-        """httpx 与 SDK 均失败时，错误信息应包含两种失败原因。"""
+    async def test_stream_generate_failure_raises_without_fallback(self, provider):
+        """SDK 流式失败 → 直接报错；不存在第二条可回退的流式路径。"""
         prompt = Prompt(system="You are helpful", user="Hello")
         config = GenerationConfig(max_tokens=128)
 
-        async def _broken_httpx(*args, **kwargs):
-            if False:
-                yield ""
-            raise __import__("httpx").ReadError("")
-
-        provider._stream_via_httpx = _broken_httpx
         provider.async_client.messages.stream = Mock(
             side_effect=RuntimeError("SDK stream unavailable")
         )
 
-        with pytest.raises(RuntimeError, match="Failed to stream text: httpx=ReadError"):
+        with pytest.raises(RuntimeError, match="Failed to stream text"):
             async for _ in provider.stream_generate(prompt, config):
                 pass

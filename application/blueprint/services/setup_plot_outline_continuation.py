@@ -59,6 +59,9 @@ _PHASE_ALIASES = {
     "结局": "ending",
 }
 
+# 输入兼容（冻结）：LLM 可能按旧 schema 返回 stage 键名，此处仅做"读取归一"，
+# 不是运行路径回退。别名表到此冻结，不再新增；新 schema 见 _PHASE_SCHEMA。
+# 删除条件：确认线上 LLM 输出已全部使用新 schema 后整体移除本表及 _coerce_legacy_* 函数。
 _LEGACY_STAGE_KEY_ALIASES = [
     ("stage_opening_1_15", "stage_opening", "opening"),
     ("stage_develop_15_40", "stage_develop", "development"),
@@ -144,6 +147,10 @@ def _parse_json_object(raw: str) -> dict[str, Any]:
 
 
 def _coerce_legacy_outline(payload: Mapping[str, Any]) -> dict[str, Any] | None:
+    """输入兼容（冻结）：解析旧 schema 的 plot_outline 载荷。
+
+    属旧数据格式读取，非路径回退；与 bound outline 合并时新字段始终优先。
+    """
     if "plot_outline" in payload:
         raw_outline = payload.get("plot_outline")
         return _normalize_outline_aliases(raw_outline) if isinstance(raw_outline, Mapping) else None

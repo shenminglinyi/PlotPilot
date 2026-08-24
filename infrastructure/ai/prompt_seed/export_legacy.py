@@ -1,10 +1,12 @@
-"""一次性：从旧版 prompts_defaults.json + prompts_*.json 导出到 prompt_packages/。
+"""LEGACY(迁移工具，完成后删除)：从旧版 prompts_defaults.json + prompts_*.json
+导出到 prompt_packages/。
 
 用法（仓库根目录）::
 
     python -m infrastructure.ai.prompt_seed.export_legacy
 
 导出后由 PromptManager 从 prompt_packages 加载种子；旧 JSON 可删除或归档。
+本模块为一次性显式迁移入口，非运行路径，禁止被业务代码 import。
 """
 from __future__ import annotations
 

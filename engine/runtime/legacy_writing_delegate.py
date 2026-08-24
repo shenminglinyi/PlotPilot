@@ -124,7 +124,12 @@ def _build_adopted_chapter_plan(
 
 
 async def run_legacy_writing(host: Any, novel: Novel) -> None:
-    """Legacy 写作（节拍级生成 + 断点续写）— host 提供基础设施 helper"""
+    """LEGACY(退役候选): 写作旧管线（节拍级生成 + 断点续写）。
+
+    仅由 writing_delegate.run_writing 在 use_story_pipeline_for_writing=False
+    （显式关闭 PLOTPILOT_USE_STORY_PIPELINE）时进入；新管线失败不回退到本路径。
+    删除条件：旧管线开关下线。
+    """
     if not host._is_still_running(novel):
         return
 

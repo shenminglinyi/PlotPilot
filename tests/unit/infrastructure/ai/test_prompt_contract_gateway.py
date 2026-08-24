@@ -1,4 +1,4 @@
-﻿"""AI 能力契约与 prompt_packages 一致性测试。"""
+"""AI 能力契约与 prompt_packages 一致性测试。"""
 from __future__ import annotations
 
 from pathlib import Path
@@ -99,15 +99,24 @@ def test_prompt_package_variables_cover_template_usage():
 
 
 def test_bible_worldbuilding_package_exposes_split_fields():
+    """包内声明领域输入字段；fields_desc / genre_opening_profile 等改为运行时注入。"""
+    from application.ai_invocation.dtos import InvocationSpec
+    from application.ai_invocation.prompt_runtime import runtime_prompt_values_for_spec
+
     engine = get_template_engine()
     record = load_node_dir(NODES_DIR / "bible-worldbuilding")
     declared = {var.get("name") for var in record.get("variables") or [] if isinstance(var, dict)}
     used = engine.extract_variables(f"{record.get('system') or ''}\n{record.get('user_template') or ''}")
 
-    assert {"premise", "novel_title", "fields_desc", "genre_opening_profile"} <= declared
-    assert {"premise", "novel_title", "fields_desc", "genre_opening_profile"} <= used
+    assert {"premise", "novel_title"} <= declared
+    assert {"premise", "novel_title"} <= used
     assert {"worldbuilding_full", "novel_setup", "core_rules", "geography", "society", "culture", "daily_life"}.isdisjoint(declared)
     assert {"worldbuilding_full", "novel_setup", "core_rules", "geography", "society", "culture", "daily_life"}.isdisjoint(used)
+
+    # 运行时注入：schema 字段说明与类型画像不再进包声明，由 provider 渲染期供给
+    spec = InvocationSpec(operation="bible.setup.worldbuilding", node_key="bible-worldbuilding")
+    injected = set(runtime_prompt_values_for_spec(spec).keys())
+    assert {"fields_desc", "genre_opening_profile"} <= injected
 
 
 def test_prompt_gateway_fast_fails_when_registry_misses(monkeypatch):

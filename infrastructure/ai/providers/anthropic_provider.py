@@ -75,11 +75,9 @@ def _extract_text_from_content_block(block: Any) -> str:
 class AnthropicProvider(BaseProvider):
     """Anthropic LLM 提供商实现
 
-    使用 Anthropic API 实现 LLM 服务。
-
-    双端点策略：
-    - generate() (规划/分析): 使用官方 SDK，走官方 API (HTTPS)
-    - stream_generate() (正文生成): 使用自定义 httpx，走代理服务器
+    使用 Anthropic 官方 SDK 实现 LLM 服务：
+    - generate(): 非流式生成（SDK messages.create）
+    - stream_generate(): 流式生成（SDK messages.stream，唯一流式路径）
     """
 
     def __init__(self, settings: Settings):
@@ -120,12 +118,6 @@ class AnthropicProvider(BaseProvider):
         self._http_client_async = httpx.AsyncClient(timeout=_sdk_timeout, trust_env=False)
         self.client = Anthropic(**official_client_kw, http_client=self._http_client_sync)
         self.async_client = AsyncAnthropic(**official_client_kw, http_client=self._http_client_async)
-
-        # 流式端点专用 httpx client（长生命周期，跨请求复用连接池）
-        self._stream_http_client = httpx.AsyncClient(
-            timeout=build_httpx_timeout(self.settings.http_timeout_settings),
-            trust_env=False,
-        )
 
         # 兼容旧字段：若其他模块引用，保留归一化后的值
         self.proxy_base_url = base
@@ -231,66 +223,13 @@ class AnthropicProvider(BaseProvider):
             return f"{type(exc).__name__}: {message}"
         return f"{type(exc).__name__}: {exc!r}"
 
-    async def _stream_via_httpx(
-        self,
-        prompt: Prompt,
-        config: GenerationConfig,
-    ) -> AsyncIterator[str]:
-        """通过 httpx 直接解析 SSE，兼容部分网关的非标准流式响应。"""
-        base_url = self.settings.base_url or "https://api.anthropic.com"
-        url = f"{base_url}/v1/messages"
-        logger.debug("[Stream] Using httpx endpoint: %s", url)
-
-        headers = {
-            "x-api-key": self.settings.api_key,
-            "anthropic-version": "2023-06-01",
-            "Content-Type": "application/json",
-            "Accept": "text/event-stream",
-            "User-Agent": "claude-cli/2.1.87 (external, cli)",
-            **(self.settings.extra_headers or {}),
-        }
-        _, payload = self._build_message_request(prompt, config, stream=True)
-
-        logger.debug("[Stream] Calling %s", url)
-        async with self._stream_http_client.stream(
-            "POST",
-            url,
-            headers=headers,
-            params=self.settings.extra_query or None,
-            json=payload,
-        ) as response:
-            if response.status_code != 200:
-                error_body = await response.aread()
-                raise RuntimeError(
-                    f"API error {response.status_code}: {error_body.decode(errors='replace')}"
-                )
-
-            buffer = ""
-            events_received = 0
-            async for chunk in response.aiter_text():
-                buffer += chunk.replace("\r\n", "\n")
-                while "\n\n" in buffer:
-                    event_text, buffer = buffer.split("\n\n", 1)
-                    events_received += 1
-                    text_content = self._parse_sse_event(event_text)
-                    if events_received <= 3:
-                        logger.info(
-                            "[Stream] SSE event #%d raw=%s parsed=%s",
-                            events_received,
-                            event_text[:500],
-                            text_content[:200] if text_content else "(empty)",
-                        )
-                    if text_content:
-                        yield text_content
-
     async def _stream_via_sdk(
         self,
         prompt: Prompt,
         config: GenerationConfig,
     ) -> AsyncIterator[str]:
-        """通过官方 SDK 流式读取，网关断开 raw SSE 时作为回退。"""
+        """通过官方 SDK 流式读取（唯一流式路径）。"""
         model_id, payload = self._build_message_request(prompt, config, stream=False)
-        logger.info("[Stream] Falling back to SDK stream for model=%s", model_id)
         async with self.async_client.messages.stream(**payload) as stream:
             async for text in stream.text_stream:
                 if text:
@@ -301,116 +240,14 @@ class AnthropicProvider(BaseProvider):
         prompt: Prompt,
         config: GenerationConfig
     ) -> AsyncIterator[str]:
-        """流式生成内容。
+        """流式生成内容（唯一路径：Anthropic SDK stream）。
 
-        优先 httpx 解析 SSE（兼容部分代理）；若连接被网关提前断开或零输出，
-        自动回退到 Anthropic SDK 的 stream API。
+        失败直接报错，不在 httpx SSE / SDK 两条协议路径之间回退。
         """
-        httpx_error: Exception | None = None
-        yielded_any = False
-
         try:
-            async for chunk in self._stream_via_httpx(prompt, config):
-                yielded_any = True
-                yield chunk
+            async for text in self._stream_via_sdk(prompt, config):
+                yield text
         except Exception as e:
-            httpx_error = e
-            logger.warning(
-                "[Stream] httpx SSE failed (%s), will try SDK fallback",
-                self._format_stream_error(e),
-            )
-
-        if yielded_any:
-            return
-
-        sdk_yielded = False
-        try:
-            async for chunk in self._stream_via_sdk(prompt, config):
-                sdk_yielded = True
-                yield chunk
-        except Exception as sdk_error:
-            sdk_detail = self._format_stream_error(sdk_error)
-            if httpx_error is not None:
-                httpx_detail = self._format_stream_error(httpx_error)
-                logger.error(
-                    "[Stream] Failed: httpx=%s; sdk=%s",
-                    httpx_detail,
-                    sdk_detail,
-                )
-                raise RuntimeError(
-                    f"Failed to stream text: httpx={httpx_detail}; sdk={sdk_detail}"
-                ) from sdk_error
-            logger.error("[Stream] Failed: %s", sdk_detail)
-            raise RuntimeError(f"Failed to stream text: {sdk_detail}") from sdk_error
-
-        if not sdk_yielded:
-            model_id = config.model or self.settings.default_model
-            detail = (
-                f"httpx={self._format_stream_error(httpx_error)}"
-                if httpx_error
-                else "httpx returned no events"
-            )
-            raise RuntimeError(
-                f"Both streaming paths produced zero output for model={model_id}: {detail}"
-            )
-
-    def _parse_sse_event(self, event_text: str) -> str:
-        """解析单个 SSE 事件，返回文本内容（如果有）。
-
-        兼容多种 SSE 格式：
-        - Anthropic 原生: {"type":"content_block_delta","delta":{"type":"text_delta","text":"..."}}
-        - OpenAI 兼容:  {"choices":[{"delta":{"content":"..."}}]}
-        - 通用 delta:    {"delta":{"text":"..."}} 或 {"text":"..."}
-        """
-        lines = event_text.strip().split("\n")
-        data = None
-
-        for line in lines:
-            if line.startswith("data:"):
-                data = line[5:].strip()
-
-        if not data:
-            return ""
-
-        try:
-            parsed = json.loads(data)
-        except json.JSONDecodeError:
-            return ""
-
-        # Anthropic 原生
-        if parsed.get("type") == "content_block_delta":
-            delta = parsed.get("delta", {})
-            if delta.get("type") == "text_delta":
-                return delta.get("text", "")
-
-        # Anthropic content_block_start (某些模型把 text 放在这里)
-        if parsed.get("type") == "content_block_start":
-            block = parsed.get("content_block", {})
-            if block.get("type") == "text" and block.get("text"):
-                return block["text"]
-
-        # OpenAI / DeepSeek 兼容格式
-        choices = parsed.get("choices", [])
-        if choices:
-            delta = choices[0].get("delta", {})
-            content = delta.get("content", "")
-            if content:
-                return content
-            # 某些变体
-            text = delta.get("text", "")
-            if text:
-                return text
-
-        # 通用 fallback: 一层 delta.text 或 delta.content
-        delta = parsed.get("delta", {})
-        if isinstance(delta, dict):
-            text = delta.get("text") or delta.get("content")
-            if text:
-                return text
-
-        # 最通用: 顶层 text/content 字段
-        text = parsed.get("text") or parsed.get("content")
-        if isinstance(text, str) and text.strip():
-            return text
-
-        return ""
+            detail = self._format_stream_error(e)
+            logger.error("[Stream] Failed: %s", detail)
+            raise RuntimeError(f"Failed to stream text: {detail}") from e

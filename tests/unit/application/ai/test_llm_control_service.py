@@ -1,4 +1,4 @@
-from application.ai.llm_control_service import LLMControlService, LLMProfile
+from application.ai.llm_control_service import LLMControlConfig, LLMControlService, LLMProfile
 from domain.ai.services.llm_service import DEFAULT_MAX_OUTPUT_TOKENS
 from infrastructure.ai.llm_environment import ARK_DEFAULT_BASE_URL
 
@@ -79,10 +79,11 @@ def test_initial_config_keeps_ark_default_base_url(monkeypatch):
     assert active.model == "ark-model"
 
 
-def test_profile_lifts_small_max_tokens_to_global_floor():
+def test_profile_preserves_small_max_tokens():
+    """issue #206: 低于默认值的 max_tokens 必须原样保留（部分模型上限较低）。"""
     profile = LLMProfile(id="p", name="Profile", max_tokens=4096)
 
-    assert profile.max_tokens == DEFAULT_MAX_OUTPUT_TOKENS
+    assert profile.max_tokens == 4096
 
 
 def test_row_to_profile_preserves_max_tokens_above_global_floor():
@@ -107,3 +108,69 @@ def test_row_to_profile_preserves_max_tokens_above_global_floor():
     profile = LLMControlService()._row_to_profile(row)
 
     assert profile.max_tokens == DEFAULT_MAX_OUTPUT_TOKENS + 1000
+
+
+def test_sanitize_config_preserves_below_default_max_tokens():
+    """issue #206: 部分模型上限低于默认值，保存时不得强制抬回 120000。"""
+    service = LLMControlService()
+    config = LLMControlConfig(
+        version=1,
+        active_profile_id="p1",
+        endpoint_mode="unified",
+        profiles=[
+            LLMProfile(
+                id="p1",
+                name="主力模型",
+                protocol="openai",
+                base_url="https://gw.example/v1",
+                api_key="sk-test",
+                model="gpt-4o-mini",
+                max_tokens=8192,
+            )
+        ],
+    )
+
+    sanitized = service._sanitize_config(config)
+
+    assert sanitized.profiles[0].max_tokens == 8192
+
+
+def test_llm_profile_rejects_non_positive_max_tokens():
+    import pytest
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        LLMProfile(id="p", name="x", max_tokens=0)
+
+
+def test_sanitize_config_preserves_below_default_max_tokens():
+    """issue #206: 部分模型上限低于默认值，保存时不得强制抬回 120000。"""
+    service = LLMControlService()
+    config = LLMControlConfig(
+        version=1,
+        active_profile_id="p1",
+        endpoint_mode="unified",
+        profiles=[
+            LLMProfile(
+                id="p1",
+                name="主力模型",
+                protocol="openai",
+                base_url="https://gw.example/v1",
+                api_key="sk-test",
+                model="gpt-4o-mini",
+                max_tokens=8192,
+            )
+        ],
+    )
+
+    sanitized = service._sanitize_config(config)
+
+    assert sanitized.profiles[0].max_tokens == 8192
+
+
+def test_llm_profile_rejects_non_positive_max_tokens():
+    import pytest
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        LLMProfile(id="p", name="x", max_tokens=0)

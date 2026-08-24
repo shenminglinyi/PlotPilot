@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from application.ai.llm_retry_policy import LLM_MAX_TOTAL_ATTEMPTS
 from domain.ai.services.llm_service import DEFAULT_MAX_OUTPUT_TOKENS, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
 from infrastructure.ai.config.settings import Settings
@@ -114,34 +115,35 @@ class TestOpenAIProviderLegacy:
             assert result.content == '{"a":\n 1}'
 
     @pytest.mark.anyio
-    async def test_generate_falls_back_to_stream_when_content_is_empty(self, provider):
-        prompt = Prompt(system="You are helpful", user="Hello")
-        config = GenerationConfig(model="gpt-5.4", temperature=0, max_tokens=32)
-        empty_response = SimpleNamespace(
-            choices=[SimpleNamespace(message=SimpleNamespace(content=None))],
-            usage=SimpleNamespace(prompt_tokens=19, completion_tokens=15),
+    async def test_generate_json_schema_downgrades_within_same_protocol(self, provider):
+        """同协议能力适配：网关拒绝 json_schema → 重发 json_object（允许的 A→B 链）。"""
+        prompt = Prompt(system="s", user="u")
+        config = GenerationConfig(
+            model="gpt-4o",
+            response_format={"type": "json_schema", "json_schema": {"name": "x"}},
         )
-        stream = _FakeStream([
-            SimpleNamespace(
-                choices=[SimpleNamespace(delta=SimpleNamespace(content="OK"))],
-                usage=None,
-            ),
-            SimpleNamespace(
-                choices=[SimpleNamespace(delta=SimpleNamespace(content=None))],
-                usage=SimpleNamespace(prompt_tokens=19, completion_tokens=17),
-            ),
-        ])
+        ok_response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content='{"a":1}'))],
+            usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1),
+        )
+        import httpx as _httpx
+        import openai as _openai
+
+        request = _httpx.Request("POST", "https://api.example/v1/chat/completions")
+        bad_request = _openai.BadRequestError(
+            "json_schema unsupported",
+            response=_httpx.Response(400, request=request),
+            body=None,
+        )
 
         with patch.object(provider.async_client.chat.completions, "create", new_callable=AsyncMock) as mock_create:
-            mock_create.side_effect = [empty_response, stream]
+            mock_create.side_effect = [bad_request, ok_response]
 
             result = await provider.generate(prompt, config)
 
-            assert result.content == "OK"
-            assert result.token_usage.input_tokens == 19
-            assert result.token_usage.output_tokens == 17
-            assert mock_create.await_count == 2
-            assert mock_create.await_args_list[1].kwargs["stream"] is True
+            assert result.content == '{"a":1}'
+            second_call = mock_create.await_args_list[1].kwargs
+            assert second_call["response_format"]["type"] == "json_object"
 
     @pytest.mark.anyio
     async def test_stream_generate(self, provider):
@@ -169,6 +171,7 @@ class TestOpenAIProviderLegacy:
             choices=[SimpleNamespace(message=SimpleNamespace(content=None))],
             usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5),
         )
+
         empty_stream = _FakeStream([
             SimpleNamespace(
                 choices=[SimpleNamespace(delta=SimpleNamespace(content=None))],
@@ -177,10 +180,13 @@ class TestOpenAIProviderLegacy:
         ])
 
         with patch.object(provider.async_client.chat.completions, "create", new_callable=AsyncMock) as mock_create:
-            mock_create.side_effect = [empty_response, empty_stream] * 3
+            mock_create.side_effect = [empty_response, empty_stream] * LLM_MAX_TOTAL_ATTEMPTS
 
             with pytest.raises(RuntimeError, match="empty content"):
                 await provider.generate(prompt, config)
+
+            # 全程停留在 Chat Completions 协议内（非流式→流式聚合），无跨协议切换
+            assert mock_create.await_count == LLM_MAX_TOTAL_ATTEMPTS * 2
 
     def test_missing_api_key(self):
         with pytest.raises(ValueError, match="API key is required"):
@@ -291,6 +297,26 @@ class TestOpenAIProviderResponses:
 
             assert chunks == ["Hel", "lo"]
             assert mock_create.await_args.kwargs["stream"] is True
+
+    @pytest.mark.anyio
+    async def test_responses_unsupported_raises_without_protocol_fallback(self, provider):
+        """验收：网关不支持 Responses API（404/400）→ 直接报错，绝不静默换协议重发。"""
+        import httpx as _httpx
+        import openai as _openai
+
+        prompt = Prompt(system="You are helpful", user="Hello")
+        config = GenerationConfig(model="gpt-4o")
+
+        request = _httpx.Request("POST", "https://gw.example/v1/responses")
+        responses_mock = AsyncMock(side_effect=_openai.NotFoundError("not found", response=_httpx.Response(404, request=request), body=None))
+        chat_mock = AsyncMock()
+
+        with patch.object(provider.async_client.responses, "create", responses_mock), \
+             patch.object(provider.async_client.chat.completions, "create", chat_mock):
+            with pytest.raises(Exception):
+                await provider.generate(prompt, config)
+
+        assert chat_mock.await_count == 0
 
     @pytest.mark.anyio
     async def test_generate_empty_responses_raises(self, provider):

@@ -1987,64 +1987,26 @@ class ContextBudgetAllocator:
 
         从本章 cast plan 读取 normal/minor 角色，避免 Bible 前 7 个角色污染上下文。
         """
+        # 单一路径：仅使用 character kernel（含统一投影）；失败显式记录并返回空，不回退旧 vector manager。
         kernel = self._get_character_kernel()
-        if kernel:
-            try:
-                plan = kernel.plan_cast(novel_id, chapter_number)
-                projected = self._projection_locks_for_plan(novel_id, plan, tier="support")
-                if projected:
-                    return projected
-                locks = kernel.build_context_locks(novel_id, chapter_number, plan=plan)
-                parts = []
-                if locks.t1.strip():
-                    parts.append(locks.t1.strip())
-                if locks.t2.strip():
-                    parts.append(locks.t2.strip())
-                return "\n\n".join(parts)
-            except Exception as e:
-                logger.debug("角色内核状态锁构建失败: %s", e)
-
-        # Legacy fallback for tests or deployments without repositories.
+        if not kernel:
+            logger.warning("character kernel 未配置，跳过角色状态锁构建 novel_id=%s ch=%s", novel_id, chapter_number)
+            return ""
         try:
-            from application.engine.rules.character_state_vector import get_character_state_vector_manager
-
-            manager = get_character_state_vector_manager()
-
-            # 从 Bible 获取角色列表
-            if self.bible_repo:
-                from domain.novel.value_objects.novel_id import NovelId
-                nid = NovelId(novel_id)
-                bible = self.bible_repo.get_by_novel_id(nid)
-                if bible and hasattr(bible, 'characters'):
-                    # 更新角色状态向量
-                    for char in bible.characters[:7]:  # 最多7个角色
-                        char_data = {}
-                        if hasattr(char, 'physical_state') and char.physical_state:
-                            char_data["physical_state"] = char.physical_state
-                        if hasattr(char, 'mental_state') and char.mental_state:
-                            char_data["emotional_baseline"] = char.mental_state
-                        if hasattr(char, 'verbal_tic') and char.verbal_tic:
-                            char_data["voice_print"] = {
-                                "common_expressions": [char.verbal_tic],
-                                "vocabulary_style": "colloquial",
-                            }
-                        if hasattr(char, 'idle_behavior') and char.idle_behavior:
-                            char_data["nervous_habit"] = {
-                                "primary": char.idle_behavior,
-                            }
-
-                        if char_data:
-                            manager.update_from_bible(char.name, char_data)
-
-                    # 生成状态锁文本
-                    names = [c.name for c in bible.characters[:7]]
-                    lock_text = manager.generate_lock_block(names)
-                    if lock_text:
-                        return lock_text
+            plan = kernel.plan_cast(novel_id, chapter_number)
+            projected = self._projection_locks_for_plan(novel_id, plan, tier="support")
+            if projected:
+                return projected
+            locks = kernel.build_context_locks(novel_id, chapter_number, plan=plan)
+            parts = []
+            if locks.t1.strip():
+                parts.append(locks.t1.strip())
+            if locks.t2.strip():
+                parts.append(locks.t2.strip())
+            return "\n\n".join(parts)
         except Exception as e:
-            logger.debug("角色状态锁构建失败: %s", e)
-
-        return ""
+            logger.warning("角色内核状态锁构建失败 novel_id=%s ch=%s: %s", novel_id, chapter_number, e)
+            return ""
 
     def _projection_locks_for_plan(self, novel_id: str, plan: Any, *, tier: str) -> str:
         """Prefer unified character projections for prompt locks; fallback callers handle empty."""

@@ -632,24 +632,39 @@ def get_embedding_service():
         return None
 
 
+def _vector_store_unavailable_reason() -> str:
+    """返回向量存储不可用的原因，供依赖服务显式上报（可观测性）。"""
+    if get_container().is_vector_store_init_failed():
+        logger.warning("向量功能不可用：初始化已失败并降级禁用（详见 container 启动日志）")
+        return "vector_store_init_failed"
+    logger.debug("向量功能未启用（配置关闭或依赖缺失）")
+    return "vector_store_disabled"
+
+
 def get_chapter_indexing_service():
-    """获取章节索引服务（依赖 VectorStore + Embedding，任一不可用则返回 None）。"""
+    """获取章节索引服务（依赖 VectorStore + Embedding，任一不可用则显式上报后返回 None）。"""
     vs = get_vector_store()
     es = get_embedding_service()
-    if vs is None or es is None:
+    if vs is None:
+        _vector_store_unavailable_reason()
+        return None
+    if es is None:
         return None
     from application.analyst.services.chapter_indexing_service import ChapterIndexingService
     return ChapterIndexingService(vs, es)
 
 
 def get_triple_indexing_service():
-    """获取三元组索引服务（依赖 VectorStore + Embedding，任一不可用则返回 None）。
-    
+    """获取三元组索引服务（依赖 VectorStore + Embedding，任一不可用则显式上报后返回 None）。
+
     用于将三元组向量化并支持语义检索。
     """
     vs = get_vector_store()
     es = get_embedding_service()
-    if vs is None or es is None:
+    if vs is None:
+        _vector_store_unavailable_reason()
+        return None
+    if es is None:
         return None
     from application.analyst.services.triple_indexing_service import TripleIndexingService
     return TripleIndexingService(vs, es)
@@ -1013,9 +1028,11 @@ def get_macro_refactor_scanner():
     """
     from application.audit.services.macro_refactor_scanner import MacroRefactorScanner
     from infrastructure.persistence.database.sqlite_narrative_event_repository import SqliteNarrativeEventRepository
+    from infrastructure.persistence.database.sqlite_character_state_repository import SqliteCharacterStateRepository
 
-    narrative_event_repo = SqliteNarrativeEventRepository(get_database())
-    return MacroRefactorScanner(narrative_event_repo)
+    db = get_database()
+    narrative_event_repo = SqliteNarrativeEventRepository(db)
+    return MacroRefactorScanner(narrative_event_repo, SqliteCharacterStateRepository(db))
 
 
 def get_macro_refactor_proposal_service():
@@ -1057,10 +1074,11 @@ def get_macro_diagnosis_service():
     from application.audit.services.macro_diagnosis_service import MacroDiagnosisService
     from application.audit.services.macro_refactor_scanner import MacroRefactorScanner
     from infrastructure.persistence.database.sqlite_narrative_event_repository import SqliteNarrativeEventRepository
+    from infrastructure.persistence.database.sqlite_character_state_repository import SqliteCharacterStateRepository
 
     db = get_database()
     narrative_event_repo = SqliteNarrativeEventRepository(db)
-    scanner = MacroRefactorScanner(narrative_event_repo)
+    scanner = MacroRefactorScanner(narrative_event_repo, SqliteCharacterStateRepository(db))
     return MacroDiagnosisService(db, scanner)
 
 

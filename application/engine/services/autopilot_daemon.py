@@ -37,7 +37,9 @@ class AutopilotDaemon(DaemonHostMixin):
         volume_summary_service=None,
         foreshadowing_repository=None,
         knowledge_service=None,
-        use_story_pipeline_for_writing: bool = False,
+        # 默认 None → 由 init_daemon_dependencies 按环境设置解析（新管线为默认），
+        # 避免直接构造时静默落入 legacy 写作路径。
+        use_story_pipeline_for_writing: bool | None = None,
     ):
         warnings.warn(
             "AutopilotDaemon 已废弃，请使用 engine.runtime.engine_daemon.EngineDaemon",

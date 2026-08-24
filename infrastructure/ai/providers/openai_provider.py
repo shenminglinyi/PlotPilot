@@ -22,13 +22,10 @@ logger = logging.getLogger(__name__)
 class OpenAIProvider(BaseProvider):
     """OpenAI LLM 提供商实现
 
-    通过 use_legacy_chat_completions 显式选择协议：
-    - False（默认）：走 Responses API，失败时自动降级到 Chat Completions
-    - True：走 Chat Completions API
+    通过 use_legacy_chat_completions 显式选择协议（单一协议路径，失败直接报错，不做运行时自动切换）：
+    - False（默认）：Responses API
+    - True：Chat Completions API
     """
-
-    # 静态类级别缓存：记录哪些 base_url 不支持 Responses API，从而避免重复降级带来的延迟开销
-    _fallback_to_chat_cache: set[str] = set()
 
     def __init__(self, settings: Settings):
         super().__init__(settings)
@@ -60,25 +57,9 @@ class OpenAIProvider(BaseProvider):
         config: GenerationConfig
     ) -> GenerationResult:
         try:
-            base_url = self.settings.base_url or "https://api.openai.com/v1"
-            use_responses = not self._use_legacy and base_url not in self.__class__._fallback_to_chat_cache
-
-            if use_responses:
-                try:
-                    return await self._generate_via_responses(prompt, config)
-                except (openai.NotFoundError, openai.BadRequestError) as e:
-                    logger.info(f"Responses API unsupported for {base_url}, falling back to chat completions: {str(e)}")
-                    self.__class__._fallback_to_chat_cache.add(base_url)
-                except Exception as e:
-                    # 某些网关在路径错误时可能不抛严格的 404 而是抛出其他错误，如果消息含有明确路径错误也尝试降级
-                    if "404" in str(e) or "Not Found" in str(e) or "400" in str(e) or "Account invalid" in str(e) or "INVALID_ARGUMENT" in str(e):
-                        logger.info(f"Gateway returned error for Responses API ({base_url}), falling back: {str(e)}")
-                        self.__class__._fallback_to_chat_cache.add(base_url)
-                    else:
-                        raise
-
-            # 使用降级的 Chat Completions API
-            return await self._generate_via_chat(prompt, config)
+            if self._use_legacy:
+                return await self._generate_via_chat(prompt, config)
+            return await self._generate_via_responses(prompt, config)
         except RuntimeError:
             raise
         except ValueError:
@@ -87,12 +68,12 @@ class OpenAIProvider(BaseProvider):
             raise RuntimeError(f"Failed to generate text: {str(e)}") from e
 
     async def _generate_via_chat(self, prompt: Prompt, config: GenerationConfig) -> GenerationResult:
-        """Chat Completions API 非流式生成
+        """Chat Completions API 非流式生成。
 
-        🔥 自适应容错策略：
-        1. 如果指定了 json_schema response_format 但网关返回 400，自动降级到 json_object
-        2. 如果内容为空，降级到流式聚合（部分网关非流式返回空但流式正常）
-        3. 如果非流式与流式聚合都为空，按统一 LLM 重试预算进行有限重试
+        同协议内的链式适配（允许的 A→B→C）：
+        1. 指定 json_schema 但网关返回 400 → 降级为 json_object（同一 API 的能力档位）
+        2. 非流式内容为空 → 流式聚合重取（同一 API 的另一传输模式）
+        仅按统一 LLM 重试预算做有限次尝试；跨协议切换已被禁止（协议只由配置决定）。
         """
         messages = self._build_messages(prompt)
         last_error: Exception | None = None
@@ -103,11 +84,11 @@ class OpenAIProvider(BaseProvider):
                 try:
                     response = await self.async_client.chat.completions.create(**request_kwargs)
                 except (openai.BadRequestError, openai.NotFoundError) as e:
-                    # 🔥 json_schema 不支持时自动降级
+                    # json_schema 不受支持时降级为同协议的 json_object（网关能力适配，非新旧接口回退）
                     if config.response_format and config.response_format.get("type") == "json_schema":
                         base_url = (self.settings.base_url or "").rstrip("/")
                         logger.info(
-                            "json_schema 不支持，自动降级到 json_object: %s (错误: %s)",
+                            "json_schema 不支持，降级到 json_object: %s (错误: %s)",
                             base_url, str(e)[:100]
                         )
                         self.__class__._json_schema_unsupported_cache.add(base_url)
@@ -121,7 +102,7 @@ class OpenAIProvider(BaseProvider):
                 if not content:
                     logger.warning(
                         "OpenAI-compatible response returned empty non-stream content; "
-                        "falling back to streaming aggregation (attempt=%d/%d)",
+                        "retrying via streaming aggregation (attempt=%d/%d)",
                         attempt + 1,
                         LLM_MAX_TOTAL_ATTEMPTS,
                     )
@@ -159,36 +140,19 @@ class OpenAIProvider(BaseProvider):
         config: GenerationConfig
     ) -> AsyncIterator[str]:
         try:
-            base_url = self.settings.base_url or "https://api.openai.com/v1"
-            use_responses = not self._use_legacy and base_url not in self.__class__._fallback_to_chat_cache
-
-            if use_responses:
-                try:
-                    # 尝试走 Responses 流式 API
-                    request_kwargs = self._build_responses_request_kwargs(prompt, config, stream=True)
-                    stream = await self.async_client.responses.create(**request_kwargs)
-                    async for chunk in stream:
-                        content = self._extract_text_from_responses_chunk(chunk)
-                        if content:
-                            yield content
-                    return  # 正常完成则结束 generator
-                except (openai.NotFoundError, openai.BadRequestError):
-                    self.__class__._fallback_to_chat_cache.add(base_url)
-                    logger.info(f"Stream: Responses API unsupported for {base_url}, falling back.")
-                except Exception as e:
-                    if "404" in str(e) or "Not Found" in str(e) or "400" in str(e) or "Account invalid" in str(e) or "INVALID_ARGUMENT" in str(e):
-                        self.__class__._fallback_to_chat_cache.add(base_url)
-                        logger.info(f"Stream: Gateway returned error for Responses API ({base_url}), falling back.")
-                    else:
-                        logger.error(f"[Responses Stream] Failed: {e}")
-                        raise
-
-            # 降级：走原来的 Chat Completions 流式 API
-            messages = self._build_messages(prompt)
-            request_kwargs = self._build_chat_request_kwargs(messages, config, stream=True)
-            stream = await self.async_client.chat.completions.create(**request_kwargs)
+            if self._use_legacy:
+                messages = self._build_messages(prompt)
+                request_kwargs = self._build_chat_request_kwargs(messages, config, stream=True)
+                stream = await self.async_client.chat.completions.create(**request_kwargs)
+                async for chunk in stream:
+                    content = self._extract_text_from_stream_chunk(chunk)
+                    if content:
+                        yield content
+                return
+            request_kwargs = self._build_responses_request_kwargs(prompt, config, stream=True)
+            stream = await self.async_client.responses.create(**request_kwargs)
             async for chunk in stream:
-                content = self._extract_text_from_stream_chunk(chunk)
+                content = self._extract_text_from_responses_chunk(chunk)
                 if content:
                     yield content
         except Exception as e:
@@ -202,7 +166,7 @@ class OpenAIProvider(BaseProvider):
             {"role": "user", "content": prompt.user}
         ]
 
-    # 🔥 记录已知不支持 json_schema 的 base_url（避免每次重试）
+    # 记录已知不支持 json_schema 的 base_url（同协议内能力档位适配，避免每次重试）
     _json_schema_unsupported_cache: set[str] = set()
 
     def _build_chat_request_kwargs(
@@ -228,20 +192,13 @@ class OpenAIProvider(BaseProvider):
             "timeout": self.settings.timeout_seconds,
         }
 
-        # 🔥 response_format 自适应降级策略
-        # 不同网关对 response_format 的支持程度不同：
-        #   OpenAI 官方: json_schema ✅ | json_object ✅
-        #   DeepSeek:     json_schema ❌ | json_object ✅
-        #   Qwen/DashScope: json_schema ❌ | json_object ✅ (部分)
-        #   豆包/Ark:     json_schema ❌ | json_object ✅ (部分)
-        #   智谱/GLM:     json_schema ❌ | json_object ✅
+        # response_format 能力适配：已知网关不支持 json_schema 时使用同协议的 json_object。
         if config.response_format:
             fmt = config.response_format
             base_url = (self.settings.base_url or "").rstrip("/")
 
             if fmt.get("type") == "json_schema" and base_url in self.__class__._json_schema_unsupported_cache:
-                # 已知不支持 json_schema，自动降级到 json_object
-                logger.debug("json_schema 已知不支持，降级到 json_object: %s", base_url)
+                logger.debug("json_schema 已知不支持，使用 json_object: %s", base_url)
                 kwargs["response_format"] = {"type": "json_object"}
             else:
                 kwargs["response_format"] = fmt
@@ -401,19 +358,6 @@ class OpenAIProvider(BaseProvider):
             return OpenAIProvider._normalize_chat_completion_content(content)
         return ""
 
-    @staticmethod
-    def _extract_text_from_stream_chunk(chunk: Any) -> str:
-        if not getattr(chunk, "choices", None):
-            return ""
-
-        delta = getattr(chunk.choices[0], "delta", None)
-        content = getattr(delta, "content", None)
-        if isinstance(content, str):
-            return content
-        if isinstance(content, list):
-            return OpenAIProvider._normalize_chat_completion_content(content)
-        return ""
-
     async def _generate_via_stream(self, request_kwargs: dict[str, Any]) -> tuple[str, TokenUsage]:
         stream = await self.async_client.chat.completions.create(
             **{**request_kwargs, "stream": True}
@@ -441,3 +385,4 @@ class OpenAIProvider(BaseProvider):
             input_tokens=input_tokens,
             output_tokens=output_tokens,
         )
+

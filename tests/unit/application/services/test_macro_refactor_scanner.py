@@ -14,9 +14,14 @@ class TestMacroRefactorScanner:
         return Mock()
 
     @pytest.fixture
-    def scanner(self, mock_event_repo):
+    def mock_state_repo(self):
+        """Mock CharacterStateRepository（构造期必选依赖）"""
+        return Mock()
+
+    @pytest.fixture
+    def scanner(self, mock_event_repo, mock_state_repo):
         """创建 MacroRefactorScanner 实例"""
-        return MacroRefactorScanner(mock_event_repo)
+        return MacroRefactorScanner(mock_event_repo, mock_state_repo)
 
     def test_scan_finds_conflicting_motivation(self, scanner, mock_event_repo):
         """测试：扫描找到冲突的动机标签"""

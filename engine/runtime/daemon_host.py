@@ -1109,6 +1109,7 @@ class DaemonHostMixin:
         novel_id: str = "",
         label: str = "",
         timeout_default=None,
+        propagate_errors: bool = False,
     ):
         """为 LLM 调用加超时保护 + 停止信号响应，避免 API 卡住或用户停止后仍在等待。
 
@@ -1122,6 +1123,8 @@ class DaemonHostMixin:
             novel_id: 小说 ID（用于写共享状态和检查停止信号）
             label: 调用标签（用于日志）
             timeout_default: 超时/停止时的显式默认返回值
+            propagate_errors: True 时超时/异常向上抛出而非返回默认值
+                （用于必须显式失败的路径，如章后管线）；用户停止仍走默认值。
         """
         # ── 并行：LLM 调用 + 停止信号监听 ──
         stop_detected = asyncio.Event()
@@ -1160,17 +1163,23 @@ class DaemonHostMixin:
             return result
 
         except asyncio.TimeoutError:
-            logger.warning(
-                f"[{novel_id}] ⏱️ {label} 超时（{timeout}s），使用显式默认值: {timeout_default}"
-            )
             if novel_id:
                 self._update_shared_state(
                     novel_id,
                     _last_timeout_label=label,
                     _last_timeout_at=time.time(),
                 )
+            if propagate_errors:
+                logger.error(f"[{novel_id}] ⏱️ {label} 超时（{timeout}s），向上抛出")
+                raise
+            logger.warning(
+                f"[{novel_id}] ⏱️ {label} 超时（{timeout}s），使用显式默认值: {timeout_default}"
+            )
             return timeout_default
         except Exception as e:
+            if propagate_errors:
+                logger.error(f"[{novel_id}] {label} 异常，向上抛出: {e}")
+                raise
             logger.warning(f"[{novel_id}] {label} 异常: {e}，使用显式默认值")
             return timeout_default
         finally:
@@ -1422,6 +1431,8 @@ class DaemonHostMixin:
         return current_content, current_result
 
 
+    # LEGACY(退役候选): 审计旧逻辑。仅在 aftermath_pipeline 未配置时作为显式配置分支
+    # 进入；章后管线运行中失败不再回退到此。删除条件：aftermath_pipeline 成为唯一配置。
     def _legacy_auditing_tasks_and_voice(
         self,
         novel: Novel,
@@ -1528,14 +1539,15 @@ class DaemonHostMixin:
         try:
             from infrastructure.persistence.database.connection import get_database
             from infrastructure.persistence.database.sqlite_narrative_event_repository import SqliteNarrativeEventRepository
+            from infrastructure.persistence.database.sqlite_character_state_repository import SqliteCharacterStateRepository
             from application.audit.services.macro_refactor_scanner import MacroRefactorScanner
             from application.audit.services.macro_diagnosis_service import MacroDiagnosisService
-            
+
             logger.info(f"[{novel_id}] 宏观诊断后台任务已启动")
-            
+
             db = get_database()
             narrative_event_repo = SqliteNarrativeEventRepository(db)
-            scanner = MacroRefactorScanner(narrative_event_repo)
+            scanner = MacroRefactorScanner(narrative_event_repo, SqliteCharacterStateRepository(db))
             diagnosis_service = MacroDiagnosisService(db, scanner)
             
             result = diagnosis_service.run_full_diagnosis(
