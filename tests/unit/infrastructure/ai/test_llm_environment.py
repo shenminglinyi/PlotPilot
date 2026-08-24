@@ -1,5 +1,7 @@
 from infrastructure.ai.llm_environment import (
     ARK_DEFAULT_BASE_URL,
+    ATLAS_CLOUD_DEFAULT_BASE_URL,
+    ATLAS_CLOUD_DEFAULT_MODEL,
     LLMEnvironmentSettings,
 )
 
@@ -18,6 +20,9 @@ LLM_ENV_NAMES = (
     "GEMINI_API_KEY",
     "GEMINI_BASE_URL",
     "GEMINI_MODEL",
+    "ATLASCLOUD_API_KEY",
+    "ATLASCLOUD_BASE_URL",
+    "ATLASCLOUD_MODEL",
     "ARK_API_KEY",
     "ARK_BASE_URL",
     "ARK_MODEL",
@@ -37,6 +42,8 @@ def test_llm_environment_defaults(monkeypatch):
     assert settings.provider == ""
     assert settings.anthropic_api_key_with_token_fallback == ""
     assert settings.openai_preset_key == "openai-official"
+    assert settings.atlascloud_base_url_or_default == ATLAS_CLOUD_DEFAULT_BASE_URL
+    assert settings.atlascloud_model_or_default == ATLAS_CLOUD_DEFAULT_MODEL
     assert settings.ark_base_url_or_default == ARK_DEFAULT_BASE_URL
 
 
@@ -88,3 +95,16 @@ def test_llm_environment_ark_base_url_default_and_override(monkeypatch):
 
     monkeypatch.setenv("ARK_BASE_URL", "https://ark.example/api/v3")
     assert LLMEnvironmentSettings.from_env().ark_base_url_or_default == "https://ark.example/api/v3"
+
+
+def test_llm_environment_atlascloud_overrides(monkeypatch):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("ATLASCLOUD_API_KEY", "atlas-key")
+    monkeypatch.setenv("ATLASCLOUD_BASE_URL", "https://atlas.example/v1")
+    monkeypatch.setenv("ATLASCLOUD_MODEL", "vendor/model")
+
+    settings = LLMEnvironmentSettings.from_env()
+
+    assert settings.atlascloud_api_key == "atlas-key"
+    assert settings.atlascloud_base_url_or_default == "https://atlas.example/v1"
+    assert settings.atlascloud_model_or_default == "vendor/model"
