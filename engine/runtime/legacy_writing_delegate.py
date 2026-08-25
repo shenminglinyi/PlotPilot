@@ -1215,7 +1215,7 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
     host._beat_exhausted_rewrite_count.pop((novel.novel_id.value, chapter_num), None)
 
     # 🔗 衔接引擎：章节完成后自检衔接度（非第 1 章）
-    # 如果衔接度 < 0.6，自动修整首段（最多 2 轮）
+    # 默认只告警；显式启用自动修整策略时才改写首段。
     if chapter_num > 1:
         # ★ 子步骤状态：衔接自检
         host._update_shared_state(

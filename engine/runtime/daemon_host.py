@@ -875,10 +875,10 @@ class DaemonHostMixin:
         chapter_number: int,
         content: str,
     ) -> str:
-        """🔗 衔接自检：检查章节首段与前章桥段的衔接度，低于阈值则自动修整。
+        """🔗 衔接自检：检查章节首段与前章桥段的衔接度。
 
         仅在非第 1 章时触发。约 ~200 token 的轻量 LLM 调用。
-        如果衔接度 < 0.6，自动修整首段（最多 2 轮）。
+        默认只告警；只有策略显式开启自动修整阈值时才改写首段。
         """
         try:
             from application.engine.services.chapter_bridge_service import ChapterBridgeService
