@@ -172,7 +172,8 @@ const stats = computed(() => {
   const total = Number(s.total_chapters ?? 0)
 
   const formattedWords = totalWords.toLocaleString()
-  const formattedCompletionRate = rate.toFixed(DECIMAL_PRECISION)
+  // completion_rate 后端语义为 0~1 分数（stats_models: Fraction of book completed），展示需换算百分比
+  const formattedCompletionRate = (rate * 100).toFixed(DECIMAL_PRECISION)
   const formattedAvgWords = avgWords.toLocaleString()
 
   return [
