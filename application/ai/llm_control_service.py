@@ -270,6 +270,33 @@ class LLMControlService:
                 description='方舟 OpenAI-compatible 接口；模型名以方舟控制台 Endpoint 为准。',
                 tags=['domestic', 'preset'],
             ),
+            LLMPreset(
+                key='minimax-openai',
+                label='MiniMax（OpenAI 兼容）',
+                protocol='openai',
+                default_base_url='https://api.minimax.cn/v1',
+                default_model='',
+                description='MiniMax 官方 OpenAI-compatible 接口；模型名以官方文档为准（MiniMax-M3 / M2 系列）。',
+                tags=['domestic', 'preset'],
+            ),
+            LLMPreset(
+                key='minimax-anthropic',
+                label='MiniMax（Claude 兼容）',
+                protocol='anthropic',
+                default_base_url='https://api.minimax.cn/anthropic',
+                default_model='',
+                description='MiniMax Anthropic-compatible 接口；模型名以官方文档为准（MiniMax-M3 / M2 系列）。',
+                tags=['domestic', 'preset'],
+            ),
+            LLMPreset(
+                key='xiaomi-mimo',
+                label='Xiaomi MiMo',
+                protocol='openai',
+                default_base_url='https://api.xiaomimimo.com/v1',
+                default_model='',
+                description='小米 MiMo OpenAI-compatible 接口；模型名以官方文档为准（mimo-v2.6 系列）。',
+                tags=['domestic', 'preset'],
+            ),
         ]
 
     def get_preset_map(self) -> Dict[str, LLMPreset]:

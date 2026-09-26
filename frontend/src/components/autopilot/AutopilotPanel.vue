@@ -175,6 +175,9 @@
         <p v-else>
           已连续失败 <strong>{{ status?.consecutive_error_count || 0 }}</strong> 次（达到 3 次会挂起）。
         </p>
+        <p v-if="status?.last_error_summary" class="recovery-error">
+          最近错误：<code>{{ status.last_error_summary }}</code>
+        </p>
         <p class="recovery-sub">
           全局 LLM 熔断在守护进程内，无法在此直接展示。下方按钮与「监控大盘 → 熔断保护 → 重置」相同。
         </p>
@@ -2035,6 +2038,18 @@ onUnmounted(() => {
 
 .recovery-hint p { margin: 0 0 6px; line-height: 1.5; }
 .recovery-sub { font-size: 11px; opacity: 0.95; margin-bottom: 8px !important; }
+.recovery-error { font-size: 11px; }
+.recovery-error code {
+  display: block;
+  margin-top: 4px;
+  padding: 6px 8px;
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 120px;
+  overflow-y: auto;
+  opacity: 0.95;
+}
 
 @media (max-width: 640px) {
   .ap-review-alert {

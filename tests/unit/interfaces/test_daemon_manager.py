@@ -3,6 +3,7 @@ from interfaces.daemon_manager import (
     AutopilotDaemonManager,
     DaemonLifecycleSettings,
     DaemonStatus,
+    _collect_ancestor_pids,
     is_expected_daemon_shutdown_exception,
 )
 
@@ -96,3 +97,17 @@ def test_daemon_manager_stop_signals_and_terminates_stuck_process(monkeypatch):
     assert process.join_calls == [0.25, 0.5]
     assert manager.process is None
     assert manager.stop_event is None
+
+
+def test_collect_ancestor_pids_walks_parent_chain():
+    # server(100) -> uv trampoline(50) -> shell(10) -> explorer(1); 888 is a child of 100
+    rows = [(100, 50), (50, 10), (10, 1), (1, 0), (999, 888), (888, 100)]
+    assert _collect_ancestor_pids(rows, 100) == {50, 10, 1, 0}
+
+
+def test_collect_ancestor_pids_handles_cycle_and_missing_parent():
+    rows = [(100, 200), (200, 100), (300, 0)]
+    result = _collect_ancestor_pids(rows, 300)
+    assert result == {0}
+
+    assert _collect_ancestor_pids([(999, 888)], 100) == set()

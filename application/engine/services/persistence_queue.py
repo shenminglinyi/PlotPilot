@@ -567,6 +567,7 @@ def register_persistence_handlers() -> None:
                 "current_beat_index": payload.get("current_beat_index"),
                 "current_auto_chapters": payload.get("current_auto_chapters"),
                 "consecutive_error_count": payload.get("consecutive_error_count"),
+                "last_error_summary": payload.get("last_error_summary"),
                 "last_chapter_tension": payload.get("last_chapter_tension"),
                 "auto_approve_mode": payload.get("auto_approve_mode"),
             }

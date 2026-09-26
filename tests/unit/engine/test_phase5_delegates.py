@@ -242,3 +242,189 @@ async def test_process_novel_routes_writing_via_run_writing():
     ) as mock_writing:
         await process_novel(host, novel)
         mock_writing.assert_awaited_once_with(host, novel)
+
+
+@pytest.mark.asyncio
+async def test_process_novel_records_last_error_summary_on_failure():
+    from domain.novel.entities.novel import AutopilotStatus, NovelStage
+
+    host = MagicMock()
+    host._is_still_running.return_value = True
+    host.circuit_breaker = MagicMock()
+    novel = MagicMock()
+    novel.novel_id.value = "n-1"
+    novel.current_stage = NovelStage.MACRO_PLANNING
+    novel.autopilot_status = AutopilotStatus.RUNNING
+    novel.consecutive_error_count = 0
+
+    with patch(
+        "engine.runtime.novel_lifecycle.run_macro_planning",
+        new_callable=AsyncMock,
+        side_effect=RuntimeError("Error code: 500 - api_error upstream"),
+    ):
+        await process_novel(host, novel)
+
+    assert "Error code: 500 - api_error upstream" in novel.last_error_summary
+    assert novel.consecutive_error_count == 1
+    host._save_novel_state.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_process_novel_marks_error_after_three_failures():
+    from domain.novel.entities.novel import AutopilotStatus, NovelStage
+
+    host = MagicMock()
+    host._is_still_running.return_value = True
+    host.circuit_breaker = MagicMock()
+    novel = MagicMock()
+    novel.novel_id.value = "n-1"
+    novel.current_stage = NovelStage.MACRO_PLANNING
+    novel.autopilot_status = AutopilotStatus.RUNNING
+    novel.consecutive_error_count = 2
+
+    with patch(
+        "engine.runtime.novel_lifecycle.run_macro_planning",
+        new_callable=AsyncMock,
+        side_effect=RuntimeError("boom"),
+    ):
+        # 非风控错误:不走自修复,直接累计
+
+        await process_novel(host, novel)
+
+    assert novel.consecutive_error_count == 3
+    assert novel.autopilot_status == AutopilotStatus.ERROR
+
+
+@pytest.mark.asyncio
+async def test_process_novel_clears_last_error_summary_on_success():
+    from domain.novel.entities.novel import AutopilotStatus, NovelStage
+
+    host = MagicMock()
+    host._is_still_running.return_value = True
+    host.circuit_breaker = MagicMock()
+    novel = MagicMock()
+    novel.novel_id.value = "n-1"
+    novel.current_stage = NovelStage.WRITING
+    novel.autopilot_status = AutopilotStatus.RUNNING
+    novel.consecutive_error_count = 5
+    novel.last_error_summary = "RuntimeError: stale"
+
+    with patch(
+        "engine.runtime.writing_delegate.run_writing",
+        new_callable=AsyncMock,
+    ):
+        await process_novel(host, novel)
+
+    assert novel.consecutive_error_count == 0
+    assert novel.last_error_summary == ""
+    host.circuit_breaker.record_success.assert_called_once()
+
+
+def test_summarize_error_collapses_whitespace_and_truncates():
+    from engine.runtime.novel_lifecycle import _summarize_error
+
+    err = RuntimeError("Error code: 500 -\n{'type': 'api_error',\n 'message': 'input new_sensitive'}")
+    summary = _summarize_error(err)
+    assert "\n" not in summary
+    assert summary.startswith("RuntimeError: ")
+    assert "input new_sensitive" in summary
+    assert len(_summarize_error(ValueError("x" * 2000))) == 500
+
+
+@pytest.mark.asyncio
+async def test_process_novel_auto_heals_content_filter_error():
+    """1026 类错误触发自修复:成功后清零计数,不挂起"""
+    from domain.novel.entities.novel import AutopilotStatus, NovelStage
+
+    host = MagicMock()
+    host._is_still_running.return_value = True
+    host.circuit_breaker = MagicMock()
+    host._latest_completed_chapter_number.return_value = 222
+    host.chapter_repository.get_by_novel_and_number.return_value = SimpleNamespace(content="触发内容")
+    host.llm_service.generate = AsyncMock(return_value=SimpleNamespace(content="改写后内容"))
+
+    novel = MagicMock()
+    novel.novel_id.value = "n-1"
+    novel.current_stage = NovelStage.MACRO_PLANNING
+    novel.autopilot_status = AutopilotStatus.RUNNING
+    novel.consecutive_error_count = 0
+
+    with patch(
+        "engine.runtime.novel_lifecycle.run_macro_planning",
+        new_callable=AsyncMock,
+        side_effect=RuntimeError("Error code: 500 - input new_sensitive (1026)"),
+    ):
+        await process_novel(host, novel)
+
+    assert novel.consecutive_error_count == 0
+    assert novel.autopilot_status == AutopilotStatus.RUNNING
+    host.chapter_repository.save.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_process_novel_counts_failure_when_heal_fails():
+    """自修复失败:照常累计失败并把原因写进 last_error_summary"""
+    from domain.novel.entities.novel import AutopilotStatus, NovelStage
+
+    host = MagicMock()
+    host._is_still_running.return_value = True
+    host.circuit_breaker = MagicMock()
+    host._latest_completed_chapter_number.return_value = None  # 无法定位章节 → 修复失败
+
+    novel = MagicMock()
+    novel.novel_id.value = "n-1"
+    novel.current_stage = NovelStage.MACRO_PLANNING
+    novel.autopilot_status = AutopilotStatus.RUNNING
+    novel.consecutive_error_count = 0
+
+    with patch(
+        "engine.runtime.novel_lifecycle.run_macro_planning",
+        new_callable=AsyncMock,
+        side_effect=RuntimeError("Error code: 500 - input new_sensitive (1026)"),
+    ):
+        await process_novel(host, novel)
+
+    assert novel.consecutive_error_count == 1
+    assert "自动修复未成功" in novel.last_error_summary
+
+
+@pytest.mark.asyncio
+async def test_process_novel_resumes_completed_book_after_target_raise():
+    """已完成的书在目标章节数上调后,下一轮自动回到写作"""
+    from domain.novel.entities.novel import AutopilotStatus, NovelStage
+
+    host = MagicMock()
+    host._is_still_running.return_value = True
+    host.circuit_breaker = None
+    host._count_completed_chapters.return_value = 300
+    novel = MagicMock()
+    novel.novel_id.value = "n-1"
+    novel.current_stage = NovelStage.COMPLETED
+    novel.autopilot_status = AutopilotStatus.RUNNING
+    novel.target_chapters = 303
+
+    await process_novel(host, novel)
+
+    assert novel.current_stage == NovelStage.WRITING
+    host._save_novel_state.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_process_novel_keeps_completed_book_when_target_met():
+    """完成数已达目标:保持 completed,不误触发续写"""
+    from domain.novel.entities.novel import AutopilotStatus, NovelStage
+
+    host = MagicMock()
+    host._is_still_running.return_value = True
+    host.circuit_breaker = None
+    host._count_completed_chapters.return_value = 303
+    novel = MagicMock()
+    novel.novel_id.value = "n-1"
+    novel.current_stage = NovelStage.COMPLETED
+    novel.autopilot_status = AutopilotStatus.RUNNING
+    novel.target_chapters = 303
+
+    await process_novel(host, novel)
+
+    assert novel.current_stage == NovelStage.COMPLETED
+    host._save_novel_state.assert_not_called()

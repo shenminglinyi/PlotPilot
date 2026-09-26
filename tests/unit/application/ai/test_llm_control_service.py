@@ -66,6 +66,22 @@ def test_initial_config_uses_custom_openai_when_base_url_present(monkeypatch):
     assert active.base_url == "https://gateway.example/v1"
 
 
+def test_presets_cover_minimax_and_xiaomi_mimo():
+    presets = {preset.key: preset for preset in LLMControlService().get_presets()}
+
+    minimax_openai = presets["minimax-openai"]
+    assert minimax_openai.protocol == "openai"
+    assert minimax_openai.default_base_url == "https://api.minimax.cn/v1"
+
+    minimax_anthropic = presets["minimax-anthropic"]
+    assert minimax_anthropic.protocol == "anthropic"
+    assert minimax_anthropic.default_base_url == "https://api.minimax.cn/anthropic"
+
+    mimo = presets["xiaomi-mimo"]
+    assert mimo.protocol == "openai"
+    assert mimo.default_base_url == "https://api.xiaomimimo.com/v1"
+
+
 def test_initial_config_keeps_ark_default_base_url(monkeypatch):
     _clear_llm_env(monkeypatch)
     monkeypatch.setenv("ARK_API_KEY", "ark-key")

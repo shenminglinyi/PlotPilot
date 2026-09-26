@@ -212,6 +212,25 @@ uvicorn interfaces.main:app --host 127.0.0.1 --port 8005 --reload
 ```
 
 ```bash
+# 后端 — uv（跨平台，自动创建并同步 .venv）
+uv sync                        # 按 pyproject.toml + uv.lock 装核心依赖（Python >= 3.14，缺失时 uv 自动下载）
+uv pip install -r requirements-local.txt   # 可选：本地向量模型（未列入 uv.lock，走 pip 兼容层）
+cp .env.example .env           # Windows 用 copy
+uv run uvicorn interfaces.main:app --host 127.0.0.1 --port 8005 --reload
+```
+
+uv 版与 python 版一一对应：任何在虚拟环境里直接执行的命令，改用 uv 只需加 `uv run` 前缀——
+
+| python / pip 命令 | uv 命令 |
+|---|---|
+| `python -m venv .venv` + `pip install -r requirements.txt` | `uv sync`（一步建环境 + 装依赖） |
+| `pip install -r requirements-local.txt` | `uv pip install -r requirements-local.txt` |
+| `uvicorn interfaces.main:app --host 127.0.0.1 --port 8005 --reload` | `uv run uvicorn interfaces.main:app --host 127.0.0.1 --port 8005 --reload` |
+| `python scripts/start_daemon.py` | `uv run python scripts/start_daemon.py` |
+| `python scripts/run_migrations.py` | `uv run python scripts/run_migrations.py` |
+| `pytest tests/unit -v` | `uv run pytest tests/unit -v` |
+
+```bash
 # 前端（另开终端）
 cd frontend && npm install && npm run dev
 ```
@@ -324,6 +343,10 @@ cd frontend && npm install && npm run dev
 pytest tests/ -v
 # 含覆盖率报告
 pytest tests/ --cov=. --cov-report=term-missing
+
+# uv 环境等价写法
+uv run pytest tests/ -v
+uv run pytest tests/ --cov=. --cov-report=term-missing
 ```
 
 ---

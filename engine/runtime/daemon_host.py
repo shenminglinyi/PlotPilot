@@ -556,6 +556,7 @@ class DaemonHostMixin:
             current_beat_index=novel.current_beat_index,
             beats_completed=novel.beats_completed,
             consecutive_error_count=novel.consecutive_error_count,
+            last_error_summary=getattr(novel, "last_error_summary", "") or "",
             current_auto_chapters=novel.current_auto_chapters,
         )
         # 审计快照字段（审计阶段写入，避免丢失）
@@ -678,6 +679,7 @@ class DaemonHostMixin:
                 current_beat_index=novel.current_beat_index or 0,
                 autopilot_status=novel.autopilot_status.value,
                 consecutive_error_count=novel.consecutive_error_count or 0,
+                last_error_summary=getattr(novel, 'last_error_summary', '') or '',
                 target_chapters=novel.target_chapters,
                 target_words_per_chapter=getattr(novel, 'target_words_per_chapter', 2500) or 2500,
                 auto_approve_mode=getattr(novel, 'auto_approve_mode', False),

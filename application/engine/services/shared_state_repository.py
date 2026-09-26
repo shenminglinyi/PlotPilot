@@ -72,6 +72,7 @@ class NovelState:
     has_active_invocation: bool = False
     requires_ai_review: bool = False
     autopilot_pause_reason: str = ""
+    last_error_summary: str = ""
     _updated_at: float = field(default_factory=time.time)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -98,6 +99,7 @@ class NovelState:
             "has_active_invocation": self.has_active_invocation,
             "requires_ai_review": self.requires_ai_review,
             "autopilot_pause_reason": self.autopilot_pause_reason,
+            "last_error_summary": self.last_error_summary,
             "_updated_at": self._updated_at,
         }
 
@@ -126,6 +128,7 @@ class NovelState:
             has_active_invocation=bool(data.get("has_active_invocation", False)),
             requires_ai_review=data.get("requires_ai_review", False),
             autopilot_pause_reason=data.get("autopilot_pause_reason", ""),
+            last_error_summary=data.get("last_error_summary", ""),
             _updated_at=data.get("_updated_at", time.time()),
         )
 

@@ -7,6 +7,7 @@ export type AutopilotStatus = Record<string, any> & {
   last_stable_stage?: string
   autopilot_run_epoch?: number
   autopilot_recovery_reason?: string
+  last_error_summary?: string
 }
 
 export interface AutopilotStartRequest {

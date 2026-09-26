@@ -48,6 +48,7 @@ class Novel(BaseEntity):
         current_auto_chapters: int = 0,
         last_chapter_tension: int = 0,
         consecutive_error_count: int = 0,
+        last_error_summary: str = "",
         current_beat_index: int = 0,
         autopilot_run_epoch: int = 0,
         active_pipeline_step: str = "",
@@ -92,6 +93,7 @@ class Novel(BaseEntity):
         self.current_auto_chapters = current_auto_chapters
         self.last_chapter_tension = last_chapter_tension
         self.consecutive_error_count = consecutive_error_count
+        self.last_error_summary = last_error_summary
         self.current_beat_index = current_beat_index
         self.autopilot_run_epoch = autopilot_run_epoch
         self.active_pipeline_step = active_pipeline_step

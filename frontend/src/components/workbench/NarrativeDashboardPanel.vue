@@ -307,8 +307,9 @@ const phase = computed(() => storyEvolution.value?.life_cycle?.phase ?? '')
 const currentPhase = computed(() => normalizeStoryPhase(phase.value))
 
 const progressPct = computed(() => {
+  // life_cycle.progress 是 0~1 的小数（与 StoryNavigator 一致），展示需换算为百分比
   const p = storyEvolution.value?.life_cycle?.progress ?? 0
-  return Math.round(p)
+  return Math.min(100, Math.round(p * 100))
 })
 
 const maxChapter = computed(() => storyEvolution.value?.chronotope?.max_chapter_in_book ?? 0)

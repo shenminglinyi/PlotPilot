@@ -61,7 +61,7 @@ class TestAnthropicProvider:
         mock_create.assert_called_once()
         call_kwargs = mock_create.call_args[1]
         assert call_kwargs["model"] == "claude-3-5-sonnet-20241022"
-        assert call_kwargs['temperature'] == 0.7
+        assert call_kwargs['extra_body']['temperature'] == 0.7
         assert call_kwargs['max_tokens'] == DEFAULT_MAX_OUTPUT_TOKENS
 
     @pytest.mark.asyncio
@@ -84,7 +84,7 @@ class TestAnthropicProvider:
 
         call_kwargs = mock_create.call_args[1]
         assert call_kwargs['model'] == "claude-3-opus-20240229"
-        assert call_kwargs['temperature'] == 0.5
+        assert call_kwargs['extra_body']['temperature'] == 0.5
         assert call_kwargs['max_tokens'] == DEFAULT_MAX_OUTPUT_TOKENS
 
     @pytest.mark.asyncio
@@ -237,3 +237,45 @@ class TestAnthropicProvider:
         with pytest.raises(RuntimeError, match="Failed to stream text: httpx=ReadError"):
             async for _ in provider.stream_generate(prompt, config):
                 pass
+
+
+def test_sdk_http_clients_are_httpx2():
+    """anthropic 1.x 基于 httpx2 包，注入的 http_client 必须是 httpx2 实例（否则 SDK 类型检查报错）"""
+    import httpx2
+
+    provider = AnthropicProvider(Settings(api_key="test-api-key", default_model="test-anthropic-model"))
+
+    assert isinstance(provider._http_client_sync, httpx2.Client)
+    assert isinstance(provider._http_client_async, httpx2.AsyncClient)
+
+
+@pytest.mark.asyncio
+async def test_generate_passes_temperature_via_extra_body():
+    """anthropic 1.x 的 create() 不再接受 temperature，必须经 extra_body 透传到请求体"""
+    import httpx2
+
+    captured = {}
+
+    def _handler(request):
+        import json as _json
+        captured["body"] = _json.loads(request.content)
+        return httpx2.Response(200, json={
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-x",
+            "content": [{"type": "text", "text": "hi"}],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 1, "output_tokens": 1},
+        })
+
+    provider = AnthropicProvider(Settings(api_key="test-api-key", default_model="claude-x"))
+    provider.async_client._client = httpx2.AsyncClient(transport=httpx2.MockTransport(_handler))
+
+    result = await provider.generate(
+        Prompt(system="sys", user="hi"),
+        GenerationConfig(model="claude-x", temperature=0.7, max_tokens=64),
+    )
+
+    assert result.content == "hi"
+    assert captured["body"]["temperature"] == 0.7

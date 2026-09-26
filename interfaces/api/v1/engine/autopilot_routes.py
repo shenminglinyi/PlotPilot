@@ -860,7 +860,7 @@ def _build_status_with_shared(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         macro_structure_ready = bool(macro_row)
 
         row = db.fetch_one(
-            "SELECT target_chapters, target_words_per_chapter, autopilot_status, auto_approve_mode, consecutive_error_count FROM novels WHERE id = ?",
+            "SELECT target_chapters, target_words_per_chapter, autopilot_status, auto_approve_mode, consecutive_error_count, last_error_summary FROM novels WHERE id = ?",
             (novel_id,),
         )
         if row:
@@ -869,10 +869,12 @@ def _build_status_with_shared(novel_id: str, shared: Dict[str, Any]) -> Dict[str
             autopilot_status = row["autopilot_status"] or "stopped"
             auto_approve_mode = bool(row["auto_approve_mode"])
             consecutive_error_count = row["consecutive_error_count"] or 0
+            last_error_summary = row["last_error_summary"] or ""
         else:
             autopilot_status = "stopped"
             auto_approve_mode = False
             consecutive_error_count = 0
+            last_error_summary = ""
 
     except Exception as e:
         logger.debug("共享内存模式 DB 统计查询失败 novel=%s: %s，使用共享内存缓存值", novel_id, e)
@@ -881,6 +883,7 @@ def _build_status_with_shared(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         autopilot_status = shared.get("autopilot_status", "running")
         auto_approve_mode = shared.get("auto_approve_mode", False)
         consecutive_error_count = shared.get("consecutive_error_count", 0)
+        last_error_summary = shared.get("last_error_summary", "") or ""
         target = shared.get("target_chapters", 1) or 1
         twpc = shared.get("target_words_per_chapter", 2500) or 2500
         completed_count = int(shared.get("_cached_completed_chapters", 0) or 0)
@@ -941,6 +944,7 @@ def _build_status_with_shared(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         "target_plan_total_words": target * twpc,
         "last_chapter_tension": last_tension,
         "consecutive_error_count": consecutive_error_count,
+        "last_error_summary": last_error_summary,
         "total_words": total_words,
         "completed_chapters": completed_count,
         "progress_pct": round(progress_count / target * 100, 1) if target else 0,
@@ -1855,7 +1859,11 @@ async def get_circuit_breaker(novel_id: str):
         "status": breaker_status,
         "error_count": error_count,
         "max_errors": PER_NOVEL_FAILURE_THRESHOLD,
-        "last_error": None,
+        "last_error": (
+            {"message": state.last_error_summary, "timestamp": None}
+            if getattr(state, "last_error_summary", "")
+            else None
+        ),
         "error_history": [],
     }
 

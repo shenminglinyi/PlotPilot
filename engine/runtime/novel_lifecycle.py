@@ -8,6 +8,13 @@ from domain.novel.entities.novel import Novel, NovelStage, AutopilotStatus
 
 from engine.runtime.act_planning_delegate import run_act_planning
 from engine.runtime.audit_delegate import run_chapter_audit
+from engine.runtime.content_filter_healer import (
+    HealOutcome,
+    content_heal_disabled,
+    heal_latest_chapter,
+    is_content_filter_error,
+    make_llm_probe,
+)
 from engine.runtime.macro_planning_delegate import run_macro_planning
 
 logger = logging.getLogger(__name__)
@@ -20,6 +27,12 @@ def _is_novel_deleted(host: Any, novel: Novel) -> bool:
         return status is None
     except Exception:
         return False
+
+
+def _summarize_error(exc: BaseException, limit: int = 500) -> str:
+    """压缩异常为单行摘要，随状态接口暴露给前端（AutopilotPanel 恢复提示）。"""
+    text = " ".join(f"{type(exc).__name__}: {exc}".split())
+    return text[:limit]
 
 
 async def process_novel(host: Any, novel: Novel) -> None:
@@ -111,12 +124,26 @@ async def process_novel(host: Any, novel: Novel) -> None:
                 return
             logger.debug("[%s] 等待人工审阅", novel.novel_id)
             return
+        elif novel.current_stage == NovelStage.COMPLETED:
+            # 目标章节数被调大后允许续写：完成数 < 目标 → 回到写作
+            completed_count = host._count_completed_chapters(novel.novel_id)
+            if completed_count < novel.target_chapters:
+                logger.info(
+                    "[%s] 已完成 %s/%s 章（目标已上调），恢复续写",
+                    novel.novel_id, completed_count, novel.target_chapters,
+                )
+                novel.current_stage = NovelStage.WRITING
+                host._save_novel_state(novel)
+                return
+            logger.debug("[%s] 全书已完成（%s/%s 章），无需处理", novel.novel_id, completed_count, novel.target_chapters)
+            return
 
         host._merge_autopilot_status_from_db(novel)
         if novel.autopilot_status == AutopilotStatus.RUNNING:
             if host.circuit_breaker:
                 host.circuit_breaker.record_success()
             novel.consecutive_error_count = 0
+            novel.last_error_summary = ""
         else:
             logger.info("[%s] 本轮结束（用户已停止，不再计成功/重置熔断）", novel.novel_id)
         host._save_novel_state(novel)
@@ -138,6 +165,23 @@ async def process_novel(host: Any, novel: Novel) -> None:
         if host.circuit_breaker:
             host.circuit_breaker.record_failure()
         novel.consecutive_error_count = (novel.consecutive_error_count or 0) + 1
+        novel.last_error_summary = _summarize_error(e)
+
+        # 厂商内容风控(1026/1027)重试永远无效:自动定位触发片段并由 LLM 最小改写
+        if is_content_filter_error(e) and not content_heal_disabled():
+            try:
+                outcome = await heal_latest_chapter(host, novel, make_llm_probe(host))
+            except Exception as heal_exc:
+                outcome = HealOutcome(ok=False, note=f"自修复流程异常: {type(heal_exc).__name__}: {heal_exc}")
+            if outcome.ok:
+                logger.info("[%s] 内容风控已自动修复，清零计数并等待下一轮继续", novel.novel_id)
+                novel.consecutive_error_count = 0
+                novel.last_error_summary = ""
+                host._save_novel_state(novel)
+                return
+            novel.last_error_summary = (
+                f"{_summarize_error(e)} | 自动修复未成功: {outcome.note}"
+            )
 
         if novel.consecutive_error_count >= 3:
             logger.error("[%s] 连续失败 %s 次，挂起等待急救", novel.novel_id, novel.consecutive_error_count)

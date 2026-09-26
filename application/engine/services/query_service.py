@@ -50,6 +50,7 @@ _RUNTIME_STATUS_KEYS: tuple[str, ...] = (
     "outline_plan_mode",
     "current_act_title",
     "current_act_description",
+    "last_error_summary",
     # StoryPipeline 十步管线可观测性
     "story_pipeline_wave_index",
     "story_pipeline_wave_total",
@@ -240,6 +241,7 @@ class NovelStatusResponse:
     daemon_alive: bool
     daemon_heartbeat_at: Optional[float]
     _from_shared_memory: bool = True
+    last_error_summary: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -257,6 +259,7 @@ class NovelStatusResponse:
             "target_plan_total_words": self.target_plan_total_words,
             "last_chapter_tension": self.last_chapter_tension,
             "consecutive_error_count": self.consecutive_error_count,
+            "last_error_summary": self.last_error_summary,
             "total_words": self.total_words,
             "completed_chapters": self.completed_chapters,
             "progress_pct": self.progress_pct,
@@ -365,6 +368,7 @@ class QueryService:
             target_plan_total_words=state.target_chapters * state.target_words_per_chapter,
             last_chapter_tension=state.last_chapter_tension,
             consecutive_error_count=state.consecutive_error_count,
+            last_error_summary=getattr(state, "last_error_summary", "") or "",
             total_words=total_words,
             completed_chapters=completed_chapters,
             progress_pct=round(progress_pct, 1),
@@ -443,7 +447,8 @@ class QueryService:
                 """SELECT id, title, autopilot_status, current_stage,
                           current_act, current_chapter_in_act, current_beat_index,
                           current_auto_chapters, target_chapters, target_words_per_chapter,
-                          consecutive_error_count, last_chapter_tension, auto_approve_mode
+                          consecutive_error_count, last_chapter_tension, auto_approve_mode,
+                          last_error_summary
                    FROM novels WHERE id = ?""",
                 (novel_id,),
             )
@@ -514,6 +519,7 @@ class QueryService:
                 target_plan_total_words=target_chapters * (novel_row['target_words_per_chapter'] or 2500),
                 last_chapter_tension=last_tension,
                 consecutive_error_count=novel_row['consecutive_error_count'] or 0,
+            last_error_summary=novel_row['last_error_summary'] or '',
                 total_words=total_words,
                 completed_chapters=completed_chapters,
                 progress_pct=round(progress_pct, 1),

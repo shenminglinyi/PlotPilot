@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS novels (
     current_auto_chapters INTEGER DEFAULT 0,
     last_chapter_tension INTEGER DEFAULT 0,
     consecutive_error_count INTEGER DEFAULT 0,
+    last_error_summary TEXT DEFAULT '',
     current_beat_index INTEGER DEFAULT 0,
     autopilot_run_epoch INTEGER DEFAULT 0,
     active_pipeline_step TEXT DEFAULT '',

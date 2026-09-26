@@ -4,6 +4,7 @@ import logging
 from typing import Any, AsyncIterator
 
 import httpx
+import httpx2
 from anthropic import Anthropic, AsyncAnthropic
 
 from domain.ai.services.llm_service import GenerationConfig, GenerationResult
@@ -115,9 +116,10 @@ class AnthropicProvider(BaseProvider):
             official_client_kw["base_url"] = base
 
         # SDK 内置 httpx 默认 trust_env=True，会走系统 HTTP(S)_PROXY，本机代理 TLS 常导致 ConnectError。
+        # anthropic 1.x 内部基于 httpx2 包，http_client 必须传 httpx2 实例，否则 SDK 类型检查直接报错。
         _sdk_timeout = build_httpx_timeout(settings.http_timeout_settings)
-        self._http_client_sync = httpx.Client(timeout=_sdk_timeout, trust_env=False)
-        self._http_client_async = httpx.AsyncClient(timeout=_sdk_timeout, trust_env=False)
+        self._http_client_sync = httpx2.Client(timeout=_sdk_timeout, trust_env=False)
+        self._http_client_async = httpx2.AsyncClient(timeout=_sdk_timeout, trust_env=False)
         self.client = Anthropic(**official_client_kw, http_client=self._http_client_sync)
         self.async_client = AsyncAnthropic(**official_client_kw, http_client=self._http_client_async)
 
@@ -153,12 +155,13 @@ class AnthropicProvider(BaseProvider):
                 provider_label="Anthropic / Claude",
             )
             # 构建请求参数
+            # anthropic 1.x 的 create() 签名不再含 temperature 等采样参数，需经 extra_body 透传到请求体
             create_kwargs = {
                 "model": model_id,
-                "temperature": config.temperature,
                 "max_tokens": config.max_tokens,
                 "system": prompt.system,
                 "messages": [{"role": "user", "content": prompt.user}],
+                "extra_body": {"temperature": config.temperature},
             }
             # Anthropic Messages API does not accept OpenAI-style response_format.
             # Keep structured output provider-agnostic by moving the constraint into
@@ -291,7 +294,10 @@ class AnthropicProvider(BaseProvider):
         """通过官方 SDK 流式读取，网关断开 raw SSE 时作为回退。"""
         model_id, payload = self._build_message_request(prompt, config, stream=False)
         logger.info("[Stream] Falling back to SDK stream for model=%s", model_id)
-        async with self.async_client.messages.stream(**payload) as stream:
+        # anthropic 1.x 的 stream() 签名不再含 temperature，需经 extra_body 透传到请求体
+        sdk_payload = {key: value for key, value in payload.items() if key != "temperature"}
+        sdk_payload["extra_body"] = {"temperature": payload["temperature"]}
+        async with self.async_client.messages.stream(**sdk_payload) as stream:
             async for text in stream.text_stream:
                 if text:
                     yield text

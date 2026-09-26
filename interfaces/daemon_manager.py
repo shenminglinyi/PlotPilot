@@ -224,6 +224,17 @@ def run_autopilot_daemon_process(
         process_logger.info("守护进程已停止")
 
 
+def _collect_ancestor_pids(rows: list[tuple[int, int]], current_pid: int) -> set[int]:
+    """Walk the ParentProcessId chain from current_pid; guards against cycles."""
+    parent_of = dict(rows)
+    ancestors: set[int] = set()
+    pid = parent_of.get(current_pid)
+    while pid is not None and pid not in ancestors and len(ancestors) < 32:
+        ancestors.add(pid)
+        pid = parent_of.get(pid)
+    return ancestors
+
+
 def cleanup_orphan_python_processes(logger_: logging.Logger | None = None) -> None:
     """Windows cleanup for leftover PlotPilot/uvicorn Python processes."""
     log = logger_ or logger
@@ -237,11 +248,24 @@ Get-CimInstance Win32_Process | ForEach-Object {
   if ($nl -notin @('python.exe','python3.exe','pythonw.exe','plotpilot-backend.exe')) { return }
   $cl = if ($null -eq $_.CommandLine) { '' } else { [string]$_.CommandLine }
   $cl = $cl -replace "`t", ' '
-  [Console]::Out.WriteLine($_.ProcessId.ToString() + [char]9 + $cl)
+  [Console]::Out.WriteLine($_.ProcessId.ToString() + [char]9 + $_.ParentProcessId.ToString() + [char]9 + $cl)
 }
 """
 
-    def _list_via_powershell() -> list[tuple[int, str]]:
+    def _parse_rows(text: str) -> list[tuple[int, int, str]]:
+        rows: list[tuple[int, int, str]] = []
+        for line in text.splitlines():
+            line = line.strip()
+            if not line or "\t" not in line:
+                continue
+            parts = line.split("\t")
+            if len(parts) < 2 or not parts[0].strip().isdigit() or not parts[1].strip().isdigit():
+                continue
+            cmd = parts[2].strip() if len(parts) > 2 else ''
+            rows.append((int(parts[0]), int(parts[1]), cmd))
+        return rows
+
+    def _list_via_powershell() -> list[tuple[int, int, str]]:
         result = subprocess.run(
             [
                 "powershell",
@@ -260,17 +284,9 @@ Get-CimInstance Win32_Process | ForEach-Object {
         )
         if result.returncode != 0:
             return []
-        rows: list[tuple[int, str]] = []
-        for line in result.stdout.splitlines():
-            line = line.strip()
-            if not line or "\t" not in line:
-                continue
-            pid_str, _, cmd = line.partition("\t")
-            if pid_str.strip().isdigit():
-                rows.append((int(pid_str), cmd.strip()))
-        return rows
+        return _parse_rows(result.stdout)
 
-    def _list_via_wmic() -> list[tuple[int, str]]:
+    def _list_via_wmic() -> list[tuple[int, int, str]]:
         result = subprocess.run(
             [
                 "wmic",
@@ -278,7 +294,7 @@ Get-CimInstance Win32_Process | ForEach-Object {
                 "where",
                 "name='python.exe' or name='python3.exe' or name='plotpilot-backend.exe'",
                 "get",
-                "processid,commandline",
+                "processid,parentprocessid,commandline",
             ],
             capture_output=True,
             text=True,
@@ -287,24 +303,22 @@ Get-CimInstance Win32_Process | ForEach-Object {
         )
         if result.returncode != 0:
             return []
-        rows: list[tuple[int, str]] = []
+        rows: list[tuple[int, int, str]] = []
         for line in result.stdout.strip().split("\n"):
             line = line.strip()
             if not line or "CommandLine" in line:
                 continue
             if any(keyword in line.lower() for keyword in ("plotpilot", "autopilot", "uvicorn", "interfaces.main")):
-                parts = line.split()
-                for part in reversed(parts):
-                    if part.isdigit():
-                        rows.append((int(part), line))
-                        break
+                numbers = [int(part) for part in line.split() if part.isdigit()]
+                if len(numbers) >= 2:
+                    rows.append((numbers[-1], numbers[-2], line))
         return rows
 
     keywords = ("plotpilot", "autopilot", "uvicorn", "interfaces.main")
     killed_count = 0
 
     try:
-        candidates: list[tuple[int, str]] = []
+        candidates: list[tuple[int, int, str]] = []
         try:
             candidates = _list_via_powershell()
         except OSError as exc:
@@ -319,9 +333,13 @@ Get-CimInstance Win32_Process | ForEach-Object {
             except subprocess.TimeoutExpired:
                 log.warning("wmic 枚举进程超时")
 
-        for pid, cmdline in candidates:
+        ancestor_pids = _collect_ancestor_pids(
+            [(pid, parent_pid) for pid, parent_pid, _ in candidates], current_pid
+        )
+
+        for pid, parent_pid, cmdline in candidates:
             low = cmdline.lower()
-            if not any(k in low for k in keywords) or pid == current_pid:
+            if not any(k in low for k in keywords) or pid == current_pid or pid in ancestor_pids:
                 continue
             try:
                 log.info("清理残留进程 PID=%s: %s...", pid, cmdline[:80])
