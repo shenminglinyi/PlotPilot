@@ -20,14 +20,14 @@
         <n-button-group>
           <n-button size="small" @click="prevChapter" :disabled="!canPrev">
             <template #icon>
-              <span class="ico-tiny">◀</span>
+              <n-icon :component="ChevronBackOutline" size="12" />
             </template>
             上一章
           </n-button>
           <n-button size="small" @click="nextChapter" :disabled="!canNext">
             下一章
             <template #icon>
-              <span class="ico-tiny">▶</span>
+              <n-icon :component="ChevronForwardOutline" size="12" />
             </template>
           </n-button>
         </n-button-group>
@@ -225,6 +225,7 @@ import { useDebouncedTask } from '../composables/useDebouncedTask'
 import { knowledgeGraphApi, type InferenceFactBundle } from '../api/knowledgeGraph'
 import { useStatsStore } from '../stores/statsStore'
 import { formatApiError } from '../utils/apiError'
+import { ChevronBackOutline, ChevronForwardOutline } from '@vicons/ionicons5'
 
 // Status mapping: old API (pending/ok/revise) <-> new API (draft/reviewed/approved)
 const statusToNew = (oldStatus: string): string => {
@@ -722,8 +723,10 @@ onUnmounted(() => {
 }
 
 .content-editor :deep(textarea) {
-  font-family: 'Source Han Serif SC', 'Noto Serif SC', Georgia, serif;
-  line-height: 1.85;
+  font-family: var(--font-serif);
+  font-size: 16.5px;
+  letter-spacing: 0.015em;
+  line-height: 1.9;
 }
 
 .editor-footer {
@@ -763,7 +766,7 @@ onUnmounted(() => {
   height: 100%;
   min-height: 0;
   padding: 12px 14px;
-  background: linear-gradient(180deg, var(--app-surface-subtle) 0%, rgba(99, 102, 241, 0.06) 100%);
+  background: var(--app-surface-subtle);
   border-left: 1px solid var(--app-border);
 }
 
@@ -788,7 +791,7 @@ onUnmounted(() => {
 }
 
 .meta-mono {
-  font-family: ui-monospace, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   word-break: break-all;
 }

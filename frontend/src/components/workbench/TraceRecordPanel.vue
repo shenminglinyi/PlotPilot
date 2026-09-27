@@ -1,7 +1,7 @@
 <template>
   <div class="trace-panel">
     <div class="trace-header">
-      <n-text strong style="font-size: 14px">🔍 引擎溯源</n-text>
+      <n-text strong style="font-size: 14px">引擎溯源</n-text>
       <n-space :size="8">
         <n-select
           v-if="activeTab === 'engine'"
@@ -74,7 +74,7 @@
                 <n-text depth="3" style="font-size: 11px">{{ t.input_summary }}</n-text>
               </div>
               <div v-if="t.violations.length > 0" class="trace-violations">
-                <n-text style="font-size: 11px; color: #f59e0b">⚠ {{ t.violations.length }} 项违规</n-text>
+                <n-text style="font-size: 11px; color: #f59e0b">{{ t.violations.length }} 项违规</n-text>
               </div>
               <n-text depth="3" style="font-size: 10px">{{ formatTime(t.timestamp) }}</n-text>
             </div>

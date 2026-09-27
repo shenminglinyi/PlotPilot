@@ -92,13 +92,13 @@
                   {{ validateResult.valid ? '行为符合设定' : '行为可能不符合设定' }}
                 </n-alert>
                 <div v-if="validateResult.warnings.length > 0">
-                  <n-text depth="3" style="font-size: 12px; display: block; margin-bottom: 4px">⚠️ 警告：</n-text>
+                  <n-text depth="3" style="font-size: 12px; display: block; margin-bottom: 4px">警告：</n-text>
                   <ul class="validate-list">
                     <li v-for="(w, i) in validateResult.warnings" :key="i">{{ w }}</li>
                   </ul>
                 </div>
                 <div v-if="validateResult.suggestions.length > 0">
-                  <n-text depth="3" style="font-size: 12px; display: block; margin-bottom: 4px">💡 建议：</n-text>
+                  <n-text depth="3" style="font-size: 12px; display: block; margin-bottom: 4px">建议：</n-text>
                   <ul class="validate-list">
                     <li v-for="(s, i) in validateResult.suggestions" :key="i">{{ s }}</li>
                   </ul>

@@ -811,7 +811,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   padding: 12px 12px 8px;
-  background: linear-gradient(180deg, var(--app-surface-subtle) 0%, var(--app-border) 100%);
+  background: var(--app-surface-subtle);
 }
 
 .kp-hero {
@@ -958,7 +958,7 @@ onUnmounted(() => {
 
 .kp-tag-tool {
   font-size: 10px !important;
-  font-family: ui-monospace, monospace;
+  font-family: var(--font-mono);
   color: var(--color-brand) !important;
   background: var(--color-brand-light) !important;
 }
@@ -999,7 +999,7 @@ onUnmounted(() => {
 
 .kp-ch-card :deep(.n-card-header) {
   padding: 10px 14px;
-  background: linear-gradient(90deg, var(--color-brand-light), transparent);
+  background: var(--color-brand-light);
   border-bottom: 1px solid var(--app-divider);
 }
 
@@ -1107,7 +1107,7 @@ onUnmounted(() => {
 }
 
 .triple-row[data-source="manual"] { --triple-accent: var(--color-success); }
-.triple-row[data-source="ai_generated"] { --triple-accent: #7c3aed; }
+.triple-row[data-source="ai_generated"] { --triple-accent: var(--color-purple); }
 .triple-row[data-source="chapter_inferred"] { --triple-accent: var(--color-warning); }
 .triple-row[data-starred="true"] {
   --triple-accent: var(--color-gold, #d97706);
@@ -1259,7 +1259,7 @@ onUnmounted(() => {
 .kp-hit-id {
   font-size: 11px;
   color: var(--app-text-muted);
-  font-family: monospace;
+  font-family: var(--font-mono);
 }
 
 .kp-hit-text {

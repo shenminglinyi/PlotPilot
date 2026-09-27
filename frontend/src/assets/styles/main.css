@@ -18,16 +18,17 @@ html {
 }
 
 body {
+  /* UI 字体走系统栈（Win: Segoe UI + 雅黑 / mac: SF + 苹方）；
+     展示层衬线用 --font-display，见 index.html 的 Noto Serif SC */
   font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
     'Microsoft YaHei',
     'PingFang SC',
     'Hiragino Sans GB',
     'Noto Sans SC',
-    'Inter',
     'Source Han Sans CN',
-    system-ui,
-    -apple-system,
-    BlinkMacFont,
     sans-serif;
   font-weight: 500;
   -webkit-font-smoothing: subpixel-antialiased;
@@ -48,13 +49,18 @@ body {
   /* 应用设置「字体大小」基准倍率；运行时由 fontSizeStore 覆盖 */
   --app-font-scale: 1;
 
-  /* ── 品牌色 ── */
-  --color-brand: #2563eb;
-  --color-brand-hover: #3b82f6;
-  --color-brand-pressed: #1d4ed8;
-  --color-brand-suppl: #60a5fa;
-  --color-brand-light: rgba(37, 99, 235, 0.08);
-  --color-brand-border: rgba(37, 99, 235, 0.18);
+  /* ── 品牌色（靛青墨蓝；与 App.vue LIGHT_PALETTE 双源同步）── */
+  --color-brand: #35567e;
+  --color-brand-hover: #44688f;
+  --color-brand-pressed: #2a4a70;
+  --color-brand-suppl: #6b87ab;
+  --color-brand-light: rgba(53, 86, 126, 0.08);
+  --color-brand-border: rgba(53, 86, 126, 0.2);
+
+  /* ── 朱砂：印章与激活微点缀（语义危险色请用 --color-danger，勿混用）── */
+  --color-seal: #b13a2a;
+  --color-seal-light: rgba(177, 58, 42, 0.08);
+  --color-seal-border: rgba(177, 58, 42, 0.25);
 
   /* ── 黑金装饰色 ── */
   --color-gold: #d4a853;
@@ -82,9 +88,9 @@ body {
   --color-purple-dim: rgba(139, 92, 246, 0.12);
 
   /* ── 文字色（全部使用变量，禁止硬编码）── */
-  --app-text-primary: #111827;
-  --app-text-secondary: #1f2937;
-  --app-text-muted: #475569;
+  --app-text-primary: #1a1d21;
+  --app-text-secondary: #4b5157;
+  --app-text-muted: #70767d;
   --app-text-inverse: #ffffff;
 
   /* 与 Naive UI n-text depth、旧组件对齐：统一走 app 文字色，避免暗色下仍落回 #0f172a */
@@ -92,39 +98,40 @@ body {
   --text-color-2: var(--app-text-secondary);
   --text-color-3: var(--app-text-muted);
 
-  /* ── 背景色 ── */
-  --app-page-bg: #eef1f6;
+  /* ── 背景色（纸面）── */
+  --app-page-bg: #f7f7f5;
   --app-surface: #ffffff;
   --app-surface-raised: #ffffff;
-  --app-surface-subtle: #f8fafc;
+  --app-surface-subtle: #f4f4f1;
   --app-input-bg: #ffffff;
 
-  /* ── 边框 ── */
-  --app-border: rgba(15, 23, 42, 0.09);
-  --app-border-strong: rgba(15, 23, 42, 0.15);
-  --app-divider: rgba(15, 23, 42, 0.06);
+  /* ── 边框（发丝线）── */
+  --app-border: rgba(26, 29, 33, 0.09);
+  --app-border-strong: rgba(26, 29, 33, 0.16);
+  --app-divider: rgba(26, 29, 33, 0.06);
 
-  /* ── 阴影 ── */
-  --app-shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06);
-  --app-shadow-md: 0 4px 16px rgba(15, 23, 42, 0.06);
-  --app-shadow-lg: 0 8px 28px rgba(15, 23, 42, 0.08);
-  --app-shadow-hover: 0 8px 24px rgba(15, 23, 42, 0.12);
+  /* ── 阴影（中性，去彩色光晕）── */
+  --app-shadow-sm: 0 1px 2px rgba(26, 29, 33, 0.05);
+  --app-shadow-md: 0 2px 8px rgba(26, 29, 33, 0.06);
+  --app-shadow-lg: 0 8px 24px rgba(26, 29, 33, 0.08);
+  --app-shadow-hover: 0 6px 20px rgba(26, 29, 33, 0.12);
 
-  /* ── 布局 ── */
-  --app-radius-sm: 8px;
+  /* ── 布局（圆角三档：6 / 10 / 14，xl 仅特殊大面）── */
+  --app-radius-sm: 6px;
   --app-radius-md: 10px;
   --app-radius-lg: 14px;
-  --app-radius-xl: 20px;
+  --app-radius-xl: 18px;
   --app-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
 
   /* ── 面板专用 ── */
-  --plotpilot-split-border: rgba(15, 23, 42, 0.07);
-  --plotpilot-panel-muted: #f8fafc;
+  --plotpilot-split-border: rgba(26, 29, 33, 0.08);
+  --plotpilot-panel-muted: #f4f4f1;
 
-  /* ── 字体 ── */
-  --font-sans: 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans SC', 'Inter', system-ui, sans-serif;
+  /* ── 字体（sans 走系统栈；display 为品牌时刻衬线，随 index.html 加载）── */
+  --font-sans: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans SC', sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Consolas', 'Liberation Mono', monospace;
   --font-serif: 'Noto Serif SC', 'Source Han Serif CN', 'Songti SC', Georgia, serif;
+  --font-display: 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', Georgia, serif;
 
   /* ── 字号阶梯：使用 rem，随 html font-size（即 --app-font-scale）自动缩放 ── */
   --font-size-xs:   0.75rem;    /* 12px @ scale=1 */
@@ -134,16 +141,16 @@ body {
   --font-size-xl:   1.125rem;   /* 18px @ scale=1 */
 
   /* ── DAG 画布专用 ── */
-  --dag-canvas-bg: #eef1f6;
-  --dag-canvas-grid: rgba(15, 23, 42, 0.06);
+  --dag-canvas-bg: #f2f2ef;
+  --dag-canvas-grid: rgba(26, 29, 33, 0.06);
   --dag-node-bg: #ffffff;
-  --dag-node-border: rgba(15, 23, 42, 0.12);
-  --dag-node-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+  --dag-node-border: rgba(26, 29, 33, 0.12);
+  --dag-node-shadow: 0 2px 8px rgba(26, 29, 33, 0.07);
   --dag-node-selected-ring: var(--color-brand);
-  --dag-edge-default: rgba(15, 23, 42, 0.25);
+  --dag-edge-default: rgba(26, 29, 33, 0.25);
   --dag-edge-active: var(--color-brand);
-  --dag-edge-conditional: rgba(15, 23, 42, 0.35);
-  --dag-port-text: #3b82f6;
+  --dag-edge-conditional: rgba(26, 29, 33, 0.35);
+  --dag-port-text: #35567e;
   --dag-port-json: #8b5cf6;
   --dag-port-score: #f59e0b;
   --dag-port-boolean: #22c55e;
@@ -155,8 +162,9 @@ body {
   --dag-menu-border: var(--app-border-strong);
   --dag-menu-hover: var(--color-brand-light);
 
-  /* ── StatsTopBar 渐变 ── */
-  --stats-bar-gradient: linear-gradient(135deg, #1f2937 0%, #334155 55%, #475569 100%);
+  /* ── StatsTopBar：纯色墨面（渐变已废）── */
+  --stats-bar-gradient: #1f242b;
+  --stats-bar-border-bottom: 1px solid rgba(0, 0, 0, 0.18);
 
   /* 彩色顶栏上的文字与「药丸」图标底（与 --app-text-inverse 解耦：暗色主题里 inverse 是深色字，不能用在渐变条上） */
   --nav-hero-text: #ffffff;
@@ -167,13 +175,13 @@ body {
   --nav-hero-shadow: 0 1px 0 rgba(255, 255, 255, 0.12) inset;
 
   /* ── 组件交互态（Tab / 档案 / 运行时栏）── */
-  --tab-track-bg: linear-gradient(135deg, var(--color-brand), var(--color-brand-hover));
-  --tab-track-shadow: 0 2px 10px var(--color-brand-border), 0 1px 3px var(--color-brand-border);
+  --tab-track-bg: var(--color-brand);
+  --tab-track-shadow: none;
   --tab-active-color: var(--app-text-inverse, #ffffff);
-  --tab-inactive-color: var(--app-text-secondary, #475569);
-  --tab-inactive-hover-color: var(--app-text-primary, #0f172a);
-  --profile-active-bg: var(--color-brand-light, rgba(79, 70, 229, 0.08));
-  --runtime-model-color: var(--color-brand, #4f46e5);
+  --tab-inactive-color: var(--app-text-secondary, #4b5157);
+  --tab-inactive-hover-color: var(--app-text-primary, #1a1d21);
+  --profile-active-bg: var(--color-brand-light, rgba(53, 86, 126, 0.08));
+  --runtime-model-color: var(--color-brand, #35567e);
   --runtime-mock-model-color: var(--color-gold, #d4a853);
 
   color-scheme: light;
@@ -183,13 +191,18 @@ body {
    暗色模式
    ═══════════════════════════════════════════════════ */
 [data-theme='dark'] {
-  /* ── 品牌色（暗模式下略提亮）── */
-  --color-brand: #60a5fa;
-  --color-brand-hover: #93c5fd;
-  --color-brand-pressed: #3b82f6;
-  --color-brand-suppl: #bfdbfe;
-  --color-brand-light: rgba(96, 165, 250, 0.12);
-  --color-brand-border: rgba(96, 165, 250, 0.22);
+  /* ── 品牌色（暗色下提亮的靛青；与 App.vue DARK_PALETTE 双源同步）── */
+  --color-brand: #8fadd2;
+  --color-brand-hover: #a6bfdc;
+  --color-brand-pressed: #7a9ac2;
+  --color-brand-suppl: #c2d3e8;
+  --color-brand-light: rgba(143, 173, 210, 0.12);
+  --color-brand-border: rgba(143, 173, 210, 0.22);
+
+  /* ── 朱砂（暗色下略提亮）── */
+  --color-seal: #c95846;
+  --color-seal-light: rgba(201, 88, 70, 0.12);
+  --color-seal-border: rgba(201, 88, 70, 0.3);
 
   /* ── 黑金装饰色（暗模式下更耀眼）── */
   --color-gold: #e5b86e;
@@ -201,42 +214,43 @@ body {
   /* ── 黑金主播限定色（暗模式：更温暖的金铜色调）── */
 
   /* ── 文字色 ── */
-  --app-text-primary: #f3f4f6;
-  --app-text-secondary: #d1d5db;
-  --app-text-muted: #9ca3af;
-  --app-text-inverse: #0f172a;
+  --app-text-primary: #e6e8ea;
+  --app-text-secondary: #a6adb5;
+  --app-text-muted: #7d848c;
+  --app-text-inverse: #14171c;
 
   /* ── 组件交互态（Tab / 档案 / 运行时栏）── */
-  --tab-track-bg: linear-gradient(135deg, var(--color-brand), var(--color-brand-hover));
-  --tab-track-shadow: 0 2px 10px var(--color-brand-border), 0 1px 3px var(--color-brand-border);
-  --tab-active-color: var(--app-text-inverse, #ffffff);
-  --tab-inactive-color: var(--app-text-secondary, #94a3b8);
-  --tab-inactive-hover-color: var(--app-text-primary, #e2e8f0);
+  --tab-track-bg: var(--color-brand);
+  --tab-track-shadow: none;
+  --tab-active-color: var(--app-text-inverse, #14171c);
+  --tab-inactive-color: var(--app-text-secondary, #a6adb5);
+  --tab-inactive-hover-color: var(--app-text-primary, #e6e8ea);
 
-  /* ── 背景色（深色系，不要太深，符合美学）── */
-  --app-page-bg: #121826;
-  --app-surface: #1a2235;
-  --app-surface-raised: #232d42;
-  --app-surface-subtle: #161d2e;
-  --app-input-bg: #161d2e;
+  /* ── 背景色（夜读：低饱和墨蓝灰）── */
+  --app-page-bg: #121519;
+  --app-surface: #1a1f26;
+  --app-surface-raised: #222932;
+  --app-surface-subtle: #171c22;
+  --app-input-bg: #171c22;
 
   /* ── 边框 ── */
-  --app-border: rgba(148, 163, 184, 0.12);
-  --app-border-strong: rgba(148, 163, 184, 0.2);
-  --app-divider: rgba(148, 163, 184, 0.08);
+  --app-border: rgba(160, 170, 180, 0.12);
+  --app-border-strong: rgba(160, 170, 180, 0.2);
+  --app-divider: rgba(160, 170, 180, 0.08);
 
   /* ── 阴影 ── */
   --app-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.25);
-  --app-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.3);
-  --app-shadow-lg: 0 8px 28px rgba(0, 0, 0, 0.35);
-  --app-shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.4);
+  --app-shadow-md: 0 2px 8px rgba(0, 0, 0, 0.28);
+  --app-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --app-shadow-hover: 0 6px 20px rgba(0, 0, 0, 0.4);
 
   /* ── 面板专用 ── */
-  --plotpilot-split-border: rgba(148, 163, 184, 0.1);
-  --plotpilot-panel-muted: #161d2e;
+  --plotpilot-split-border: rgba(160, 170, 180, 0.1);
+  --plotpilot-panel-muted: #171c22;
 
-  /* ── StatsTopBar 渐变（暗色版：深靛蓝+微光）── */
-  --stats-bar-gradient: linear-gradient(135deg, #161d2e 0%, #1e293b 50%, #334155 100%);
+  /* ── StatsTopBar（暗色：比面板更沉一层）── */
+  --stats-bar-gradient: #141920;
+  --stats-bar-border-bottom: 1px solid rgba(160, 170, 180, 0.1);
 
   --nav-hero-text: #f8fafc;
   --nav-hero-text-muted: rgba(248, 250, 252, 0.82);
@@ -246,16 +260,16 @@ body {
   --nav-hero-shadow: 0 1px 0 rgba(255, 255, 255, 0.08) inset;
 
   /* ── DAG 画布专用（暗色版）── */
-  --dag-canvas-bg: #0f1623;
-  --dag-canvas-grid: rgba(148, 163, 184, 0.06);
-  --dag-node-bg: #1a2235;
-  --dag-node-border: rgba(148, 163, 184, 0.15);
+  --dag-canvas-bg: #101418;
+  --dag-canvas-grid: rgba(160, 170, 180, 0.06);
+  --dag-node-bg: #1a1f26;
+  --dag-node-border: rgba(160, 170, 180, 0.15);
   --dag-node-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
   --dag-node-selected-ring: var(--color-brand);
-  --dag-edge-default: rgba(148, 163, 184, 0.2);
+  --dag-edge-default: rgba(160, 170, 180, 0.2);
   --dag-edge-active: var(--color-brand);
-  --dag-edge-conditional: rgba(148, 163, 184, 0.3);
-  --dag-port-text: #60a5fa;
+  --dag-edge-conditional: rgba(160, 170, 180, 0.3);
+  --dag-port-text: #8fadd2;
   --dag-port-json: #a78bfa;
   --dag-port-score: #fbbf24;
   --dag-port-boolean: #4ade80;
@@ -491,9 +505,7 @@ rt { font-size: 0.6em; color: var(--app-text-muted); }
    Home 页面 — 使用变量
    ═══════════════════════════════════════════════════ */
 .home-bg {
-  background:
-    radial-gradient(ellipse 110% 80% at 50% -30%, var(--color-brand-light), transparent 55%),
-    linear-gradient(180deg, var(--app-page-bg) 0%, var(--app-surface-subtle) 100%);
+  background: var(--app-page-bg);
 }
 .title { color: var(--app-text-primary); }
 .subtitle { color: var(--app-text-secondary); }
@@ -524,7 +536,7 @@ rt { font-size: 0.6em; color: var(--app-text-muted); }
 }
 .selection-bar { background: var(--app-surface-subtle); }
 .empty-illustration {
-  background: linear-gradient(135deg, var(--app-surface-subtle) 0%, var(--app-border) 100%);
+  background: var(--app-surface-subtle);
 }
 .empty-title { color: var(--app-text-primary); }
 .empty-desc { color: var(--app-text-muted); }

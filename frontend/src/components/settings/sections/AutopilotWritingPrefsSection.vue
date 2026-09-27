@@ -514,7 +514,7 @@ watch(
 
 .mono {
   font-size: var(--font-size-xs);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+  font-family: var(--font-mono);
   padding: 0 5px;
   border-radius: 4px;
   background: var(--app-surface-muted, rgba(148, 163, 184, 0.15));

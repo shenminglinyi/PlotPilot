@@ -257,7 +257,7 @@ onMounted(() => {
 }
 
 .kb-json-editor {
-  font-family: 'Consolas', 'Monaco', monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
 }
 </style>

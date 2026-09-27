@@ -14,11 +14,11 @@
 
       <!-- ★ 精简操作项：只保留"查看详情"和"启禁用" -->
       <div class="menu-item" @click="$emit('detail', nodeId)">
-        📋 查看详情
+        查看详情
       </div>
       <div class="menu-divider" />
       <div class="menu-item" :class="{ 'menu-item-warning': nodeEnabled }" @click="$emit('toggle', nodeId)">
-        {{ nodeEnabled ? '⛔ 禁用此节点' : '✅ 启用此节点' }}
+        {{ nodeEnabled ? '禁用此节点' : '启用此节点' }}
       </div>
     </div>
   </Teleport>

@@ -335,12 +335,12 @@ onMounted(() => {
 .plaza-main.variant-sidebar {
   width: 100%;
   box-sizing: border-box;
-  min-height: 58px;
+  min-height: 44px;
   padding: 0 14px;
-  border-radius: 16px;
-  background: linear-gradient(135deg, var(--color-brand-hover) 0%, var(--color-brand) 55%, var(--color-brand-pressed) 100%);
-  color: var(--app-text-inverse);
-  border: 1px solid color-mix(in srgb, var(--color-brand) 50%, transparent);
+  border-radius: var(--app-radius-md);
+  background: var(--app-surface);
+  color: var(--app-text-primary);
+  border: 1px solid var(--app-border);
   box-shadow: none;
 }
 
@@ -353,7 +353,9 @@ onMounted(() => {
 .plaza-main.variant-sidebar:hover {
   filter: none;
   transform: none;
-  background: linear-gradient(135deg, var(--color-brand, #4f46e5) 0%, var(--color-brand-hover, #6366f1) 55%, var(--color-brand-pressed, #4338ca) 100%);
+  background: var(--app-surface);
+  color: var(--color-brand);
+  border-color: var(--color-plaza-border, var(--color-brand-border));
   box-shadow: none;
 }
 
@@ -400,8 +402,8 @@ onMounted(() => {
 }
 
 [data-theme='anchor'] .plaza-main.variant-sidebar {
-  background: linear-gradient(135deg, var(--color-brand-hover, #ddb930) 0%, var(--color-brand, #c9a227) 55%, var(--color-brand-pressed, #a88a1f) 100%);
-  border-color: color-mix(in srgb, var(--color-brand, #c9a227) 62%, transparent);
+  background: var(--app-surface);
+  border-color: rgba(201, 162, 39, 0.25);
   box-shadow: none;
 }
 

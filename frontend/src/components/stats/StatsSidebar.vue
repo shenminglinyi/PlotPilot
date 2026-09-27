@@ -3,10 +3,10 @@
     <!-- Brand Header -->
     <header class="sidebar-brand">
       <div class="brand-logo">
-        <span class="logo-icon">✦</span>
+        <BrandSeal class="brand-seal" :size="40" />
         <div class="brand-text">
-          <h1 class="brand-name">PlotPilot</h1>
-          <p class="brand-slogan">墨枢 · 作者的领航员</p>
+          <h1 class="brand-name">墨枢</h1>
+          <p class="brand-slogan">作者的领航员</p>
         </div>
       </div>
       <button
@@ -170,6 +170,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { NSkeleton } from 'naive-ui'
 import StatCard from './StatCard.vue'
+import BrandSeal from '@/components/brand/BrandSeal.vue'
 import { useStatsStore } from '@/stores/statsStore'
 import GlobalLLMEntryButton from '@/components/global/GlobalLLMEntryButton.vue'
 import PromptPlazaEntryButton from '@/components/global/PromptPlazaEntryButton.vue'
@@ -274,7 +275,7 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
   height: 100vh;
   box-sizing: border-box;
   padding-top: env(safe-area-inset-top);
-  background: linear-gradient(180deg, var(--app-surface-subtle) 0%, var(--app-border) 100%);
+  background: var(--app-surface-subtle);
   border-right: 1px solid var(--app-border);
   display: flex;
   flex-direction: column;
@@ -289,26 +290,27 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
   overflow: hidden;
 }
 
-/* Brand Header */
+/* Brand Header：纸面 + 方印，不再用渐变色块 */
 .sidebar-brand {
-  min-height: 100px;
-  padding: 20px 24px;
-  background: linear-gradient(135deg, var(--color-brand, #4f46e5) 0%, var(--color-brand-pressed, #7c3aed) 100%);
+  min-height: 76px;
+  padding: 18px 20px;
+  background: var(--app-surface);
+  border-bottom: 1px solid var(--app-border);
   position: relative;
-  overflow: visible;
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-shrink: 0;
 }
 
-/* 折叠时 brand header 缩小 */
+/* 折叠时 brand header 只留展开按钮 */
 .is-collapsed .sidebar-brand {
   min-height: auto;
   padding: 12px 0;
   justify-content: center;
 }
 
+.is-collapsed .brand-logo,
 .is-collapsed .brand-text,
 .is-collapsed .stats-section,
 .is-collapsed .quick-actions,
@@ -316,88 +318,62 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
   display: none;
 }
 
-.is-collapsed .logo-icon {
-  width: 36px;
-  height: 36px;
-  font-size: 18px;
-}
-
 /* 折叠/展开切换按钮 */
 .collapse-toggle {
   flex-shrink: 0;
   width: 28px;
   height: 28px;
-  border: none;
-  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
   border-radius: 8px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
-  transition: background 0.18s ease;
+  color: var(--app-text-secondary);
+  transition: background 0.18s ease, color 0.18s ease;
   padding: 0;
 }
 
 .collapse-toggle:hover {
-  background: rgba(255, 255, 255, 0.32);
+  background: var(--app-surface-subtle);
+  color: var(--color-brand);
 }
 
 .is-collapsed .collapse-toggle {
   margin: 0 auto;
 }
 
-.sidebar-brand::before {
-  content: '';
-  position: absolute;
-  top: -38%;
-  right: -46%;
-  width: 132px;
-  height: 132px;
-  background: radial-gradient(circle, var(--app-text-inverse, rgba(255,255,255,0.09)) 0%, transparent 72%);
-  pointer-events: none;
-}
-
 .brand-logo {
   display: flex;
   align-items: center;
-  gap: 14px;
-}
-
-.logo-icon {
-  width: 44px;
-  height: 44px;
-  background: var(--color-brand-light, rgba(255, 255, 255, 0.2));
-  border-radius: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 22px;
-  color: var(--app-text-inverse, #fff);
-  backdrop-filter: blur(8px);
-  border: 1px solid var(--app-text-inverse, rgba(255, 255, 255, 0.2));
+  gap: 12px;
+  min-width: 0;
 }
 
 .brand-text {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
 }
 
 .brand-name {
-  font-size: 22px;
+  font-family: var(--font-display);
+  font-size: 20px;
   font-weight: 700;
-  color: var(--app-text-inverse, #fff);
+  color: var(--app-text-primary);
   margin: 0;
-  letter-spacing: -0.02em;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
 }
 
 .brand-slogan {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.82);
+  color: var(--app-text-muted);
   margin: 0;
   font-weight: 400;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.16);
+  white-space: nowrap;
 }
 
 /* Stats Section */
@@ -426,7 +402,7 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 .title-icon {
   width: 16px;
   height: 16px;
-  color: var(--app-text-secondary, #64748b);
+  color: var(--app-text-secondary);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -447,14 +423,14 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--app-text-muted, #64748b);
+  color: var(--app-text-muted);
   transition: all 0.2s ease;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
 .refresh-btn:hover:not(:disabled) {
   background: var(--app-surface-subtle);
-  color: var(--color-brand, #4f46e5);
+  color: var(--color-brand);
 }
 
 .refresh-btn:disabled {
@@ -485,9 +461,9 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 /* Stage Distribution（固定占位高度，避免布局抖动） */
 .stage-distribution {
   background: var(--app-surface);
-  border-radius: 12px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-md);
   padding: 16px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
   min-height: 168px;
   box-sizing: border-box;
 }
@@ -515,7 +491,7 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 .stage-title {
   font-size: 13px;
   font-weight: 600;
-  color: var(--app-text-muted, #64748b);
+  color: var(--app-text-muted);
   margin: 0 0 12px;
 }
 
@@ -539,9 +515,9 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
   flex-shrink: 0;
 }
 
-.stage-dot.stage-planning { background: #3b82f6; }
+.stage-dot.stage-planning { background: var(--color-brand); }
 .stage-dot.stage-writing { background: #f59e0b; }
-.stage-dot.stage-reviewing { background: #8b5cf6; }
+.stage-dot.stage-reviewing { background: var(--color-seal); }
 .stage-dot.stage-completed { background: #10b981; }
 
 .stage-name {
@@ -586,42 +562,42 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 58px;
+  min-height: 44px;
   padding: 0 14px;
-  background: linear-gradient(135deg, var(--color-brand-hover, #6366f1) 0%, var(--color-brand, #4f46e5) 55%, var(--color-brand-pressed, #4338ca) 100%);
-  border: 1px solid color-mix(in srgb, var(--color-brand, #4f46e5) 52%, transparent);
-  border-radius: 16px;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-md);
   cursor: pointer;
-  transition: all 0.2s ease;
-  font-size: 15px;
+  transition: border-color var(--app-transition), background var(--app-transition), color var(--app-transition);
+  font-size: 13.5px;
   font-weight: 600;
   line-height: 1;
-  color: var(--app-text-inverse, #ffffff);
-  box-shadow: none;
+  color: var(--app-text-primary);
   white-space: nowrap;
 }
 
-.action-btn.action-create {
-  background: linear-gradient(135deg, var(--color-brand-hover, #6366f1) 0%, var(--color-brand, #4f46e5) 55%, var(--color-brand-pressed, #4338ca) 100%);
-  border-color: color-mix(in srgb, var(--color-brand, #4f46e5) 52%, transparent);
-}
-
-.action-btn.action-refresh {
-  background: linear-gradient(135deg, var(--color-brand-hover, #6366f1) 0%, var(--color-brand, #4f46e5) 55%, var(--color-brand-pressed, #4338ca) 100%);
-  border-color: color-mix(in srgb, var(--color-brand, #4f46e5) 52%, transparent);
-}
-
 .action-btn:hover {
-  filter: none;
-  transform: none;
-  background: linear-gradient(135deg, var(--color-brand, #4f46e5) 0%, var(--color-brand-hover, #6366f1) 55%, var(--color-brand-pressed, #4338ca) 100%);
-  box-shadow: none;
+  border-color: var(--color-brand-border);
+  color: var(--color-brand);
+}
+
+/* 主操作：实心靛青；次要操作保持纸面 */
+.action-btn.action-create {
+  background: var(--color-brand);
+  border-color: var(--color-brand);
+  color: var(--app-text-inverse);
+}
+
+.action-btn.action-create:hover {
+  background: var(--color-brand-hover);
+  border-color: var(--color-brand-hover);
+  color: var(--app-text-inverse);
 }
 
 .action-icon {
   width: 16px;
   height: 16px;
-  color: var(--app-text-inverse, #ffffff);
+  color: currentColor;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -632,18 +608,13 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
   height: 16px;
 }
 
-[data-theme='anchor'] .action-btn:hover {
-  transform: none;
-  box-shadow: none;
-}
-
 /* Footer */
 .sidebar-footer {
   margin-top: auto;
   padding: 10px 16px 12px;
-  border-top: 1px solid var(--app-divider, rgba(15, 23, 42, 0.06));
+  border-top: 1px solid var(--app-divider);
   display: block;
-  background: var(--app-surface-subtle, rgba(248, 250, 252, 0.8));
+  background: var(--app-surface-subtle);
 }
 
 .footer-info {
@@ -655,7 +626,7 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 
 .update-time {
   font-size: 12px;
-  color: var(--app-text-muted, #64748b);
+  color: var(--app-text-muted);
   display: flex;
   align-items: center;
   gap: 4px;
@@ -676,7 +647,7 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 
 .footer-link {
   font-size: 12px;
-  color: var(--app-text-muted, #64748b);
+  color: var(--app-text-muted);
   text-decoration: none;
   display: inline-flex;
   align-items: center;
@@ -688,7 +659,7 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 }
 
 .footer-link:hover {
-  color: var(--color-brand, #4f46e5);
+  color: var(--color-brand);
   background: var(--app-surface-subtle);
 }
 

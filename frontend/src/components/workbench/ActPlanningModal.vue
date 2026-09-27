@@ -390,7 +390,7 @@ async function confirm() {
 .prog-fill {
   height: 100%;
   border-radius: 4px;
-  background: linear-gradient(90deg, var(--n-primary-color), var(--n-primary-color-hover));
+  background: var(--n-primary-color);
   transition: width 0.35s ease;
 }
 
@@ -413,7 +413,7 @@ async function confirm() {
   padding: 10px 12px;
   max-height: 160px;
   overflow: auto;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   line-height: 1.45;
   color: var(--n-text-color);

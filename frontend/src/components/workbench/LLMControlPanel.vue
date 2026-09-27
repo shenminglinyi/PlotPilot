@@ -809,7 +809,7 @@ onBeforeUnmount(() => {
 .llm-preset-card:hover {
   transform: translateY(-1px);
   border-color: var(--color-brand-hover, rgba(79, 70, 229, 0.28));
-  box-shadow: var(--app-shadow-md), 0 10px 22px var(--color-brand-border, rgba(79, 70, 229, 0.08));
+  box-shadow: var(--app-shadow-md);
 }
 
 .llm-preset-card-head {
@@ -828,7 +828,7 @@ onBeforeUnmount(() => {
 .llm-preset-card-protocol {
   flex-shrink: 0;
   font-size: 11px;
-  color: var(--color-brand, #4f46e5);
+  color: var(--color-brand);
   background: var(--color-brand-light, rgba(79, 70, 229, 0.08));
   border-radius: 999px;
   padding: 2px 8px;

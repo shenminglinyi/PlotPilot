@@ -530,7 +530,7 @@ watch(() => props.slug, () => void loadCharOptions())
   border-radius: 3px;
   background: var(--app-border);
   color: var(--app-text-primary);
-  font-family: ui-monospace, monospace;
+  font-family: var(--font-mono);
 }
 
 /* Body scroll area */

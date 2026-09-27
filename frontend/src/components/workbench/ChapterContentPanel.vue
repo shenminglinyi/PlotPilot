@@ -11,7 +11,7 @@
         <!-- 章前导演计划 -->
         <n-card v-if="chapterPlan" size="small" :bordered="true" class="cc-card-plan">
           <template #header>
-            <span class="card-title">📋 章前导演计划</span>
+            <span class="card-title">章前导演计划</span>
           </template>
           <n-descriptions :column="1" label-placement="left" size="small" label-style="white-space: nowrap">
             <n-descriptions-item label="标题">{{ chapterPlan.title || '—' }}</n-descriptions-item>

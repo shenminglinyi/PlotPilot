@@ -838,7 +838,7 @@ function selectCommit(cm: CommitDef) {
 // ==================== 回滚逻辑 ====================
 async function confirmRollback(cm: CommitDef) {
   dialog.warning({
-    title: '⚠️ 全息回滚确认',
+    title: '全息回滚确认',
     content: `回滚到 Commit [${cm.label}] (第${cm.chapterIndex}章) 将删除之后所有章节内容。此操作不可撤销，确定继续？`,
     positiveText: '确认回滚',
     negativeText: '取消',
@@ -935,7 +935,7 @@ onMounted(() => void loadData())
 .gg-logo {
   font-size: 18px;
   line-height: 1;
-  color: var(--color-brand-suppl, #a78bfa);
+  color: var(--color-brand-suppl);
   font-weight: 700;
 }
 
@@ -1126,15 +1126,15 @@ onMounted(() => void loadData())
   align-items: center;
   gap: 8px;
   padding: 8px 12px 6px;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(139, 92, 246, 0.08));
+  background: color-mix(in srgb, var(--color-brand) 12%, transparent);
   border-bottom: 1px solid rgba(99, 102, 241, 0.12);
 }
 
 .gg-tip-hash {
-  font-family: monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 700;
-  color: var(--color-brand-suppl, #a78bfa);
+  color: var(--color-brand-suppl);
 }
 
 .gg-tip-label {
@@ -1177,7 +1177,7 @@ onMounted(() => void loadData())
 }
 
 .gg-tip-branch-info .gg-tip-v.cyan { color: #22d3ee; }
-.gg-tip-merge-info .gg-tip-v.purple { color: #a78bfa; }
+.gg-tip-merge-info .gg-tip-v.purple { color: var(--color-purple); }
 
 .gg-tip-current {
   margin-top: 6px;
@@ -1202,7 +1202,7 @@ onMounted(() => void loadData())
 /* ==================== 详情面板 ==================== */
 .gg-detail-bar {
   flex-shrink: 0;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(139, 92, 246, 0.05) 100%);
+  background: color-mix(in srgb, var(--color-brand) 7%, transparent);
   border-top: 1px solid rgba(99, 102, 241, 0.15);
   padding: 12px 16px;
   animation: slideUp 0.28s cubic-bezier(0.4, 0, 0.2, 1);
@@ -1227,21 +1227,21 @@ onMounted(() => void loadData())
   font-weight: 800;
   padding: 3px 10px;
   border-radius: 6px;
-  background: linear-gradient(135deg, var(--color-brand, #6366f1), var(--color-brand-suppl, #818cf8));
+  background: var(--color-brand);
   color: var(--app-text-inverse, #fff);
   letter-spacing: 0.06em;
   font-family: var(--font-sans, monospace);
 }
 
 .gg-detail-badge--merge {
-  background: linear-gradient(135deg, #a78bfa, #6366f1);
+  background: var(--color-brand);
 }
 
 .gg-detail-hash {
-  font-family: monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 600;
-  color: #a78bfa;
+  color: var(--color-purple);
 }
 
 .gg-detail-label {
@@ -1280,7 +1280,7 @@ onMounted(() => void loadData())
 }
 
 .gg-detail-branch .cyan { color: #22d3ee; font-size: 11px; }
-.gg-detail-merge .purple { color: #a78bfa; font-size: 11px; }
+.gg-detail-merge .purple { color: var(--color-purple); font-size: 11px; }
 
 .gg-detail-actions {
   display: flex;
@@ -1347,7 +1347,7 @@ onMounted(() => void loadData())
   width: 32px;
   height: 32px;
   border: 3px solid rgba(99, 102, 241, 0.15);
-  border-top-color: #6366f1;
+  border-top-color: var(--color-brand);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
 }

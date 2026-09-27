@@ -33,7 +33,7 @@
         <div v-if="generatingBible" class="step-generating">
           <div class="generating-header">
             <div class="generating-icon">
-              <n-icon size="36" color="#2080f0">
+              <n-icon size="36" color="#35567e">
                 <IconBook />
               </n-icon>
             </div>
@@ -113,7 +113,7 @@
           <!-- 文风公约实时预览（SSE 生成中即可见） -->
           <div v-if="styleText" class="style-preview-generating">
             <div class="style-preview-header">
-              <n-icon size="16" color="#18a058"><IconCheck /></n-icon>
+              <n-icon size="16" color="#22c55e"><IconCheck /></n-icon>
               <span class="style-preview-title">文风公约</span>
               <n-tag size="tiny" type="success">已生成</n-tag>
             </div>
@@ -164,7 +164,7 @@
 
         <!-- 初始状态 -->
         <div v-else class="step-info">
-          <n-icon size="48" color="#18a058">
+          <n-icon size="48" color="#22c55e">
             <IconBook />
           </n-icon>
           <h3>准备生成文风公约与世界观</h3>
@@ -185,7 +185,7 @@
         <div v-if="generatingCharacters && !charactersGenerated" class="step-generating">
           <div class="generating-header">
             <div class="generating-icon">
-              <n-icon size="36" color="#2080f0">
+              <n-icon size="36" color="#35567e">
                 <IconPeople />
               </n-icon>
             </div>
@@ -413,7 +413,7 @@
 
         <!-- 初始状态 -->
         <div v-else class="step-info">
-          <n-icon size="48" color="#2080f0">
+          <n-icon size="48" color="#35567e">
             <IconPeople />
           </n-icon>
           <h3>生成主要角色</h3>
@@ -434,7 +434,7 @@
         <div v-if="generatingLocations && !locationsGenerated" class="step-generating">
           <div class="generating-header">
             <div class="generating-icon">
-              <n-icon size="36" color="#f0a020">
+              <n-icon size="36" color="#f59e0b">
                 <IconMap />
               </n-icon>
             </div>
@@ -508,7 +508,7 @@
 
         <!-- 初始状态 -->
         <div v-else class="step-info">
-          <n-icon size="48" color="#f0a020">
+          <n-icon size="48" color="#f59e0b">
             <IconMap />
           </n-icon>
           <h3>生成地图系统</h3>
@@ -532,7 +532,7 @@
           已恢复上次生成的<strong>剧情总纲</strong>预览（本地缓存，减少重复生成）。
         </n-alert>
         <div class="step-info step-info--wide">
-          <n-icon size="48" color="#2080f0">
+          <n-icon size="48" color="#35567e">
             <IconTimeline />
           </n-icon>
           <h3>生成剧情总纲</h3>
@@ -549,7 +549,7 @@
         <div v-if="plotOutlineBusy && !plotOutline" class="step-generating plot-outline-generating">
           <div class="generating-header">
             <div class="generating-icon">
-              <n-icon size="36" color="#2080f0">
+              <n-icon size="36" color="#35567e">
                 <IconTimeline />
               </n-icon>
             </div>
@@ -677,7 +677,7 @@
       <!-- Step 5: Complete -->
       <div v-else-if="currentStep === 5" class="step-panel">
         <div class="step-info">
-          <n-icon size="48" color="#18a058">
+          <n-icon size="48" color="#22c55e">
             <IconCheck />
           </n-icon>
           <h3>准备就绪！</h3>
@@ -2205,7 +2205,7 @@ const handleComplete = () => {
   gap: 16px;
   padding: 12px 16px;
   border-radius: 12px;
-  background: linear-gradient(135deg, #f0f7ff 0%, #e8f5e9 100%);
+  background: var(--app-surface-subtle);
 }
 
 .generating-icon {
@@ -2382,14 +2382,14 @@ const handleComplete = () => {
 }
 
 .char-card--filled {
-  border-color: #18a05830;
-  background: #18a05806;
+  border-color: color-mix(in srgb, var(--color-success) 30%, transparent);
+  background: color-mix(in srgb, var(--color-success) 6%, transparent);
 }
 
 .char-card--loading {
   border-style: dashed;
-  border-color: #2080f040;
-  background: #2080f004;
+  border-color: color-mix(in srgb, var(--color-info) 40%, transparent);
+  background: color-mix(in srgb, var(--color-info) 4%, transparent);
 }
 
 .char-card__header {
@@ -2402,7 +2402,7 @@ const handleComplete = () => {
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: var(--color-brand);
   color: white;
   display: flex;
   align-items: center;
@@ -2413,7 +2413,7 @@ const handleComplete = () => {
 }
 
 .char-card__avatar--protag {
-  background: linear-gradient(135deg, #f5af19 0%, #f12711 100%);
+  background: var(--color-danger);
   box-shadow: 0 0 0 2px #f5af1930;
 }
 
@@ -2519,14 +2519,14 @@ const handleComplete = () => {
 }
 
 .loc-card--filled {
-  border-color: #2080f030;
-  background: #2080f006;
+  border-color: color-mix(in srgb, var(--color-info) 30%, transparent);
+  background: color-mix(in srgb, var(--color-info) 6%, transparent);
 }
 
 .loc-card--loading {
   border-style: dashed;
-  border-color: #f0a02040;
-  background: #f0a02004;
+  border-color: color-mix(in srgb, var(--color-warning) 40%, transparent);
+  background: color-mix(in srgb, var(--color-warning) 4%, transparent);
 }
 
 .loc-card__header {

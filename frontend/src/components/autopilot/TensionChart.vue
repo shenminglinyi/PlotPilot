@@ -9,10 +9,10 @@
         同步中…
       </n-text>
       <n-tag v-if="curveStats?.is_flat" type="error" size="small">
-        📉 曲线过于平缓
+        曲线过于平缓
       </n-tag>
       <n-tag v-else-if="hasLowTension" type="warning" size="small">
-        ⚠️ 检测到低张力章节
+        检测到低张力章节
       </n-tag>
       <n-button v-if="tensionData.length > 0" size="tiny" quaternary @click="manualRefresh">↻</n-button>
       <n-text v-if="!loading && tensionData.length > 0" depth="3" style="font-size: 10px; min-width: 2.8em; text-align: right">
@@ -46,7 +46,7 @@
       :show-icon="false"
       style="margin-top: 8px; font-size: 12px"
     >
-      📉 张力方差仅 {{ curveStats.variance.toFixed(2) }}，曲线过于平缓！
+      张力方差仅 {{ curveStats.variance.toFixed(2) }}，曲线过于平缓！
       评分可能需要校准，或写作引擎需注入更多冲突。
     </n-alert>
 
@@ -57,7 +57,7 @@
       :show-icon="false"
       style="margin-top: 8px; font-size: 12px"
     >
-      ⚠️ 连续 {{ curveStats.consecutive_low }} 章低张力（&lt;4.0）· 读者可能正在流失，建议尽快制造冲突
+      连续 {{ curveStats.consecutive_low }} 章低张力（&lt;4.0）· 读者可能正在流失，建议尽快制造冲突
     </n-alert>
 
     <!-- 低张力警告 -->
@@ -456,11 +456,11 @@ function renderChart() {
         if (ch?.title) html += `<br/><span style="color:#aaa;font-size:11px">${ch.title}</span>`
 
         if (!isEval) {
-          html += `<br/><span style="color:#999">⏳ 尚未评估</span>`
+          html += `<br/><span style="color:#999">尚未评估</span>`
         } else {
           html += `<br/><span style="color:${getTensionColor(tension)}">▲ ${tension.toFixed(1)}</span>`
           html += ` <span style="color:#666">${getTensionLabel(tension)}</span>`
-          if (tension < tensionThreshold.value) html += `<br/><span style="color:#f0a020">⚠️ 低于警戒</span>`
+          if (tension < tensionThreshold.value) html += `<br/><span style="color:#f0a020">低于警戒</span>`
         }
         html += `</div>`
         return html
@@ -492,10 +492,10 @@ function getTensionColor(t: number): string {
 }
 
 function getTensionLabel(t: number): string {
-  if (t >= 8) return '🔥 高潮'
-  if (t >= 6) return '⚡ 冲突'
-  if (t >= 4) return '🌊 暗流'
-  return '💤 平缓'
+  if (t >= 8) return '高潮'
+  if (t >= 6) return '冲突'
+  if (t >= 4) return '暗流'
+  return '平缓'
 }
 
 function handleResize() {

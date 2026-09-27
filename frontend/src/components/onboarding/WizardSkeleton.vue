@@ -264,8 +264,8 @@ const dimensions = [
 }
 
 .skeleton-character--done {
-  border-color: #18a05840;
-  background: #18a05808;
+  border-color: color-mix(in srgb, var(--color-success) 40%, transparent);
+  background: color-mix(in srgb, var(--color-success) 8%, transparent);
 }
 
 .skeleton-character__avatar {
@@ -324,8 +324,8 @@ const dimensions = [
 }
 
 .skeleton-location--done {
-  border-color: #18a05840;
-  background: #18a05808;
+  border-color: color-mix(in srgb, var(--color-success) 40%, transparent);
+  background: color-mix(in srgb, var(--color-success) 8%, transparent);
 }
 
 /* 故事线骨架 */

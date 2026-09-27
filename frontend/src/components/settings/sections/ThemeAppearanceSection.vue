@@ -237,12 +237,12 @@ function handleThemeChange(newMode: ThemeMode) {
 
 .theme-tile:hover {
   border-color: #a5b4fc;
-  box-shadow: 0 3px 12px rgba(79, 70, 229, 0.1);
+  box-shadow: var(--app-shadow-md);
   transform: translateY(-1px);
 }
 
 .theme-tile.active {
-  border-color: var(--color-brand, #2563eb);
+  border-color: var(--color-brand);
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1), 0 3px 12px rgba(37, 99, 235, 0.12);
 }
 
@@ -261,8 +261,8 @@ function handleThemeChange(newMode: ThemeMode) {
   transition: background 0.3s ease;
 }
 
-.prev-light  { background: #f8fafc; }
-.prev-dark   { background: #0d1120; }
+.prev-light  { background: #f7f7f5; }
+.prev-dark   { background: #14171c; }
 .prev-anchor { background: linear-gradient(135deg, #0d0e14, #12141c); }
 .prev-auto   { background: linear-gradient(135deg, #f8fafc 50%, #0d1120 50%); }
 
@@ -329,7 +329,7 @@ function handleThemeChange(newMode: ThemeMode) {
 
 .tile-check {
   flex-shrink: 0;
-  color: var(--color-brand, #2563eb);
+  color: var(--color-brand);
 }
 
 .theme-tile.active[data-mode='anchor'] .tile-check {
@@ -366,12 +366,12 @@ function handleThemeChange(newMode: ThemeMode) {
 .size-card:hover,
 .size-card.hovering {
   border-color: #a5b4fc;
-  box-shadow: 0 2px 10px rgba(79, 70, 229, 0.1);
+  box-shadow: var(--app-shadow-sm);
   transform: translateY(-1px);
 }
 
 .size-card.active {
-  border-color: var(--color-brand, #2563eb);
+  border-color: var(--color-brand);
   background: rgba(37, 99, 235, 0.05);
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.09), 0 2px 8px rgba(37, 99, 235, 0.1);
 }
@@ -449,7 +449,7 @@ function handleThemeChange(newMode: ThemeMode) {
   display: block;
   height: 100%;
   border-radius: 0.125rem;
-  background: var(--color-brand, #2563eb);
+  background: var(--color-brand);
   transition: width 0.3s ease;
 }
 

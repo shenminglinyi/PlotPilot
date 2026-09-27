@@ -197,7 +197,7 @@ const sourceLabel = computed(() => {
 }
 .builtin-badge {
   font-size: 10px;
-  background: linear-gradient(135deg, var(--color-brand), var(--color-purple));
+  background: var(--color-brand);
   color: var(--app-text-inverse);
   padding: 1px 6px;
   border-radius: 4px;

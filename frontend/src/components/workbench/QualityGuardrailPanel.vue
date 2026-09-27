@@ -112,7 +112,7 @@
                     <n-text depth="3">原文：</n-text>「{{ v.original }}」
                   </p>
                   <n-alert v-if="v.suggestion" type="info" size="small" :show-icon="false" style="margin-top: 6px">
-                    💡 {{ v.suggestion }}
+                    建议：{{ v.suggestion }}
                   </n-alert>
                 </div>
               </n-collapse-item>

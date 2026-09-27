@@ -65,7 +65,7 @@ watch(() => props.currentStage, (stage) => {
   border: 1px solid var(--border-color);
   border-radius: 8px;
   overflow: hidden;
-  font-family: 'Courier New', monospace;
+  font-family: var(--font-mono);
 }
 .stream-header {
   display: flex; align-items: center; gap: 8px;
@@ -75,7 +75,7 @@ watch(() => props.currentStage, (stage) => {
 }
 .pulse-dot {
   width: 7px; height: 7px; border-radius: 50%;
-  background: #18a058;
+  background: var(--color-success);
   animation: pulse 1s infinite;
 }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
@@ -85,6 +85,6 @@ watch(() => props.currentStage, (stage) => {
   padding: 12px 16px;
 }
 .stream-text { color: var(--text-color-1); font-size: 13px; line-height: 1.8; white-space: pre-wrap; }
-.cursor { color: #18a058; animation: blink 1s step-end infinite; }
+.cursor { color: var(--color-success); animation: blink 1s step-end infinite; }
 @keyframes blink { 50%{opacity:0} }
 </style>

@@ -126,7 +126,8 @@
 
 <script setup lang="ts">
 import { ref, computed, h, onMounted, onUnmounted, watch } from 'vue'
-import { NTree, NEmpty, NSpin, NTag, NSpace, NDropdown, NModal, NInput, useMessage, useDialog } from 'naive-ui'
+import { NTree, NEmpty, NSpin, NTag, NSpace, NDropdown, NModal, NInput, NIcon, useMessage, useDialog } from 'naive-ui'
+import { LibraryOutline, BookOutline, LayersOutline, DocumentTextOutline } from '@vicons/ionicons5'
 import { structureApi, type StoryNode } from '@/api/structure'
 import { chapterApi } from '@/api/chapter'
 import { autopilotApi, isAutopilotHttpError } from '@/api/autopilot'
@@ -191,7 +192,7 @@ function buildChapterFallbackTree() {
       created_at: '',
       updated_at: '',
       level: 1,
-      icon: '📄',
+      icon: '',
       display_name: '',
       word_count: ch.word_count || 0,
       status: (ch.word_count || 0) > 0 ? 'completed' : 'draft',
@@ -522,11 +523,12 @@ function findChapterNodeId(nodes: StoryNode[], chapterNum: number): string | nul
 }
 
 const convertToTreeNode = (node: StoryNode | PlanningStoryNode): any => {
-  const iconMap: Record<string, string> = {
-    part: '📚',
-    volume: '📖',
-    act: '🎬',
-    chapter: '📄',
+  // 部 / 卷 / 幕 / 章：用线性图标替代 emoji，颜色随主题
+  const iconMap: Record<string, () => any> = {
+    part: () => h(NIcon, { size: 14, class: 'tree-type-icon' }, { default: () => h(LibraryOutline) }),
+    volume: () => h(NIcon, { size: 14, class: 'tree-type-icon' }, { default: () => h(BookOutline) }),
+    act: () => h(NIcon, { size: 14, class: 'tree-type-icon' }, { default: () => h(LayersOutline) }),
+    chapter: () => h(NIcon, { size: 14, class: 'tree-type-icon' }, { default: () => h(DocumentTextOutline) }),
   }
   const n = node.number
   const displayName =
@@ -537,7 +539,7 @@ const convertToTreeNode = (node: StoryNode | PlanningStoryNode): any => {
     key: node.id,
     label: displayName,
     ...node,
-    icon: iconMap[node.node_type] || '📄',
+    icon: iconMap[node.node_type] || iconMap.chapter,
     display_name: displayName,
     children: node.children?.map(convertToTreeNode) || [],
   }
@@ -906,8 +908,10 @@ const renderLabel = ({ option }: { option: any }) => {
   const node = option as StoryNode
   const titleParts = splitEmbeddedSummary(option.display_name, option.node_type)
   const summary = buildNodeSummary(node, titleParts.summary)
+  // icon 可能是渲染函数（部/卷/幕/章图标）或兜底字符串
+  const iconContent = typeof option.icon === 'function' ? option.icon() : option.icon
   const titleRow: any[] = [
-    h('span', { class: 'node-icon', 'aria-hidden': 'true' }, option.icon),
+    h('span', { class: 'node-icon', 'aria-hidden': 'true' }, iconContent),
   ]
   const kind = nodeKindLabel[option.node_type]
   if (kind) {
@@ -1223,15 +1227,20 @@ defineExpose({ loadTree })
 }
 
 .story-structure :deep(.n-tree) {
-  --tree-title-1: #eef3f8;
-  --tree-title-2: #c7d0dd;
-  --tree-title-3: #aeb8c7;
-  --tree-title-4: #9aa6b7;
-  --tree-muted: #8a94a6;
-  --tree-faint: #657084;
-  --tree-hover: rgba(148, 163, 184, 0.08);
-  --tree-active: rgba(59, 130, 246, 0.12);
-  --tree-line: rgba(148, 163, 184, 0.16);
+  /* 节点文字色随主题走（原先硬编码暗色系文字，亮色主题下几乎不可见） */
+  --tree-title-1: var(--app-text-primary);
+  --tree-title-2: var(--app-text-secondary);
+  --tree-title-3: var(--app-text-secondary);
+  --tree-title-4: var(--app-text-muted);
+  --tree-muted: var(--app-text-muted);
+  --tree-faint: var(--app-text-muted);
+  --tree-hover: var(--app-surface-subtle);
+  --tree-active: var(--color-brand-light);
+  --tree-line: var(--plotpilot-split-border);
+}
+
+.story-structure :deep(.tree-type-icon) {
+  color: var(--app-text-muted);
 }
 
 .story-structure :deep(.n-tree-node) {

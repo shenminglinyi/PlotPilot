@@ -153,8 +153,8 @@ const railColor = computed(() => {
 
 // 图标
 const driftIcon = computed(() => {
-  if (isDanger.value) return '⚠️'
-  if (isWarning.value) return '⚡'
+  if (isDanger.value) return '!'
+  if (isWarning.value) return '~'
   return '✓'
 })
 

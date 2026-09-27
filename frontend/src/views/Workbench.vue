@@ -51,7 +51,7 @@
 
                 <template #2>
                   <div v-if="rightCollapsed" class="wb-right-strip" @click="toggleRight">
-                    <span class="wb-strip-icon">◀</span>
+                    <n-icon :component="ChevronBackOutline" size="14" class="wb-strip-icon" />
                   </div>
                   <SettingsPanel
                     v-else
@@ -101,6 +101,7 @@ import {
 } from '../workbench/deskEvents'
 import { WORKBENCH_SPLIT } from '../design/layoutDensity'
 import { storageKeys } from '@/config/storageKeys'
+import { ChevronBackOutline } from '@vicons/ionicons5'
 import { runtimePerformance } from '@/config/performance'
 import { readStorageBoolean, writeStorageBoolean } from '@/utils/storage'
 

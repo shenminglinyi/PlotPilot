@@ -239,14 +239,23 @@
         再次确认 · 继续
       </n-button>
       <n-button v-if="!isRunning && !needsReview && !needsRecovery" type="primary" size="small" :loading="toggling" @click="openStartModal">
-        🚀 启动全托管
+        <template #icon>
+          <n-icon :component="RocketOutline" />
+        </template>
+        启动全托管
       </n-button>
       <n-button v-if="isRunning" type="error" ghost size="small" :loading="toggling" @click="stop">
-        ⏹ 停止
+        <template #icon>
+          <n-icon :component="StopOutline" />
+        </template>
+        停止
       </n-button>
       <!-- 🔥 error 状态下显示强制停止按钮（解除挂起 + 停止） -->
       <n-button v-if="needsRecovery && !isRunning" type="error" size="small" :loading="toggling" @click="forceStopFromError">
-        ⏹ 强制停止
+        <template #icon>
+          <n-icon :component="StopOutline" />
+        </template>
+        强制停止
       </n-button>
     </n-space>
 
@@ -318,6 +327,7 @@
 <script setup>
 import { ref, computed, onUnmounted, watch } from 'vue'
 import { useMessage } from 'naive-ui'
+import { RocketOutline, StopOutline } from '@vicons/ionicons5'
 import AutopilotWritingStream from './AutopilotWritingStream.vue'
 import StoryPipelineObservability from './StoryPipelineObservability.vue'
 import AuditPipelineObservability from './AuditPipelineObservability.vue'
@@ -747,12 +757,12 @@ const substepBadgeClass = computed(() => {
 const tensionLabel = computed(() => {
   // 张力值范围是 0-100，转换为 0-10 显示
   const rawT = status.value?.last_chapter_tension || 0
-  if (rawT < 0) return `⏳ 未评估`
+  if (rawT < 0) return `未评估`
   const t = Math.round(rawT / 10) // 0-100 转 0-10
-  if (t >= 8) return `🔥 高潮 (${t}/10)`
-  if (t >= 6) return `⚡ 冲突 (${t}/10)`
-  if (t >= 4) return `🌊 暗流 (${t}/10)`
-  return `💤 平缓 (${t}/10)`
+  if (t >= 8) return `高潮 (${t}/10)`
+  if (t >= 6) return `冲突 (${t}/10)`
+  if (t >= 4) return `暗流 (${t}/10)`
+  return `平缓 (${t}/10)`
 })
 
 const tensionColor = computed(() => {

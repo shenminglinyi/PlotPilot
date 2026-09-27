@@ -73,6 +73,6 @@ export function getProsePrimaryActionLabel(
   proseOnlyWorkbench: boolean,
   hasChapterContent: boolean,
 ): string {
-  if (!proseOnlyWorkbench) return '⚡ 快速生成'
+  if (!proseOnlyWorkbench) return '快速生成'
   return hasChapterContent ? '生文（下一章）' : '生文'
 }

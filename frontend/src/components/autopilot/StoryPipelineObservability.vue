@@ -761,7 +761,7 @@ function fmtRel(t?: number): string {
 }
 
 .mono {
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-mono);
 }
 
 .spo-events-lite {

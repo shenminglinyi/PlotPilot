@@ -71,7 +71,7 @@
       <!-- 操作按钮 -->
       <n-space v-if="isOpen" :size="8" style="margin-top: 8px">
         <n-button size="small" type="primary" @click="handleReset">
-          🔄 重置熔断器
+          重置熔断器
         </n-button>
         <n-button size="small" quaternary @click="showErrorHistory">
           查看错误历史
@@ -181,8 +181,8 @@ const statusClass = computed(() => {
 })
 
 const statusIcon = computed(() => {
-  if (isOpen.value) return '⚠️'
-  if (isHalfOpen.value) return '🔄'
+  if (isOpen.value) return '!'
+  if (isHalfOpen.value) return '~'
   return '✓'
 })
 
@@ -362,15 +362,15 @@ onMounted(() => {
 }
 
 .indicator-ring.status-closed::before {
-  border-color: #18a058;
+  border-color: var(--color-success);
 }
 
 .indicator-ring.status-half-open::before {
-  border-color: #f0a020;
+  border-color: var(--color-warning);
 }
 
 .indicator-ring.status-open::before {
-  border-color: #d03050;
+  border-color: var(--color-danger);
   animation: pulse-error 2s infinite;
 }
 
@@ -427,11 +427,11 @@ onMounted(() => {
 }
 
 .counter-fill.level-safe {
-  background: #18a058;
+  background: var(--color-success);
 }
 
 .counter-fill.level-medium {
-  background: #f0a020;
+  background: var(--color-warning);
 }
 
 .counter-fill.level-high {
@@ -439,7 +439,7 @@ onMounted(() => {
 }
 
 .counter-fill.level-critical {
-  background: #d03050;
+  background: var(--color-danger);
   animation: pulse-fill 1s infinite;
 }
 
@@ -488,7 +488,7 @@ onMounted(() => {
 .error-item-message {
   font-size: 13px;
   line-height: 1.5;
-  color: #d03050;
+  color: var(--color-danger);
 }
 
 .error-item-context {

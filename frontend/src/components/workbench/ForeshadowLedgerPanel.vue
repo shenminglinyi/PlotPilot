@@ -141,7 +141,7 @@
         <!-- Consumed tab -->
         <template v-else>
           <div v-if="consumedEntries.length === 0" class="pp-empty">
-            <span class="pp-empty-icon">✅</span>
+            <span class="pp-empty-icon">✓</span>
             <span class="pp-empty-text">暂无已消费伏笔</span>
           </div>
           <div v-else class="pp-card-list">

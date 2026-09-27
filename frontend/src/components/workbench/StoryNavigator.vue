@@ -37,7 +37,7 @@
     <!-- 故事线树 -->
     <div class="storylines-section">
       <div class="section-header">
-        <span class="section-icon">📖</span>
+        <span class="section-icon"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></span>
         <span class="section-title">故事线</span>
         <n-button size="tiny" quaternary @click="openAddModal(null)">+</n-button>
       </div>
@@ -586,7 +586,7 @@ const isPhasePast = isStoryPhasePast
 .child-indent {
   color: var(--app-text-muted);
   font-size: 12px;
-  font-family: monospace;
+  font-family: var(--font-mono);
 }
 .confluence-badge {
   font-size: 11px;

@@ -899,7 +899,7 @@ onUnmounted(() => {
 
 .progress-bar-fill {
   height: 100%;
-  background: linear-gradient(90deg, #818cf8, #a78bfa);
+  background: var(--color-brand);
   border-radius: 2px;
   transition: width 0.4s ease;
 }
@@ -912,8 +912,7 @@ onUnmounted(() => {
   scroll-behavior: auto;
   overscroll-behavior: contain;
   padding: 10px 10px 12px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
-    monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   line-height: 1.5;
 }

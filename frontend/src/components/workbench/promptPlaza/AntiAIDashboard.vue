@@ -760,7 +760,7 @@ onMounted(() => {
 }
 .dist-bar-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--color-brand), var(--color-purple));
+  background: var(--color-brand);
   border-radius: 4px;
   transition: width 0.3s ease;
   min-width: 4px;

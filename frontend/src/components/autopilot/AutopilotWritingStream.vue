@@ -441,7 +441,7 @@ onUnmounted(() => {
   font-size: 10px;
   font-weight: 600;
   background: rgba(99, 102, 241, 0.12);
-  color: #6366f1;
+  color: var(--color-brand);
 }
 
 .substep-indicator.substep-active {
@@ -549,7 +549,7 @@ onUnmounted(() => {
 }
 
 .cursor-inline {
-  color: #18a058;
+  color: var(--color-success);
   animation: blink 1s step-end infinite;
   font-size: 13px;
 }
@@ -588,7 +588,7 @@ onUnmounted(() => {
   height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
-  background: linear-gradient(135deg, var(--color-brand, #2563eb), var(--color-purple, #8b5cf6));
+  background: var(--color-brand);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-brand, #2563eb) 18%, transparent);
   animation: idle-dot-pulse 2s ease-in-out infinite;
 }
@@ -652,7 +652,7 @@ onUnmounted(() => {
 }
 
 .idle-track .idle-fill {
-  background: linear-gradient(90deg, rgba(37, 99, 235, 0.22), rgba(99, 102, 241, 0.38));
+  background: linear-gradient(90deg, rgba(53, 86, 126, 0.25), rgba(53, 86, 126, 0.42));
   transition: width 0.45s ease;
 }
 

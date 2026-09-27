@@ -680,7 +680,7 @@ onMounted(() => { void load() })
 }
 
 .ndp-thread-bar--dark {
-  background: var(--color-purple, #8b5cf6);
+  background: var(--color-purple);
 }
 
 .ndp-thread-milestone {
@@ -689,7 +689,7 @@ onMounted(() => { void load() })
   color: var(--app-text-muted);
   min-width: 28px;
   text-align: right;
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-mono);
 }
 
 /* ── ③ 未兑承诺 ─────────────────────────────────────────────────── */
@@ -737,7 +737,7 @@ onMounted(() => { void load() })
   flex-shrink: 0;
   font-size: 10px;
   color: var(--app-text-muted);
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-mono);
   margin-top: 1px;
   white-space: nowrap;
 }
@@ -758,7 +758,7 @@ onMounted(() => { void load() })
   color: var(--app-text-muted);
   white-space: nowrap;
   font-weight: 600;
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-mono);
   margin-top: 1px;
 }
 

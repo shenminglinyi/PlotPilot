@@ -30,7 +30,7 @@
       </div>
       <div class="pp-panel-actions">
         <n-button size="small" secondary :loading="generating" @click="generateBible" title="用 AI 根据小说标题重新生成设定">
-          ✦ AI 生成
+          AI 生成
         </n-button>
         <n-button size="small" type="primary" :loading="saving" @click="save">保存</n-button>
       </div>
@@ -107,7 +107,7 @@
             @click="generatePremiseKnowledge"
             style="margin-left:auto"
             title="根据 Bible 生成或刷新梗概锁定"
-          >✦ AI 生成</n-button>
+          >AI 生成</n-button>
         </div>
         <div class="pp-section-body" style="padding-bottom:2px">
           <n-input
@@ -622,7 +622,7 @@ function onBiblePanelSoftReload() {
   font-weight: 600;
   letter-spacing: 0.06em;
   background: rgba(79, 70, 229, 0.1) !important;
-  color: #4338ca !important;
+  color: var(--color-brand) !important;
 }
 
 .bible-header-stats {
@@ -778,7 +778,7 @@ function onBiblePanelSoftReload() {
 
 /* ── JSON modal ──────────────────────────────────── */
 .bible-json-input :deep(textarea) {
-  font-family: 'Consolas', 'Monaco', monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.6;
 }

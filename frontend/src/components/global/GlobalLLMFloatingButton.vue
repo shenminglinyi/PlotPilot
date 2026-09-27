@@ -468,7 +468,7 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(148, 163, 184, 0.22);
   background:
     radial-gradient(circle at 18% 18%, rgba(129, 140, 248, 0.32), transparent 28%),
-    linear-gradient(135deg, rgba(15, 23, 42, 0.98), rgba(49, 46, 129, 0.95) 55%, rgba(37, 99, 235, 0.9));
+    #1f242b;
   color: var(--app-text-inverse, #fff);
   box-shadow:
     0 12px 30px rgba(30, 41, 59, 0.2),
@@ -616,7 +616,7 @@ onBeforeUnmount(() => {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: linear-gradient(180deg, #86efac, #22c55e);
+  background: var(--color-success);
   box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.14);
 }
 
@@ -791,7 +791,7 @@ onBeforeUnmount(() => {
   padding: 4px 9px;
   border-radius: 999px;
   background: rgba(79, 70, 229, 0.1);
-  color: #4338ca;
+  color: var(--color-brand);
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;

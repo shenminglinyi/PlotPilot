@@ -10,7 +10,7 @@
       <span class="node-label">{{ data.label || meta?.display_name || data.id }}</span>
       <n-tooltip v-if="registryMissing" trigger="hover">
         <template #trigger>
-          <span class="reg-miss" aria-label="类型未注册">⚠</span>
+          <span class="reg-miss" aria-label="类型未注册">!</span>
         </template>
         该节点类型未在已加载的注册表中找到，元数据与提示词广场可能不可用。
       </n-tooltip>

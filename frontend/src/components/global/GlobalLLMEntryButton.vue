@@ -22,8 +22,7 @@
         <template v-else>
           <span class="global-llm-icon-core">
             <span class="global-llm-icon-grid"></span>
-            <span class="global-llm-icon-chip">⚙️</span>
-            <span class="global-llm-icon-spark">✦</span>
+            <span class="global-llm-icon-chip"><svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg></span>
           </span>
 
           <span class="global-llm-copy">
@@ -166,7 +165,7 @@
                       <!-- 未安装 / 检测中 -->
                       <template v-if="extensionsStatus && !extensionsStatus.all_installed">
                         <n-alert type="warning" :show-icon="true" class="mb-3">
-                          <template #header>⚠️ 缺少本地 AI 扩展包</template>
+                          <template #header>缺少本地 AI 扩展包</template>
                           本地向量检索需要 faiss / numpy / sentence-transformers 等依赖。
                           请点击下方按钮一键安装（约 2GB，需要 5~20 分钟）。
                         </n-alert>
@@ -193,7 +192,7 @@
                       <!-- 已安装 -->
                       <template v-else-if="extensionsStatus && extensionsStatus.all_installed">
                         <n-alert type="success" :show-icon="false" class="mb-3">
-                          ✅ 本地 AI 扩展包已安装完毕（faiss · numpy · sentence-transformers）
+                          本地 AI 扩展包已安装完毕（faiss · numpy · sentence-transformers）
                         </n-alert>
                       </template>
 
@@ -419,16 +418,16 @@ function startInstallExtensions() {
     onDone: (success) => {
       extensionsInstalling.value = false
       if (success) {
-        extensionsInstallLog.value.push('✅ 安装完成！请重启服务以生效。')
+        extensionsInstallLog.value.push('安装完成！请重启服务以生效。')
         extensionsInstallPercent.value = 100
       } else {
-        extensionsInstallLog.value.push('❌ 安装失败，请检查网络后重试')
+        extensionsInstallLog.value.push('安装失败，请检查网络后重试')
       }
       void checkExtensionsStatus()
     },
     onError: (err) => {
       extensionsInstalling.value = false
-      extensionsInstallLog.value.push(`❌ 错误: ${err.message}`)
+      extensionsInstallLog.value.push(`错误: ${err.message}`)
     },
   })
 }
@@ -524,9 +523,9 @@ watch(drawerTab, (tab) => {
   border: 1px solid var(--app-border);
   background:
     radial-gradient(circle at 18% 18%, var(--color-brand-light, rgba(129, 140, 248, 0.32)), transparent 28%),
-    linear-gradient(135deg, var(--color-brand), var(--color-brand-hover));
+    var(--color-brand);
   color: var(--app-text-inverse);
-  box-shadow: var(--app-shadow-md), 0 10px 26px var(--color-brand-border, rgba(79, 70, 229, 0.22));
+  box-shadow: var(--app-shadow-lg);
   backdrop-filter: blur(12px);
   cursor: pointer;
   transition:
@@ -576,25 +575,27 @@ watch(drawerTab, (tab) => {
 .global-llm-main.variant-sidebar {
   width: 100%;
   box-sizing: border-box;
-  min-height: 58px;
+  min-height: 44px;
   padding: 0 14px;
-  border-radius: 16px;
-  background: linear-gradient(135deg, var(--color-brand-hover) 0%, var(--color-brand) 55%, var(--color-brand-pressed) 100%);
-  color: var(--app-text-inverse);
-  border: 1px solid color-mix(in srgb, var(--color-brand, #4f46e5) 52%, transparent);
+  border-radius: var(--app-radius-md);
+  background: var(--app-surface);
+  color: var(--app-text-primary);
+  border: 1px solid var(--app-border);
   box-shadow: none;
 }
 
 .global-llm-main:hover {
   transform: translateY(-1px);
   border-color: var(--color-brand-border);
-  box-shadow: var(--app-shadow-lg), 0 14px 32px var(--color-brand-border, rgba(79, 70, 229, 0.28));
+  box-shadow: var(--app-shadow-lg);
 }
 
 .global-llm-main.variant-sidebar:hover {
   filter: none;
   transform: none;
-  background: linear-gradient(135deg, var(--color-brand, #4f46e5) 0%, var(--color-brand-hover, #6366f1) 55%, var(--color-brand-pressed, #4338ca) 100%);
+  background: var(--app-surface);
+  color: var(--color-brand);
+  border-color: var(--color-brand-border);
   box-shadow: none;
 }
 
@@ -639,8 +640,8 @@ watch(drawerTab, (tab) => {
 }
 
 [data-theme='anchor'] .global-llm-main.variant-sidebar {
-  background: linear-gradient(135deg, var(--color-brand-hover, #ddb930) 0%, var(--color-brand, #c9a227) 55%, var(--color-brand-pressed, #a88a1f) 100%);
-  border-color: color-mix(in srgb, var(--color-brand, #c9a227) 62%, transparent);
+  background: var(--app-surface);
+  border-color: rgba(201, 162, 39, 0.25);
   box-shadow: none;
 }
 
@@ -801,7 +802,7 @@ watch(drawerTab, (tab) => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, var(--color-brand), var(--color-brand-hover));
+  background: var(--color-brand);
   color: var(--app-text-inverse);
   font-size: 11px;
   font-weight: 800;
@@ -1065,7 +1066,7 @@ watch(drawerTab, (tab) => {
   max-height: 160px;
   overflow-y: auto;
   margin-top: 8px;
-  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  font-family: var(--font-mono);
   font-size: 11.5px;
   line-height: 1.6;
   user-select: text;

@@ -337,7 +337,7 @@ onMounted(() => {
 .ktte-fact-id {
   font-size: 11px;
   color: var(--app-text-muted);
-  font-family: monospace;
+  font-family: var(--font-mono);
 }
 
 .ktte-fact-grid {

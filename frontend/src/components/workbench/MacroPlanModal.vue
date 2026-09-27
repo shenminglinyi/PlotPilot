@@ -83,7 +83,7 @@
 
     <!-- ── Phase: error ──────────────────────────────────────────── -->
     <div v-else class="error-body">
-      <div class="error-icon">⚠️</div>
+      <div class="error-icon">!</div>
       <div class="error-msg">{{ errorMessage }}</div>
       <div class="error-hint">请检查 AI 密钥配置或网络连接后重试</div>
     </div>
@@ -171,11 +171,11 @@ const nodeScrollRef = ref<HTMLElement | null>(null)
 const isActive = computed(() => phase.value === 'generating' || phase.value === 'streaming')
 
 const modalTitle = computed(() => {
-  if (phase.value === 'idle') return '🎯 启动结构规划'
-  if (isActive.value) return '🤖 AI 正在规划叙事骨架…'
-  if (phase.value === 'done') return '✅ 叙事骨架已生成'
-  if (phase.value === 'error') return '❌ 规划失败'
-  return '🎯 启动结构规划'
+  if (phase.value === 'idle') return '启动结构规划'
+  if (isActive.value) return 'AI 正在规划叙事骨架…'
+  if (phase.value === 'done') return '叙事骨架已生成'
+  if (phase.value === 'error') return '规划失败'
+  return '启动结构规划'
 })
 
 const doneSummary = computed(() => {
@@ -233,9 +233,9 @@ function structureToStreamedNodes(parts: MacroPartNode[]): StreamedNode[] {
 }
 
 function nodeIcon(type: string) {
-  if (type === 'part') return '📚'
-  if (type === 'volume') return '📖'
-  return '🎬'
+  if (type === 'part') return '部'
+  if (type === 'volume') return '卷'
+  return '幕'
 }
 
 function makeNodeKey(node: MacroStreamNodeEvent): string {
@@ -367,7 +367,7 @@ onUnmounted(() => { abortCtrl?.abort() })
   display: flex;
   align-items: center;
   gap: 6px;
-  color: #7c3aed;
+  color: var(--color-brand);
   font-weight: 500;
 }
 .mpm-subtitle--done {
@@ -378,7 +378,7 @@ onUnmounted(() => { abortCtrl?.abort() })
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #7c3aed;
+  background: var(--color-brand);
   flex-shrink: 0;
   animation: pulse-dot 1.2s ease-in-out infinite;
 }
@@ -435,7 +435,7 @@ onUnmounted(() => { abortCtrl?.abort() })
 }
 .prog-fill {
   height: 100%;
-  background: linear-gradient(90deg, #7c3aed, #2563eb);
+  background: var(--color-brand);
   border-radius: 2px;
   transition: width 0.6s ease;
 }
@@ -466,7 +466,7 @@ onUnmounted(() => { abortCtrl?.abort() })
   transition: background 0.2s;
 }
 .node-item--part {
-  border-left: 3px solid #7c3aed;
+  border-left: 3px solid var(--color-brand);
   background: linear-gradient(135deg, rgba(124,58,237,.05), rgba(124,58,237,.01));
 }
 .node-item--volume {

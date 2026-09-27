@@ -2,7 +2,6 @@
   <div class="character-scheduler-simulator">
     <div class="simulator-header">
       <h2 class="simulator-title">
-        <span class="title-icon">🎯</span>
         角色上下文调度模拟器
       </h2>
       <p class="simulator-desc">
@@ -14,7 +13,6 @@
       <!-- 控制面板 -->
       <div class="control-panel">
         <h3 class="panel-title">
-          <span class="title-icon">⚙️</span>
           调度参数
         </h3>
 
@@ -58,7 +56,6 @@
       <!-- 角色卡片 -->
       <div class="characters-panel">
         <h3 class="panel-title">
-          <span class="title-icon">👥</span>
           角色库
         </h3>
 
@@ -116,7 +113,6 @@
       <!-- 调度队列 -->
       <div class="queue-panel">
         <h3 class="panel-title">
-          <span class="title-icon">📋</span>
           调度队列
         </h3>
 
@@ -146,7 +142,6 @@
       <!-- 生成的上下文 -->
       <div class="context-panel">
         <h3 class="panel-title">
-          <span class="title-icon">📝</span>
           生成的上下文 Prompt
         </h3>
 
@@ -163,7 +158,6 @@
       <!-- 算法说明 -->
       <div class="algorithm-panel">
         <h3 class="panel-title">
-          <span class="title-icon">🧠</span>
           排序算法逻辑
         </h3>
 
@@ -359,7 +353,7 @@ const estimatedTokens = computed(() => {
   border-radius: 16px;
   padding: 24px;
   color: #e0e0e0;
-  font-family: 'Courier New', monospace;
+  font-family: var(--font-mono);
   max-width: 1400px;
   margin: 0 auto;
 }
@@ -396,7 +390,7 @@ const estimatedTokens = computed(() => {
   padding: 2px 8px;
   border-radius: 4px;
   color: #00cec9;
-  font-family: 'Courier New', monospace;
+  font-family: var(--font-mono);
 }
 
 .simulator-body {
@@ -741,7 +735,7 @@ const estimatedTokens = computed(() => {
 .context-output pre {
   margin: 0;
   color: #dfe6e9;
-  font-family: 'Courier New', monospace;
+  font-family: var(--font-mono);
   font-size: 14px;
   line-height: 1.6;
   white-space: pre-wrap;

@@ -43,7 +43,7 @@
         round
         :bordered="false"
       >
-        ✅ 全书完成
+        全书完成
       </n-tag>
       <n-tag
         v-else-if="autopilotStatus === 'error'"
@@ -52,7 +52,7 @@
         round
         :bordered="false"
       >
-        ❌ 托管异常
+        托管异常
       </n-tag>
 
       <!-- SSE 连接状态 -->

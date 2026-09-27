@@ -104,8 +104,8 @@ const llmRef = ref<{ $el: HTMLElement } | null>(null)
 const plazaRef = ref<{ $el: HTMLElement } | null>(null)
 
 const aiToolsOptions = [
-  { label: '⚙️ AI 控制台', key: 'llm' },
-  { label: '✦ 提示词广场', key: 'plaza' },
+  { label: 'AI 控制台', key: 'llm' },
+  { label: '提示词广场', key: 'plaza' },
 ]
 
 function handleAiToolSelect(key: string) {
@@ -118,10 +118,10 @@ function handleAiToolSelect(key: string) {
 
 // 导出选项
 const exportOptions = [
-  { label: '📱 EPUB (电子书)', key: 'epub' },
-  { label: '📄 PDF (打印)', key: 'pdf' },
-  { label: '📝 DOCX (Word)', key: 'docx' },
-  { label: '📋 Markdown', key: 'markdown' }
+  { label: 'EPUB（电子书）', key: 'epub' },
+  { label: 'PDF（打印）', key: 'pdf' },
+  { label: 'DOCX（Word）', key: 'docx' },
+  { label: 'Markdown（源稿）', key: 'markdown' }
 ]
 
 async function handleExport(format: string) {
@@ -286,10 +286,8 @@ onMounted(loadStats)
   min-width: 0;
   /* 横向不允许出现滚动条：内容若溢出则靠中间 stat 区自然收窄 */
   overflow: hidden;
-  border-bottom: 1px solid var(--app-border, rgba(255, 255, 255, 0.08));
-  box-shadow:
-    var(--app-shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.08)),
-    0 4px 16px var(--color-brand-border, rgba(79, 70, 229, 0.08));
+  border-bottom: var(--stats-bar-border-bottom, 1px solid rgba(255, 255, 255, 0.08));
+  box-shadow: var(--app-shadow-sm);
 }
 
 /* 左侧：AI 控制台入口 */
@@ -396,11 +394,11 @@ onMounted(loadStats)
 
 .stat-value {
   font-size: var(--plotpilot-topbar-stat-value-size);
-  font-weight: 800;
-  letter-spacing: -0.02em;
+  font-weight: 700;
+  letter-spacing: -0.01em;
   line-height: 1.2;
   color: var(--nav-hero-text, #ffffff);
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  font-variant-numeric: tabular-nums;
 }
 
 .stat-item:hover .stat-value {
@@ -434,7 +432,6 @@ onMounted(loadStats)
 .action-trigger:hover {
   opacity: 1;
   background: rgba(255, 255, 255, 0.16);
-  transform: rotate(45deg);
 }
 
 /* 右侧：设置触发器 */
@@ -455,7 +452,6 @@ onMounted(loadStats)
 .settings-trigger:hover {
   opacity: 1;
   background: rgba(255, 255, 255, 0.16);
-  transform: rotate(45deg);
 }
 
 .dropdown-item-icon {
@@ -504,11 +500,6 @@ onMounted(loadStats)
 
   .settings-trigger {
     position: static;
-    transform: none;
-  }
-
-  .settings-trigger:hover {
-    transform: rotate(45deg);
   }
 }
 

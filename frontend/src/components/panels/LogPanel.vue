@@ -89,7 +89,7 @@ defineExpose({
   flex-direction: column;
   background: linear-gradient(180deg, #1a1d24 0%, #0f1115 100%);
   color: #d4d4d4;
-  font-family: 'JetBrains Mono', 'Consolas', 'Monaco', monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   border-left: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 0;

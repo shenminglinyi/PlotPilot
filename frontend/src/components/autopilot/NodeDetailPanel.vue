@@ -262,8 +262,8 @@ const STATUS_BAR_BG_MAP: Record<string, string> = {
 const statusBarBg = computed(() => STATUS_BAR_BG_MAP[status.value] || 'var(--app-surface-subtle)')
 
 const STATUS_LABEL_MAP: Record<string, string> = {
-  idle: '⏹ 空闲',
-  pending: '⏳ 等待中',
+  idle: '空闲',
+  pending: '等待中',
   running: '▶️ 运行中',
   success: '成功',
   warning: '警告',

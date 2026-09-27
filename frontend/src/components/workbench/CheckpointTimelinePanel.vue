@@ -245,7 +245,7 @@ onMounted(load)
 }
 
 .timeline-item--head {
-  border-left-color: #18a058;
+  border-left-color: var(--color-success);
 }
 
 .timeline-dot {
@@ -260,8 +260,8 @@ onMounted(load)
 }
 
 .timeline-dot--CHAPTER {
-  background: #2080f0;
-  border-color: #2080f0;
+  background: var(--color-info);
+  border-color: var(--color-info);
 }
 
 .timeline-dot--ACT {

@@ -24,7 +24,9 @@
             </template>
           </n-button>
           <div class="header-content">
-            <h1 class="title">墨枢 · 长篇叙事工作台</h1>
+            <BrandSeal class="header-seal" :size="52" />
+            <h1 class="title">墨枢</h1>
+            <div class="header-eyebrow" aria-hidden="true"><span>长篇叙事工作台</span></div>
             <p class="subtitle">
               以梗概与类型开局，选定目标篇幅；宏观结构、幕次与节拍由后台自动编排，你专注把故事写下去即可。
             </p>
@@ -36,7 +38,6 @@
           <n-space vertical :size="20">
             <div class="create-header">
               <div class="create-title-wrap">
-                <span class="create-icon">✨</span>
                 <h3 class="create-title">新建书目</h3>
               </div>
               <n-button text type="primary" @click="showAdvanced = !showAdvanced">
@@ -123,7 +124,6 @@
               <n-button
                 type="primary"
                 size="large"
-                round
                 :loading="creating"
                 :disabled="!newBook.premise.trim() || !newBook.genre.trim() || !newBook.worldPreset.trim() || !newBook.storyStructure.trim() || !newBook.pacingControl.trim() || !newBook.writingStyle.trim() || !newBook.specialRequirements.trim()"
                 @click="handleCreate"
@@ -149,7 +149,6 @@
                 v-model:value="searchQuery"
                 placeholder="搜索书名或类型…"
                 clearable
-                round
                 class="search-input"
               >
                 <template #prefix>
@@ -179,21 +178,21 @@
           <!-- Empty State -->
           <div v-else-if="books.length === 0" class="empty-state">
             <div class="empty-illustration">
-              <span class="empty-icon">📚</span>
+              <svg class="empty-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+              </svg>
             </div>
             <h3 class="empty-title">还没有书目</h3>
-            <p class="empty-desc">在上方输入你的故事创意，开启创作之旅</p>
-            <n-button type="primary" size="large" round @click="focusCreateInput">
-              <template #icon>
-                <n-icon><IconSpark /></n-icon>
-              </template>
+            <p class="empty-desc">在上方写下梗概、选定市场分区与篇幅，第一本书就从这里建档。</p>
+            <n-button type="primary" size="large" @click="focusCreateInput">
               创建第一本书
             </n-button>
           </div>
 
           <!-- No Results State -->
           <div v-else-if="filteredBooks.length === 0" class="no-results-state">
-            <span class="no-results-icon">🔍</span>
+            <n-icon :size="30" class="no-results-icon"><IconSearch /></n-icon>
             <p>未找到匹配「{{ searchQuery }}」的书目</p>
             <n-button text type="primary" @click="searchQuery = ''">清除搜索</n-button>
           </div>
@@ -217,60 +216,17 @@
             <!-- 书目卡片：单行横排，多于可视宽度时横向滚动 -->
             <div class="books-list-wrap">
               <div class="books-grid">
-                <div
+                <BookCard
                   v-for="(book, idx) in displayBooks"
                   :key="book.slug"
-                  class="book-card"
-                  :class="{ 'is-selected': selectedBooks.includes(book.slug) }"
                   :style="{ animationDelay: `${idx * 0.04}s` }"
-                  @click="navigateToBook(book.slug)"
-                >
-                  <div class="card-top">
-                    <span class="book-dot" :class="`dot-${book.stage}`"></span>
-                    <span class="book-card-title">{{ book.title }}</span>
-                  </div>
-                  <div class="card-meta">
-                    <n-tag :type="getStageType(book.stage)" size="small" round borderable>
-                      {{ book.stage_label }}
-                    </n-tag>
-                    <span class="meta-genre">{{ book.genre || '未分类' }}</span>
-                  </div>
-                  <div class="card-stats" v-if="book.chapter_count || book.word_count">
-                    <template v-if="book.chapter_count">
-                      <span>{{ book.chapter_count }} 章</span>
-                    </template>
-                    <template v-if="book.word_count">
-                      <span>{{ formatWordCount(book.word_count) }}</span>
-                    </template>
-                  </div>
-                  <div class="card-actions" @click.stop>
-                    <n-checkbox
-                      :checked="selectedBooks.includes(book.slug)"
-                      @update:checked="(val: boolean) => toggleBookSelection(book.slug, val)"
-                    />
-                    <n-popconfirm
-                      positive-text="删除"
-                      negative-text="取消"
-                      @positive-click="() => handleDeleteBook(book.slug)"
-                    >
-                      <template #trigger>
-                        <n-button
-                          quaternary
-                          circle
-                          size="tiny"
-                          type="error"
-                          :loading="deletingSlug === book.slug"
-                          aria-label="删除书目"
-                        >
-                          <template #icon>
-                            <n-icon><IconTrash /></n-icon>
-                          </template>
-                        </n-button>
-                      </template>
-                      将删除「{{ book.title }}」及本地全部章节与设定，且不可恢复。确定删除吗？
-                    </n-popconfirm>
-                  </div>
-                </div>
+                  :book="book"
+                  :selected="selectedBooks.includes(book.slug)"
+                  :deleting="deletingSlug === book.slug"
+                  @open="navigateToBook(book.slug)"
+                  @select="(val: boolean) => toggleBookSelection(book.slug, val)"
+                  @delete="handleDeleteBook(book.slug)"
+                />
               </div>
 
               <!-- 折叠提示 + 查看全部按钮 -->
@@ -286,9 +242,7 @@
 
         <!-- 底部版权 -->
         <footer class="home-footer">
-          <span class="footer-brand">PlotPilot</span>
-          <span class="footer-sep">·</span>
-          <span class="footer-sub">墨枢</span>
+          <span class="footer-brand">PlotPilot · 墨枢</span>
           <span class="footer-text">由 PlotPilot（墨枢）团队倾力开发</span>
           <a class="footer-link" href="https://www.douyin.com/user/MS4wLjABAAAA91472902104" target="_blank" rel="noopener noreferrer">
             抖音：林亦 91472902104
@@ -358,54 +312,15 @@
           </template>
         </n-input>
         <div class="all-books-grid">
-          <div
+          <BookCard
             v-for="book in modalFilteredBooks"
             :key="book.slug"
-            class="book-card"
-            @click="navigateToBook(book.slug); showAllModal = false"
-          >
-            <div class="card-top">
-              <span class="book-dot" :class="`dot-${book.stage}`"></span>
-              <span class="book-card-title">{{ book.title }}</span>
-            </div>
-            <div class="card-meta">
-              <n-tag :type="getStageType(book.stage)" size="small" round borderable>
-                {{ book.stage_label }}
-              </n-tag>
-              <span class="meta-genre">{{ book.genre || '未分类' }}</span>
-            </div>
-            <div class="card-stats" v-if="book.chapter_count || book.word_count">
-              <template v-if="book.chapter_count">
-                <span>{{ book.chapter_count }} 章</span>
-              </template>
-              <template v-if="book.word_count">
-                <span>{{ formatWordCount(book.word_count) }}</span>
-              </template>
-            </div>
-            <div class="card-actions" @click.stop>
-              <n-popconfirm
-                positive-text="删除"
-                negative-text="取消"
-                @positive-click="() => handleDeleteBook(book.slug)"
-              >
-                <template #trigger>
-                  <n-button
-                    quaternary
-                    circle
-                    size="tiny"
-                    type="error"
-                    :loading="deletingSlug === book.slug"
-                    aria-label="删除书目"
-                  >
-                    <template #icon>
-                      <n-icon><IconTrash /></n-icon>
-                    </template>
-                  </n-button>
-                </template>
-                将删除「{{ book.title }}」及本地全部章节与设定，且不可恢复。确定删除吗？
-              </n-popconfirm>
-            </div>
-          </div>
+            :book="book"
+            :deleting="deletingSlug === book.slug"
+            :selectable="false"
+            @open="openFromModal(book.slug)"
+            @delete="handleDeleteBook(book.slug)"
+          />
         </div>
       </div>
     </n-modal>
@@ -419,6 +334,8 @@ import { useMessage, NIcon } from 'naive-ui'
 import { novelApi, type NovelDTO } from '../api/novel'
 import { isWizardCompleted } from '@/utils/wizardStageCache'
 import StatsSidebar from '@/components/stats/StatsSidebar.vue'
+import BrandSeal from '@/components/brand/BrandSeal.vue'
+import BookCard from '@/components/home/BookCard.vue'
 import { useAppSettingsShellStore } from '@/stores/appSettingsShellStore'
 import { parseGenreWorldFromPremise } from '@/utils/premisePresets'
 import { useStatsStore } from '@/stores/statsStore'
@@ -428,7 +345,6 @@ import { formatApiError } from '@/utils/apiError'
 import {
   NOVEL_LENGTH_TIER_OPTIONS,
   getNovelStageLabel,
-  getNovelStageTagType,
   type NovelLengthTier,
 } from '@/domain/novel'
 
@@ -595,13 +511,6 @@ const fetchBooks = async () => {
   }
 }
 
-const formatWordCount = (count: number): string => {
-  if (count >= 10000) {
-    return (count / 10000).toFixed(1) + '万字'
-  }
-  return count + '字'
-}
-
 const handleCreate = async () => {
   if (!newBook.value.premise.trim()) {
     message.warning('请输入核心梗概')
@@ -765,8 +674,10 @@ const handleRefreshList = async () => {
   message.success('列表已刷新')
 }
 
-const getStageType = (stage: string) => {
-  return getNovelStageTagType(stage)
+/** 弹窗里的卡片点击：导航后收起弹窗 */
+const openFromModal = (novelId: string) => {
+  showAllModal.value = false
+  navigateToBook(novelId)
 }
 
 onMounted(() => {
@@ -803,11 +714,7 @@ onMounted(() => {
 .home-bg {
   position: absolute;
   inset: 0;
-  background:
-    radial-gradient(ellipse 110% 80% at 50% -30%, var(--color-brand-light), transparent 55%),
-    radial-gradient(ellipse 60% 50% at 100% 20%, rgba(14, 165, 233, 0.12), transparent 45%),
-    radial-gradient(ellipse 50% 40% at 0% 60%, var(--color-gold-dim), transparent 50%),
-    linear-gradient(180deg, var(--app-page-bg) 0%, var(--app-surface-subtle) 45%, var(--app-page-bg) 100%);
+  background: var(--app-page-bg);
   z-index: 0;
 }
 
@@ -834,33 +741,68 @@ onMounted(() => {
 }
 
 .header-theme-btn:hover {
-  color: var(--color-brand, #4f46e5);
+  color: var(--color-brand);
 }
 
 .header-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   padding: 0 44px;
 }
 
+.header-seal {
+  margin-bottom: 16px;
+}
+
+/* 书名式的品牌标题：衬线大字 + 细线眉题 */
 .title {
-  font-size: clamp(2rem, 4vw, 2.5rem);
-  font-weight: 700;
-  margin: 0 0 12px;
-  letter-spacing: -0.03em;
+  font-family: var(--font-display);
+  font-size: clamp(2.4rem, 4vw, 3rem);
+  font-weight: 900;
+  margin: 0 0 14px;
+  letter-spacing: 0.1em;
+  text-indent: 0.1em;
+  line-height: 1.15;
   color: var(--app-text-primary);
 }
 
+.header-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 0 0 14px;
+  color: var(--app-text-muted);
+  font-size: 0.8125rem;
+}
+
+.header-eyebrow span {
+  letter-spacing: 0.4em;
+  margin-right: -0.4em;
+}
+
+.header-eyebrow::before,
+.header-eyebrow::after {
+  content: '';
+  width: 44px;
+  height: 1px;
+  background: var(--app-border-strong);
+}
+
 .subtitle {
-  font-size: 1.05rem;
+  font-size: 0.9375rem;
   color: var(--app-text-secondary);
   margin: 0;
   font-weight: 400;
+  max-width: 560px;
+  line-height: 1.7;
 }
 
 
 .create-card {
   margin-bottom: 32px;
-  border-radius: 16px;
-  box-shadow: 0 4px 20px rgba(15, 23, 42, 0.06);
+  border-radius: var(--app-radius-lg);
+  box-shadow: var(--app-shadow-md);
   animation: fade-up 0.55s ease 0.08s both;
 }
 
@@ -874,10 +816,6 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 10px;
-}
-
-.create-icon {
-  font-size: 20px;
 }
 
 .create-title {
@@ -894,8 +832,8 @@ onMounted(() => {
 .taxonomy-block {
   margin-top: 4px;
   padding: 14px 16px;
-  border-radius: 12px;
-  background: rgba(15, 23, 42, 0.02);
+  border-radius: var(--app-radius-md);
+  background: var(--app-surface-subtle);
   border: 1px solid var(--app-border);
 }
 .taxonomy-block-head {
@@ -961,9 +899,9 @@ onMounted(() => {
 
 .advanced-settings {
   padding: 16px;
-  background: rgba(79, 70, 229, 0.04);
-  border-radius: 12px;
-  border: 1px solid rgba(79, 70, 229, 0.1);
+  background: var(--color-brand-light);
+  border-radius: var(--app-radius-md);
+  border: 1px solid var(--color-brand-border);
 }
 
 .w-full {
@@ -972,9 +910,9 @@ onMounted(() => {
 
 .books-section {
   background: var(--app-surface);
-  border-radius: 16px;
+  border-radius: var(--app-radius-lg);
   padding: 28px;
-  box-shadow: 0 4px 20px rgba(15, 23, 42, 0.04);
+  box-shadow: var(--app-shadow-sm);
   animation: fade-up 0.55s ease 0.14s both;
 }
 
@@ -1054,17 +992,20 @@ onMounted(() => {
 }
 
 .empty-illustration {
-  width: 100px;
-  height: 100px;
-  background: linear-gradient(135deg, var(--app-surface-subtle) 0%, var(--app-border) 100%);
-  border-radius: 50%;
+  width: 88px;
+  height: 88px;
+  background: var(--app-surface-subtle);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-lg);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.empty-icon {
-  font-size: 48px;
+.empty-glyph {
+  width: 36px;
+  height: 36px;
+  color: var(--app-text-muted);
 }
 
 .empty-title {
@@ -1085,7 +1026,7 @@ onMounted(() => {
 }
 
 .no-results-icon {
-  font-size: 40px;
+  color: var(--app-text-muted);
 }
 
 .no-results-state p {
@@ -1112,105 +1053,10 @@ onMounted(() => {
   scrollbar-width: thin;
 }
 
-/* 卡片（固定宽度，保证单行横滑） */
-.book-card {
-  position: relative;
-  flex: 0 0 auto;
-  width: 260px;
+/* 卡片宽度由本页控制：固定宽度保证单行横滑（卡片本体见 BookCard.vue） */
+.books-grid .book-card {
+  flex: 0 0 260px;
   max-width: min(260px, 82vw);
-  display: flex;
-  flex-direction: column;
-  padding: 20px;
-  background: var(--app-surface);
-  border: 1px solid var(--app-border);
-  border-radius: 14px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  animation: fade-up 0.35s ease both;
-  overflow: hidden;
-}
-
-.book-card:hover {
-  border-color: var(--color-brand, #4f46e5);
-  box-shadow: 0 4px 16px rgba(79, 70, 229, 0.1);
-  transform: translateY(-2px);
-}
-
-.book-card.is-selected {
-  border-color: var(--color-brand, #4f46e5);
-  background: var(--color-brand-light, rgba(79, 70, 229, 0.04));
-}
-
-/* 阶段状态小圆点 */
-.book-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  display: inline-block;
-}
-
-.book-dot.dot-planning { background: #3b82f6; }
-.book-dot.dot-writing { background: #f59e0b; }
-.book-dot.dot-reviewing { background: #8b5cf6; }
-.book-dot.dot-completed { background: #10b981; }
-
-/* 卡片顶部：标题 + 圆点 */
-.card-top {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.book-card-title {
-  font-size: 15px;
-  font-weight: 650;
-  color: var(--app-text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  line-height: 1.3;
-}
-
-/* 卡片元信息行：标签 + 类型 */
-.card-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-  flex-wrap: wrap;
-}
-
-.meta-genre {
-  font-size: 12px;
-  color: var(--app-text-muted);
-}
-
-/* 卡片统计信息 */
-.card-stats {
-  display: flex;
-  gap: 10px;
-  font-size: 12px;
-  color: var(--app-text-muted);
-  margin-bottom: 12px;
-  flex: 1;
-}
-
-/* 卡片操作按钮 */
-.card-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  opacity: 0;
-  transition: opacity 0.18s ease;
-  padding-top: 4px;
-  border-top: 1px solid transparent;
-}
-
-.book-card:hover .card-actions {
-  opacity: 1;
 }
 
 /* 折叠提示栏 */
@@ -1220,9 +1066,9 @@ onMounted(() => {
   justify-content: space-between;
   margin-top: 12px;
   padding: 12px 16px;
-  background: var(--color-brand-light, rgba(79, 70, 229, 0.05));
-  border: 1px dashed var(--color-brand-border, rgba(79, 70, 229, 0.2));
-  border-radius: 10px;
+  background: var(--app-surface-subtle);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-md);
 }
 
 .fold-hint {
@@ -1238,6 +1084,15 @@ onMounted(() => {
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .header,
+  .create-card,
+  .books-section,
+  .books-grid .book-card {
+    animation: none;
   }
 }
 
@@ -1270,18 +1125,9 @@ onMounted(() => {
 
 .footer-brand {
   font-weight: 700;
+  font-family: var(--font-display);
   color: var(--color-gold);
-  letter-spacing: 0.03em;
-}
-
-.footer-sep {
-  opacity: 0.4;
-}
-
-.footer-sub {
-  font-weight: 600;
-  color: var(--color-gold-light);
-  opacity: 0.8;
+  letter-spacing: 0.06em;
 }
 
 .footer-text {
@@ -1293,14 +1139,13 @@ onMounted(() => {
   text-decoration: none;
   font-weight: 600;
   border-bottom: 1px dashed var(--color-gold-border);
-  transition: all 0.2s ease;
+  transition: color 0.2s ease, border-color 0.2s ease;
   white-space: nowrap;
 }
 
 .footer-link:hover {
   color: var(--color-gold-light);
   border-bottom-style: solid;
-  box-shadow: 0 0 8px var(--color-glow-gold);
 }
 
 @media (max-width: 768px) {
@@ -1317,13 +1162,9 @@ onMounted(() => {
   .section-right {
     flex-direction: column;
   }
-  
+
   .search-input {
     width: 100%;
-  }
-
-  .card-actions {
-    opacity: 1; /* 移动端始终显示操作按钮 */
   }
 }
 

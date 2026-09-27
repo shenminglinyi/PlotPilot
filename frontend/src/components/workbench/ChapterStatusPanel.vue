@@ -56,7 +56,7 @@
       <!-- 自动审阅（AI 章末管线） -->
       <n-card v-if="autopilotChapterReview" size="small" :bordered="true" class="status-card">
         <template #header>
-          <span class="card-title">🤖 自动审阅</span>
+          <span class="card-title">自动审阅</span>
         </template>
         <n-alert
           v-if="chapter && chapter.number !== autopilotChapterReview.chapter_number"
@@ -127,7 +127,7 @@
                 size="small"
                 round
               >
-                {{ autopilotChapterReview.drift_alert ? '⚠ 告警' : '✓ 正常' }}
+                {{ autopilotChapterReview.drift_alert ? '告警' : '正常' }}
               </n-tag>
               <n-tag v-else type="default" size="small" round>待采样</n-tag>
             </div>
@@ -180,7 +180,7 @@
       <!-- AI 生成质检 -->
       <n-card v-if="lastWorkflowResult && qcChapterNumber != null" size="small" :bordered="true" class="status-card">
         <template #header>
-          <span class="card-title">✨ 生成质检</span>
+          <span class="card-title">生成质检</span>
         </template>
         <n-space vertical :size="10">
           <n-alert

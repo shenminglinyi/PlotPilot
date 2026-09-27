@@ -177,13 +177,13 @@ onMounted(load)
 }
 
 .phase-stage--past .stage-dot {
-  background: #2080f0;
-  border-color: #2080f0;
+  background: var(--color-info);
+  border-color: var(--color-info);
 }
 
 .phase-stage--active .stage-dot {
-  background: #18a058;
-  border-color: #18a058;
+  background: var(--color-success);
+  border-color: var(--color-success);
   box-shadow: 0 0 0 3px rgba(24, 160, 88, 0.2);
 }
 

@@ -675,7 +675,7 @@ defineExpose({ loadData, selectNodeByKey })
   background: var(--color-brand);
   color: var(--app-text-inverse);
   border-color: var(--color-brand);
-  box-shadow: 0 2px 6px var(--color-brand-border);
+  box-shadow: var(--app-shadow-sm);
 }
 .category-tab.is-active:hover {
   background: var(--color-brand-hover);

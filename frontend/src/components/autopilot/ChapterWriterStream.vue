@@ -146,7 +146,7 @@ onUnmounted(() => {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #18a058;
+  background: var(--color-success);
   animation: pulse 1s infinite;
   flex-shrink: 0;
 }
@@ -168,7 +168,7 @@ onUnmounted(() => {
   padding: 1px 6px;
   border-radius: 4px;
   background: rgba(24, 160, 88, 0.15);
-  color: #18a058;
+  color: var(--color-success);
 }
 
 .word-count {
@@ -193,7 +193,7 @@ onUnmounted(() => {
 }
 
 .cursor {
-  color: #18a058;
+  color: var(--color-success);
   animation: blink 1s step-end infinite;
   font-size: 14px;
 }

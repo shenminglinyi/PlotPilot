@@ -11,7 +11,9 @@
       >
         {{ g.label }}
       </button>
-      <button class="tab-collapse-btn" title="收起面板" @click="emit('collapse')">▶</button>
+      <button class="tab-collapse-btn" title="收起面板" @click="emit('collapse')">
+        <n-icon size="12"><ChevronForwardOutline /></n-icon>
+      </button>
     </div>
 
     <!-- 写作支撑组：当前语境 / 伏笔账本 / 故事演进 -->
@@ -153,6 +155,7 @@ import {
   FlashOutline, BookmarkOutline, GitBranchOutline,
   DocumentTextOutline, EarthOutline, LibraryOutline,
   PeopleOutline, BriefcaseOutline, SparklesOutline,
+  ChevronForwardOutline,
 } from '@vicons/ionicons5'
 import type { GenerationPrefsDTO } from '@/api/novel'
 import {

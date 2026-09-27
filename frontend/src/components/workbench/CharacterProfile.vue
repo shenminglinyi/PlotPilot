@@ -254,7 +254,7 @@
             <div class="cp-card-hd"><span class="cp-card-lbl">行为禁区</span></div>
             <div class="cp-card-bd">
               <div class="cp-taboos">
-                <span v-for="(t, i) in activeTaboos" :key="i" class="cp-taboo-chip">⛔ {{ t }}</span>
+                <span v-for="(t, i) in activeTaboos" :key="i" class="cp-taboo-chip">{{ t }}</span>
               </div>
             </div>
           </div>
@@ -624,7 +624,7 @@ useWorkbenchDeskTickReload(() => {
   gap: 8px;
   padding: 10px 14px;
   border-bottom: 1px solid var(--plotpilot-split-border);
-  background: linear-gradient(135deg, var(--app-surface) 75%, var(--color-purple-dim, rgba(139,92,246,0.04)) 100%);
+  background: var(--app-surface);
 }
 
 .cp-identity {
@@ -815,7 +815,7 @@ useWorkbenchDeskTickReload(() => {
 .cp-card--danger-accent  { border-left: 3px solid var(--color-danger,  #ef4444); }
 .cp-card--warning-accent { border-left: 3px solid var(--color-warning, #f59e0b); }
 .cp-card--voice   { border-left: 3px solid #2080d0; }
-.cp-card--wound   { border-left: 3px solid #7c3aed; }
+.cp-card--wound   { border-left: 3px solid var(--color-purple); }
 .cp-card--belief  { border-left: 3px solid #d89614; }
 .cp-card--taboo   { border-left: 3px solid #c03030; }
 .cp-card--debug   { opacity: 0.75; }
@@ -873,7 +873,7 @@ useWorkbenchDeskTickReload(() => {
   line-height: 1;
 }
 .cp-chip--muted  { background: var(--app-border); color: var(--app-text-muted); }
-.cp-chip--purple { background: rgba(139,92,246,0.1); color: #7c3aed; }
+.cp-chip--purple { background: var(--color-purple-dim); color: var(--color-purple); }
 
 /* ── Empty note ──────────────────────────────────────────────────── */
 
@@ -980,7 +980,7 @@ useWorkbenchDeskTickReload(() => {
   font-size: 11px;
 }
 .cp-vp--phrase { background: rgba(37,99,235,0.06); color: var(--color-brand, #2563eb); border: 1px solid rgba(37,99,235,0.15); }
-.cp-vp--meta   { background: rgba(139,92,246,0.06); color: #7c3aed; border: 1px solid rgba(139,92,246,0.15); }
+.cp-vp--meta   { background: var(--color-purple-dim); color: var(--color-purple); border: 1px solid var(--color-purple-light); }
 
 /* ── 创伤反射 ─────────────────────────────────────────────────────── */
 

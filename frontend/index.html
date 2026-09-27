@@ -2,29 +2,28 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- 使用 loli.net 镜像（国内可访问的 Google Fonts 镜像） -->
+    <meta name="description" content="PlotPilot · 墨枢 — 长篇小说创作工作台，用结构化叙事状态管理守住人物、因果与伏笔。" />
+    <meta name="theme-color" content="#14171c" />
+    <!-- 使用 loli.net 镜像（国内可访问的 Google Fonts 镜像）。
+         UI 走系统字体栈，只额外加载两族：
+         - Noto Serif SC：品牌时刻与小说正文的衬线展示字
+         - JetBrains Mono：日志 / ID / 数据等宽字 -->
     <link rel="preconnect" href="https://fonts.loli.net" />
     <link rel="preconnect" href="https://fonts.gstatic.loli.net" crossorigin />
-    <!-- Inter: 现代无衬线字体，适合 UI -->
     <link
-      href="https://fonts.loli.net/css2?family=Inter:wght@400;500;600;700&display=swap"
+      href="https://fonts.loli.net/css2?family=Noto+Serif+SC:wght@600;900&display=swap"
       rel="stylesheet"
     />
-    <!-- JetBrains Mono: 优秀的中英文等宽字体 -->
     <link
       href="https://fonts.loli.net/css2?family=JetBrains+Mono:wght@400;500&display=swap"
       rel="stylesheet"
     />
-    <!-- Noto Sans SC: 思源黑体，优秀的中文字体 -->
-    <link
-      href="https://fonts.loli.net/css2?family=Noto+Sans+SC:wght@400;500;600;700&display=swap"
-      rel="stylesheet"
-    />
     <title>PlotPilot · 墨枢 | 作者的领航员</title>
     <style>
-      /* 首屏：在 JS/Vue 挂载前即可显示，避免桌面壳等后端时纯白窗口 */
+      /* 首屏：在 JS/Vue 挂载前即可显示，避免桌面壳等后端时纯白窗口。
+         墨面 + 朱印，与主题无关的恒定开场。 */
       #boot-splash {
         position: fixed;
         inset: 0;
@@ -32,26 +31,34 @@
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        gap: 1.25rem;
-        background: linear-gradient(160deg, #0f172a 0%, #1e293b 45%, #312e81 100%);
-        color: #e2e8f0;
+        gap: 1rem;
+        background: #14171c;
+        color: #e8e8e6;
         font-family: system-ui, 'Segoe UI', 'Noto Sans SC', sans-serif;
         z-index: 2147483647;
       }
+      #boot-splash .boot-seal {
+        width: 46px;
+        height: 46px;
+        border-radius: 7px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+      }
       #boot-splash .boot-logo {
-        font-size: 1.35rem;
+        font-family: 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', serif;
+        font-size: 1.3rem;
         font-weight: 600;
-        letter-spacing: 0.02em;
+        letter-spacing: 0.12em;
+        color: #f0efe9;
       }
       #boot-splash .boot-hint {
-        font-size: 0.875rem;
-        color: #94a3b8;
+        font-size: 0.8125rem;
+        color: #7d848c;
       }
       #boot-splash .boot-spinner {
-        width: 2.5rem;
-        height: 2.5rem;
-        border: 3px solid rgba(129, 140, 248, 0.25);
-        border-top-color: #818cf8;
+        width: 1.5rem;
+        height: 1.5rem;
+        border: 2px solid rgba(177, 58, 42, 0.25);
+        border-top-color: #b13a2a;
         border-radius: 50%;
         animation: boot-spin 0.85s linear infinite;
       }
@@ -60,11 +67,21 @@
           transform: rotate(360deg);
         }
       }
+      @media (prefers-reduced-motion: reduce) {
+        #boot-splash .boot-spinner {
+          animation-duration: 2.5s;
+        }
+      }
     </style>
   </head>
   <body>
     <div id="app">
       <div id="boot-splash" aria-live="polite">
+        <svg class="boot-seal" viewBox="0 0 46 46" aria-hidden="true">
+          <rect width="46" height="46" rx="7" fill="#b13a2a" />
+          <text x="23" y="21" text-anchor="middle" font-size="15.5" font-weight="600" fill="#f5efe2" font-family="'Noto Serif SC','Source Han Serif SC','Songti SC',serif">墨</text>
+          <text x="23" y="39" text-anchor="middle" font-size="15.5" font-weight="600" fill="#f5efe2" font-family="'Noto Serif SC','Source Han Serif SC','Songti SC',serif">枢</text>
+        </svg>
         <div class="boot-spinner" aria-hidden="true"></div>
         <div class="boot-logo">PlotPilot · 墨枢</div>
         <div class="boot-hint">正在启动本地服务，请稍候…</div>

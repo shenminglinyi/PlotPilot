@@ -885,7 +885,7 @@ const outputPreviewRows = computed(() =>
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+  font-family: var(--font-mono);
   line-height: 1.65;
 }
 

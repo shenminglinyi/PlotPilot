@@ -1,7 +1,8 @@
-import { h } from 'vue'
+import { computed, h, ref } from 'vue'
 import type { AxiosError } from 'axios'
 import { NButton, NCollapse, NCollapseItem, NSpace } from 'naive-ui'
-import { createDiscreteApi } from 'naive-ui'
+import { createDiscreteApi, darkTheme } from 'naive-ui'
+import type { ConfigProviderProps } from 'naive-ui'
 
 import type { FeedbackIncidentPayload } from './feedbackIncident'
 import {
@@ -29,7 +30,18 @@ const ringBuffer: FeedbackIncidentPayload[] = []
 let _axiosAggBuffer: FeedbackIncidentPayload[] = []
 let _axiosAggTimer: ReturnType<typeof setTimeout> | null = null
 
+// 离散 API 不在 App 的 n-config-provider 内，需要自己跟随主题（themeStore 会写 html.dark）
+const discreteIsDark = ref(document.documentElement.classList.contains('dark'))
+new MutationObserver(() => {
+  discreteIsDark.value = document.documentElement.classList.contains('dark')
+}).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+
+const discreteConfigProviderProps = computed<ConfigProviderProps>(() => ({
+  theme: discreteIsDark.value ? darkTheme : undefined,
+}))
+
 const { notification } = createDiscreteApi(['notification'], {
+  configProviderProps: discreteConfigProviderProps,
   notificationProviderProps: {
     placement: 'bottom-right',
   },

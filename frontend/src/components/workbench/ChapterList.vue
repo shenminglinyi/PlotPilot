@@ -263,7 +263,7 @@ const handleTreeLoaded = (hasData: boolean) => {
 .sidebar-empty .hint {
   margin-top: 8px;
   font-size: 12px;
-  color: var(--color-brand, #18a058);
+  color: var(--color-brand);
 }
 
 .sidebar :deep(.n-list-item) {

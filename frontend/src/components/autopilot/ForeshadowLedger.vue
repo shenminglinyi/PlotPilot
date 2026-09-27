@@ -2,7 +2,7 @@
   <div class="foreshadow-ledger">
     <div class="ledger-header">
       <div class="ledger-title-block">
-        <span class="ledger-title">📖 伏笔雷达</span>
+        <span class="ledger-title">伏笔雷达</span>
         <n-text depth="3" class="ledger-sub">
           只读摘要 · 编辑见侧栏伏笔账本
         </n-text>
@@ -75,7 +75,7 @@
                   {{ importanceLabel(item.importance) }}
                 </n-tag>
                 <n-text depth="3" style="font-size: 12px">
-                  {{ item.is_collected ? '✓ 已回收' : '⏳ 待回收' }}
+                  {{ item.is_collected ? '✓ 已回收' : '待回收' }}
                 </n-text>
               </div>
               <div class="full-item-text">{{ item.description }}</div>
@@ -107,7 +107,7 @@
                 >
                   {{ importanceLabel(item.importance) }}
                 </n-tag>
-                <n-text depth="3" style="font-size: 12px">⏳ 待回收</n-text>
+                <n-text depth="3" style="font-size: 12px">待回收</n-text>
               </div>
               <div class="full-item-text">{{ item.description }}</div>
               <div class="full-item-meta">

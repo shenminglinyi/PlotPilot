@@ -570,7 +570,7 @@ onMounted(() => { loadDetail() })
 }
 .col-name code {
   font-size: 11.5px;
-  background: linear-gradient(135deg, rgba(79, 70, 229, 0.08), rgba(139, 92, 246, 0.06));
+  background: var(--color-brand-light);
   padding: 2px 6px;
   border-radius: 4px;
   color: var(--color-brand);
@@ -677,7 +677,7 @@ onMounted(() => { loadDetail() })
 .timeline-item.is-current .timeline-dot {
   background: var(--color-brand);
   border-color: var(--color-brand);
-  box-shadow: 0 0 0 4px var(--color-brand-light), 0 0 12px var(--color-brand-light);
+  box-shadow: 0 0 0 4px var(--color-brand-light);
 }
 .timeline-item.is-user .timeline-dot {
   background: var(--color-warning);

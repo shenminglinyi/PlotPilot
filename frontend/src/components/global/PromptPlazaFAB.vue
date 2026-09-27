@@ -184,7 +184,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, var(--color-brand), var(--color-purple));
+  background: var(--color-brand);
   color: var(--app-text-inverse);
   box-shadow:
     0 4px 14px var(--color-brand-border),
@@ -203,7 +203,7 @@ onUnmounted(() => {
   transform: scale(0.96);
 }
 .plaza-fab-main.is-open {
-  background: linear-gradient(135deg, var(--color-brand-pressed), var(--color-purple));
+  background: var(--color-brand-pressed);
   box-shadow:
     0 2px 8px rgba(79, 70, 229, 0.3),
     inset 0 1px 0 rgba(255, 255, 255, 0.15);

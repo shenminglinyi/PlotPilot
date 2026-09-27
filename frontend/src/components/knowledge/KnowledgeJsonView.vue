@@ -123,14 +123,14 @@ onUnmounted(() => {
 .kjv-editor {
   flex: 1;
   min-height: 0;
-  font-family: 'Consolas', 'Monaco', monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
   padding: 14px;
   overflow-y: auto;
 }
 
 .kjv-editor :deep(textarea) {
-  font-family: 'Consolas', 'Monaco', monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
 }
 </style>

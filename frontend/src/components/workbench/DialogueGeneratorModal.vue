@@ -47,9 +47,6 @@
         @click="generateDialogue"
         block
       >
-        <template #icon>
-          <span>✨</span>
-        </template>
         生成对话
       </n-button>
 
@@ -64,15 +61,9 @@
         <template #action>
           <n-space justify="end">
             <n-button @click="regenerate" :loading="generating">
-              <template #icon>
-                <span>🔄</span>
-              </template>
               重新生成
             </n-button>
             <n-button type="success" @click="copyToClipboard">
-              <template #icon>
-                <span>📋</span>
-              </template>
               复制
             </n-button>
           </n-space>

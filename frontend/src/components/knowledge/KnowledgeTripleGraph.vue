@@ -225,7 +225,7 @@ onMounted(async () => {
   padding: 0 4px;
   border-radius: 4px;
   background: rgba(79, 70, 229, 0.08);
-  color: #4338ca;
+  color: var(--color-brand);
 }
 
 .ktg-canvas {

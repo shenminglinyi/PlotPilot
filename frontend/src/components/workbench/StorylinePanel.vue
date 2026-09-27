@@ -52,7 +52,7 @@
           description="暂无故事线"
         >
           <template #icon>
-            <span class="panel-empty-ico" aria-hidden="true">📖</span>
+            <span class="panel-empty-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></span>
           </template>
           <template #extra>
             <n-text depth="3" style="font-size: 12px; text-align: center; max-width: 280px">
@@ -438,7 +438,7 @@ onMounted(() => {
 
 .sl-collapse :deep(.n-collapse-item:hover) {
   border-color: var(--color-brand-border);
-  box-shadow: 0 6px 18px var(--color-brand-light);
+  box-shadow: var(--app-shadow-md);
 }
 
 .sl-collapse :deep(.n-collapse-item__header) {

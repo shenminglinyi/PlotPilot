@@ -111,7 +111,7 @@
           :bordered="true"
         >
           <template #header>
-            <span class="card-title">✨ AI 生成质检</span>
+            <span class="card-title">AI 生成质检</span>
           </template>
           <n-space vertical :size="10">
             <n-alert
