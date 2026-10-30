@@ -1320,3 +1320,21 @@ def get_unified_prop_context_builder():
         get_unified_prop_repository(),
         get_prop_event_repository(),
     )
+
+
+@lru_cache
+def get_cloud_connection_service():
+    """云连接器服务（广场+社交代理；会话凭证仅存服务端本地文件）。"""
+    from pathlib import Path
+
+    from application.cloud.connection_service import CloudConnectionService
+    from infrastructure.cloud.session_store import CloudSessionStore
+
+    settings = get_backend_settings().cloud
+    session_path = Path(settings.session_path)
+    if not session_path.is_absolute():
+        session_path = DATA_DIR / session_path.name
+    return CloudConnectionService(
+        settings,
+        CloudSessionStore(path=session_path),
+    )
