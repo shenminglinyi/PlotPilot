@@ -155,6 +155,17 @@ PlotPilot 内核（本仓库）
 
 内核提供稳定的 REST API 边界；所有生态扩展均通过提示词包、工作流插件或上层应用的方式叠加能力，内核本身不感知。如果你在用内核做二创，建议从提示词包和工作流层开始，而非修改内核代码。
 
+### 云广场连接（可选）
+
+内核内置一个**云连接器**（`/api/v1/cloud/*`），可登录 [plotpilot.xyz](https://plotpilot.xyz) 官方文墨广场，浏览/妙/批注/追更/收飞鸽通知——把本地创作接到云端社区。数据边界是显式契约：
+
+- **上云仅限**：会话凭证、广场互动（妙/批注/追更/通知）、风格包落笔事件的最小元数据（书名）
+- **永不上云**：作品手稿、章节、知识图谱、人物设定、生成配置、引擎状态——内核断云完全可用
+- 会话凭证（refresh cookie）只存内核服务端本地文件（`data/cloud-session.json`，0600），浏览器/前端全程零凭证；连接器路由仅接受本机回环客户端
+- 代理路径白名单 = 广场 + 社交接口，无通配转发（SSRF 免疫）
+
+默认端点 `https://plotpilot.xyz`，可用 `PLOTPILOT_CLOUD_BASE_URL` 覆盖（自建兼容服务端时）。接入协议遵循 plotpilot.xyz 公开 API 契约（`/api/v1/prompt-square/community/*`、`/api/v1/social/*`），内核侧不含任何社交判定逻辑。
+
 ---
 
 ## 技术选型说明
@@ -240,6 +251,7 @@ cd frontend && npm install && npm run dev
 | `CORS_ORIGINS` | 生产环境前端域名，逗号分隔 |
 | `DISABLE_AUTO_DAEMON` | 设为 `1` 禁止启动时自动拉起守护进程 |
 | `LOG_LEVEL` / `LOG_FILE` | 日志级别与路径 |
+| `PLOTPILOT_CLOUD_BASE_URL` / `PLOTPILOT_CLOUD_CLIENT_NAME` / `PLOTPILOT_CLOUD_TIMEOUT` | 云广场连接器：端点（默认 `https://plotpilot.xyz`）、客户端标识（默认 `plotpilot-kernel`）、请求超时秒数 |
 
 完整说明见 [`.env.example`](.env.example)。
 
