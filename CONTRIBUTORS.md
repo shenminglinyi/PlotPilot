@@ -4,6 +4,10 @@
 
 本文件由原 `=++Contribution Value Roster++=` 整理而来，并结合 Git 历史、GitHub Pull Requests、Issues 与 contributors 记录补齐。名单排名不分先后；已关闭、未合并或被后续实现覆盖的 PR/Issue，同样视为项目建设过程中的有效贡献。
 
+PlotPilot 正在重新整理项目治理与社区协作机制。为了降低维护成本、明确协作责任并恢复社区活力，仓库将仅保留活跃贡献者的协作权限。
+
+权限调整不影响任何人的历史贡献。所有曾参与项目建设的成员都会继续记录在本名单中。
+
 如果这里有遗漏、名称需要更正，或同一位贡献者使用了多个账号，欢迎随时联系维护者补充。
 
 ## Maintainer
@@ -62,6 +66,21 @@
 - [xxx675702999](https://github.com/xxx675702999)
 - [yanxiaofei395118](https://github.com/yanxiaofei395118)
 - [zeroranyi](https://github.com/zeroranyi)
+
+## Historical Collaborators
+
+以下成员曾参与仓库协作或阶段性建设，现作为项目历史记录保留；已在其他章节收录的账号不重复列出。
+
+- [1847123733](https://github.com/1847123733)
+- [2842346921](https://github.com/2842346921)
+- [7tilisi](https://github.com/7tilisi)
+- [ahh556](https://github.com/ahh556)
+- [HEyincai-12](https://github.com/HEyincai-12)
+- [huangyan404](https://github.com/huangyan404)
+- [jackmine](https://github.com/jackmine)
+- [phy5257](https://github.com/phy5257)
+- [shijipi521](https://github.com/shijipi521)
+- [yeqingteng](https://github.com/yeqingteng)
 
 ## Issue, QA and Product Feedback Contributors
 
