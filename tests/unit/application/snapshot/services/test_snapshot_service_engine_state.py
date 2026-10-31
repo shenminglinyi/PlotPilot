@@ -33,7 +33,8 @@ def temp_db():
                 number INTEGER NOT NULL,
                 title TEXT,
                 status TEXT DEFAULT 'draft',
-                word_count INTEGER DEFAULT 0
+                word_count INTEGER DEFAULT 0,
+                UNIQUE(novel_id, number)
             );
 
             CREATE TABLE novel_snapshots (
@@ -60,6 +61,7 @@ def temp_db():
 
         # 使用 DatabaseConnection 包装器
         db = DatabaseConnection(str(db_path))
+        assert db.get_connection().execute("PRAGMA foreign_keys").fetchone()[0] == 1
         yield db
         db.close()
 
