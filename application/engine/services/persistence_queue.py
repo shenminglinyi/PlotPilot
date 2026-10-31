@@ -11,12 +11,15 @@
 - 数据安全：队列中的命令在内存中排队，亚秒级落盘
 """
 import json
+import asyncio
+import concurrent.futures
 import logging
 import multiprocessing as mp
 import queue
 import sqlite3
 import threading
 import time
+import uuid
 from dataclasses import dataclass, asdict
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
@@ -111,6 +114,38 @@ class PersistenceQueue:
         self._handlers: Dict[str, Callable] = {}
         self._stats = {"queued": 0, "processed": 0, "failed": 0}
         self._settings: PersistentQueueSettings = get_persistent_queue_settings()
+        # Local API acknowledgements, bounded independently of the legacy mp.Queue.
+        # This is not a distributed task system. Durable business results belong
+        # to the handler's transaction, not these transient futures.
+        self._receipts: Dict[str, concurrent.futures.Future] = {}
+        self._receipt_lock = threading.Lock()
+
+    async def execute_confirmed(self, command_type: str, payload: Dict,
+                                timeout: float = 5.0) -> Any:
+        """Await the actual writer handler without blocking the API event loop.
+
+        Timeout means unknown, not cancellation: the queued command may commit.
+        Callers with business effects must provide durable IDs and a query API.
+        """
+        if not self.is_consumer_running() or self._queue is None:
+            raise RuntimeError("Persistence writer is unavailable")
+        receipt_id = uuid.uuid4().hex
+        future = concurrent.futures.Future()
+        with self._receipt_lock:
+            if len(self._receipts) >= 32:
+                raise RuntimeError("Persistence confirmed-command capacity reached")
+            self._receipts[receipt_id] = future
+        try:
+            self._queue.put({"command_type": command_type, "payload": payload,
+                             "receipt_id": receipt_id}, block=False)
+        except Exception:
+            with self._receipt_lock:
+                self._receipts.pop(receipt_id, None)
+            raise
+        wrapped = asyncio.wrap_future(future)
+        # Retrieve late errors even if the HTTP caller has already timed out.
+        wrapped.add_done_callback(lambda f: f.exception() if not f.cancelled() else None)
+        return await asyncio.wait_for(asyncio.shield(wrapped), timeout=timeout)
 
     def initialize(self) -> mp.Queue:
         """初始化队列（在主进程调用）"""
@@ -223,8 +258,13 @@ class PersistenceQueue:
         """处理单个命令"""
         command_type = item.get("command_type")
         payload = item.get("payload", {})
+        receipt_id = item.get("receipt_id")
+        result = None
+        error = None
 
         try:
+            if receipt_id and command_type not in self._handlers:
+                raise RuntimeError("Confirmed command handler unavailable")
             if command_type == PersistenceCommandType.BATCH.value:
                 # 批量命令
                 commands = payload.get("commands", [])
@@ -234,15 +274,24 @@ class PersistenceQueue:
                         cmd.get("payload", {})
                     )
             else:
-                self._process_single_command(command_type, payload)
+                result = self._process_single_command(command_type, payload)
 
             self._stats["processed"] += 1
 
         except Exception as e:
+            error = e
             logger.error(f"处理持久化命令失败: {command_type}, {e}")
             self._stats["failed"] += 1
+        finally:
+            with self._receipt_lock:
+                future = self._receipts.pop(receipt_id, None)
+            if future is not None:
+                if error is not None:
+                    future.set_exception(error)
+                else:
+                    future.set_result(result)
 
-    def _process_single_command(self, command_type: str, payload: Dict) -> None:
+    def _process_single_command(self, command_type: str, payload: Dict) -> Any:
         """处理单个命令，DB 被锁时按配置进行指数退避。"""
         handler = self._handlers.get(command_type)
         if not handler:
@@ -252,8 +301,7 @@ class PersistenceQueue:
         max_retries = self._settings.legacy_lock_max_retries
         for attempt in range(max_retries):
             try:
-                handler(payload)
-                return  # 成功，直接返回
+                return handler(payload)
             except sqlite3.OperationalError as e:
                 if "locked" in str(e).lower() or "busy" in str(e).lower():
                     if attempt < max_retries - 1:
@@ -382,6 +430,13 @@ def inject_persistence_queue(queue: mp.Queue) -> None:
 def register_persistence_handlers() -> None:
     """注册所有持久化处理器（主进程启动时调用）"""
     pq = get_persistence_queue()
+
+    def handle_plugin_pilot(payload: Dict):
+        from infrastructure.persistence.database.connection import get_database
+        from infrastructure.persistence.database.plugin_pilot_store import PilotStore
+        return PilotStore(get_database()).handle(payload)
+
+    pq.register_handler("plugin_pilot", handle_plugin_pilot)
 
     # ── 通用 SQL 执行器（CQRS 统一写入通道）──
     # 守护进程不再直接写 DB，所有写操作统一推 (sql, params) 到队列，
