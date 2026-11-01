@@ -1,7 +1,7 @@
 <template>
   <div class="home">
     <StatsSidebar
-      @create-book="focusCreateInput"
+      @create-book="openCreateModal"
       @refresh-list="handleRefreshList"
       @collapsed-change="handleSidebarCollapsedChange"
     />
@@ -40,110 +40,6 @@
         </header>
 
         <!-- Create Card -->
-        <n-card class="create-card" :bordered="false">
-          <n-space vertical :size="20">
-            <div class="create-header">
-              <div class="create-title-wrap">
-                <n-icon :component="IconSpark" :size="18" class="create-icon" />
-                <h3 class="create-title">新建书目</h3>
-              </div>
-              <n-button text type="primary" @click="showAdvanced = !showAdvanced">
-                <template #icon>
-                  <n-icon><component :is="showAdvanced ? IconChevronUp : IconChevronDown" /></n-icon>
-                </template>
-                {{ showAdvanced ? '收起高级' : '高级（自定义章数/每章字数）' }}
-              </n-button>
-            </div>
-
-            <n-input
-              ref="createInputRef"
-              v-model:value="newBook.premise"
-              type="textarea"
-              placeholder="用一段话写清主线与爽点预期（不超过 2000 字）…&#10;&#10;例如：废柴赘婿觉醒签到系统，从被退婚到一方巨擘。"
-              :rows="5"
-              :disabled="creating"
-              size="large"
-              class="premise-input"
-              show-count
-              :maxlength="PREMISE_MAX_LEN"
-            />
-
-            <div class="taxonomy-block">
-              <div class="taxonomy-block-head">
-                <span class="taxonomy-block-title">市场分区</span>
-                <span class="taxonomy-block-sub">大类 → 细分主题 → 自动写入「类型 / 世界观」；均可再改。</span>
-              </div>
-              <MarketTaxonomyPicker
-                v-model:genre="newBook.genre"
-                v-model:worldPreset="newBook.worldPreset"
-                v-model:storyStructure="newBook.storyStructure"
-                v-model:pacingControl="newBook.pacingControl"
-                v-model:writingStyle="newBook.writingStyle"
-                v-model:specialRequirements="newBook.specialRequirements"
-                :disabled="creating"
-              />
-            </div>
-
-            <div v-show="!showAdvanced" class="length-tier-block">
-              <div class="length-tier-label">目标篇幅（选一个即可，系统按网文常用节奏推导章数）</div>
-              <n-radio-group v-model:value="lengthTier" name="lengthTier" class="length-tier-group">
-                <n-space :size="14" :wrap="true" align="flex-start" class="length-tier-space">
-                  <n-radio
-                    v-for="opt in lengthTierOptions"
-                    :key="opt.value"
-                    :value="opt.value"
-                    :disabled="creating"
-                    class="length-tier-radio"
-                  >
-                    <div class="length-tier-option-inner">
-                      <span class="length-tier-title">{{ opt.title }}</span>
-                      <span class="length-tier-hint">{{ opt.hint }}</span>
-                    </div>
-                  </n-radio>
-                </n-space>
-              </n-radio-group>
-            </div>
-
-            <div v-show="showAdvanced" class="advanced-settings">
-              <n-alert type="info" :show-icon="true" style="margin-bottom: 12px; font-size: 12px">
-                自定义章数与每章字数时，不再使用「目标篇幅」档位推导；结构提示仍会在后台写入梗概供模型使用。
-              </n-alert>
-              <n-grid :cols="2" :x-gap="16" :y-gap="16" responsive="screen">
-                <n-gi>
-                  <n-form-item label="书名">
-                    <n-input v-model:value="newBook.title" placeholder="留空则从梗概自动截取" />
-                  </n-form-item>
-                </n-gi>
-                <n-gi>
-                  <n-form-item label="章节数">
-                    <n-input-number v-model:value="newBook.chapters" :min="1" :max="9999" class="w-full" placeholder="默认 100 章" />
-                  </n-form-item>
-                </n-gi>
-                <n-gi>
-                  <n-form-item label="每章字数">
-                    <n-input-number v-model:value="newBook.words" :min="500" :max="20000" :step="500" class="w-full" />
-                  </n-form-item>
-                </n-gi>
-              </n-grid>
-            </div>
-
-            <n-space justify="end">
-              <n-button
-                type="primary"
-                size="large"
-                round
-                :loading="creating"
-                :disabled="!newBook.premise.trim() || !newBook.genre.trim() || !newBook.worldPreset.trim() || !newBook.storyStructure.trim() || !newBook.pacingControl.trim() || !newBook.writingStyle.trim() || !newBook.specialRequirements.trim()"
-                @click="handleCreate"
-              >
-                <template #icon>
-                  <n-icon><IconSpark /></n-icon>
-                </template>
-                建档并进入工作台
-              </n-button>
-            </n-space>
-          </n-space>
-        </n-card>
 
         <!-- Books Section -->
         <section class="books-section">
@@ -153,6 +49,12 @@
               <span class="book-count" v-if="!loading">{{ filteredBooks.length }} 本</span>
             </div>
             <div class="section-right">
+              <n-button type="primary" round @click="openCreateModal" class="new-book-btn">
+                <template #icon>
+                  <n-icon><IconSpark /></n-icon>
+                </template>
+                新建书目
+              </n-button>
               <n-input
                 v-model:value="searchQuery"
                 placeholder="搜索书名或类型…"
@@ -190,8 +92,8 @@
               <span class="empty-icon">📚</span>
             </div>
             <h3 class="empty-title">还没有书目</h3>
-            <p class="empty-desc">在上方输入你的故事创意，开启创作之旅</p>
-            <n-button type="primary" size="large" round @click="focusCreateInput">
+            <p class="empty-desc">点「新建书目」，用一段梗概开启创作之旅</p>
+            <n-button type="primary" size="large" round @click="openCreateModal">
               <template #icon>
                 <n-icon><IconSpark /></n-icon>
               </template>
@@ -310,6 +212,123 @@
       </div>
     </div>
 
+    <!-- 新建书目弹层：大表单从主页搬进对话框，主页面保持一屏（header + 书目网格） -->
+    <n-modal
+      v-model:show="createModalOpen"
+      preset="card"
+      class="create-modal"
+      :style="{ width: 'min(760px, 94vw)' }"
+      :bordered="false"
+      :mask-closable="!creating"
+      :close-on-esc="!creating"
+      :segmented="{ footer: 'soft' }"
+    >
+      <template #header>
+        <div class="create-title-wrap">
+          <n-icon :component="IconSpark" :size="18" class="create-icon" />
+          <span class="create-title">新建书目</span>
+        </div>
+      </template>
+      <div class="create-modal-body">
+        <n-space vertical :size="20">
+          <n-input
+            ref="createInputRef"
+            v-model:value="newBook.premise"
+            type="textarea"
+            placeholder="用一段话写清主线与爽点预期（不超过 2000 字）…&#10;&#10;例如：废柴赘婿觉醒签到系统，从被退婚到一方巨擘。"
+            :rows="5"
+            :disabled="creating"
+            size="large"
+            class="premise-input"
+            show-count
+            :maxlength="PREMISE_MAX_LEN"
+          />
+
+          <div class="taxonomy-block">
+            <div class="taxonomy-block-head">
+              <span class="taxonomy-block-title">市场分区</span>
+              <span class="taxonomy-block-sub">大类 → 细分主题 → 自动写入「类型 / 世界观」；均可再改。</span>
+            </div>
+            <MarketTaxonomyPicker
+              v-model:genre="newBook.genre"
+              v-model:worldPreset="newBook.worldPreset"
+              v-model:storyStructure="newBook.storyStructure"
+              v-model:pacingControl="newBook.pacingControl"
+              v-model:writingStyle="newBook.writingStyle"
+              v-model:specialRequirements="newBook.specialRequirements"
+              :disabled="creating"
+            />
+          </div>
+
+          <div v-show="!showAdvanced" class="length-tier-block">
+            <div class="length-tier-label">目标篇幅（选一个即可，系统按网文常用节奏推导章数）</div>
+            <n-radio-group v-model:value="lengthTier" name="lengthTier" class="length-tier-group">
+              <n-space :size="14" :wrap="true" align="flex-start" class="length-tier-space">
+                <n-radio
+                  v-for="opt in lengthTierOptions"
+                  :key="opt.value"
+                  :value="opt.value"
+                  :disabled="creating"
+                  class="length-tier-radio"
+                >
+                  <div class="length-tier-option-inner">
+                    <span class="length-tier-title">{{ opt.title }}</span>
+                    <span class="length-tier-hint">{{ opt.hint }}</span>
+                  </div>
+                </n-radio>
+              </n-space>
+            </n-radio-group>
+          </div>
+
+          <div v-show="showAdvanced" class="advanced-settings">
+            <n-alert type="info" :show-icon="true" style="margin-bottom: 12px; font-size: 12px">
+              自定义章数与每章字数时，不再使用「目标篇幅」档位推导；结构提示仍会在后台写入梗概供模型使用。
+            </n-alert>
+            <n-grid :cols="2" :x-gap="16" :y-gap="16" responsive="screen">
+              <n-gi>
+                <n-form-item label="书名">
+                  <n-input v-model:value="newBook.title" placeholder="留空则从梗概自动截取" />
+                </n-form-item>
+              </n-gi>
+              <n-gi>
+                <n-form-item label="章节数">
+                  <n-input-number v-model:value="newBook.chapters" :min="1" :max="9999" class="w-full" placeholder="默认 100 章" />
+                </n-form-item>
+              </n-gi>
+              <n-gi>
+                <n-form-item label="每章字数">
+                  <n-input-number v-model:value="newBook.words" :min="500" :max="20000" :step="500" class="w-full" />
+                </n-form-item>
+              </n-gi>
+            </n-grid>
+          </div>
+        </n-space>
+      </div>
+      <template #action>
+        <div class="create-modal-footer">
+          <n-button text type="primary" :disabled="creating" @click="showAdvanced = !showAdvanced">
+            <template #icon>
+              <n-icon><component :is="showAdvanced ? IconChevronUp : IconChevronDown" /></n-icon>
+            </template>
+            {{ showAdvanced ? '收起高级' : '高级（自定义章数/每章字数）' }}
+          </n-button>
+          <n-button
+            type="primary"
+            size="large"
+            round
+            :loading="creating"
+            :disabled="!newBook.premise.trim() || !newBook.genre.trim() || !newBook.worldPreset.trim() || !newBook.storyStructure.trim() || !newBook.pacingControl.trim() || !newBook.writingStyle.trim() || !newBook.specialRequirements.trim()"
+            @click="handleCreate"
+          >
+            <template #icon>
+              <n-icon><IconSpark /></n-icon>
+            </template>
+            建档并进入工作台
+          </n-button>
+        </div>
+      </template>
+    </n-modal>
+
     <!-- Batch Delete Confirm Modal -->
     <n-modal v-model:show="showBatchDeleteConfirm" preset="confirm" type="error" title="确认批量删除">
       <template #default>
@@ -341,7 +360,7 @@
 </template>
 
 <script setup lang="ts">
-import { defineAsyncComponent, h, ref, onMounted, computed, nextTick } from 'vue'
+import { defineAsyncComponent, h, ref, onMounted, computed, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMessage, NIcon } from 'naive-ui'
 import { novelApi, type NovelDTO } from '../api/novel'
@@ -425,6 +444,8 @@ function handleSidebarCollapsedChange(isCollapsed: boolean) {
 const books = ref<BookListItem[]>([])
 const searchQuery = ref('')
 const deletingSlug = ref<string | null>(null)
+/** 新建书目弹层开关：大表单已从主页搬进对话框，主页保持一屏 */
+const createModalOpen = ref(false)
 /** 有值时挂载向导；与 show 分离，挂载后始终 :show="true"，避免 Modal 先 false 再 true 闪烁 */
 const setupWizard = ref<{ novelId: string; targetChapters: number } | null>(null)
 
@@ -512,12 +533,13 @@ const genreChipStyle = (genre: string) => {
   for (let i = 0; i < genre.length; i++) {
     hash = (hash * 31 + genre.charCodeAt(i)) | 0
   }
-  // 色相限定在 200-330（蓝→紫→红区间，避开橙黄与成功/警告色撞色），饱和度亮度压低当底色
+  // 色相限定在 200-330（蓝→紫→红区间，避开橙黄与成功/警告色撞色）；
+  // 描边压到 68% 亮度，保证盖在宣纸封面上有足够对比
   const hue = 200 + (Math.abs(hash) % 130)
   return {
-    color: `hsl(${hue}, 45%, 38%)`,
-    background: `hsl(${hue}, 70%, 94%)`,
-    borderColor: `hsl(${hue}, 50%, 82%)`,
+    color: `hsl(${hue}, 45%, 30%)`,
+    background: `hsl(${hue}, 70%, 95%)`,
+    borderColor: `hsl(${hue}, 45%, 68%)`,
   }
 }
 
@@ -570,6 +592,8 @@ const handleCreate = async () => {
           }
     )
     message.success('创建成功')
+    // 成功即关弹层，后续 setupWizard 弹层接管流程
+    createModalOpen.value = false
 
     setupWizard.value = {
       novelId: result.id,
@@ -671,13 +695,18 @@ const handleBatchDelete = async () => {
   }
 }
 
-const focusCreateInput = () => {
+/** 打开新建书目弹层（侧边栏/空态/区头按钮共用入口） */
+const openCreateModal = () => {
+  createModalOpen.value = true
+}
+
+// 弹层打开后聚焦梗概输入框，保留原直达手感
+watch(createModalOpen, (open) => {
+  if (!open) return
   nextTick(() => {
     createInputRef.value?.focus()
   })
-  // Scroll to top
-  window.scrollTo({ top: 0, behavior: 'smooth' })
-}
+})
 
 const handleRefreshList = async () => {
   await fetchBooks()
@@ -736,7 +765,7 @@ onMounted(() => {
 .header {
   position: relative;
   text-align: center;
-  margin-bottom: 40px;
+  margin-bottom: 24px;
   animation: fade-up 0.55s ease both;
 }
 
@@ -816,19 +845,6 @@ onMounted(() => {
 }
 
 
-.create-card {
-  margin-bottom: 32px;
-  border-radius: 16px;
-  box-shadow: 0 4px 20px rgba(15, 23, 42, 0.06);
-  animation: fade-up 0.55s ease 0.08s both;
-}
-
-.create-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
 .create-title-wrap {
   display: flex;
   align-items: center;
@@ -843,6 +859,34 @@ onMounted(() => {
   margin: 0;
   font-size: 17px;
   font-weight: 600;
+}
+
+/* 新建书目弹层（表单从主页搬入，主页保持一屏） */
+.create-modal {
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(15, 23, 42, 0.12);
+}
+
+.create-modal-body {
+  max-height: min(64vh, 660px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.create-modal-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.create-modal-footer .n-button--medium-type-primary {
+  margin-left: auto;
+}
+
+/* 区头「新建书目」主按钮：与搜索框同行 */
+.new-book-btn {
+  flex-shrink: 0;
 }
 
 .premise-input :deep(textarea) {
@@ -932,7 +976,7 @@ onMounted(() => {
 .books-section {
   background: var(--app-surface);
   border-radius: 16px;
-  padding: 28px;
+  padding: 24px 28px 28px;
   box-shadow: 0 4px 20px rgba(15, 23, 42, 0.04);
   animation: fade-up 0.55s ease 0.14s both;
 }
@@ -1059,30 +1103,62 @@ onMounted(() => {
   gap: 16px;
 }
 
-/* 卡片（流式宽度，版权页式排版） */
+/* ═══ 书籍封面：品牌资产，颜色固定（宣纸+墨），不随主题换肤 ═══
+   规则参照 pw home-cockpit 设计契约：封面材质属于品牌资产，
+   浅色/暗色/黑金主题下都是同一副「摆在桌上的实体书」面孔；
+   状态色（阶段灯）例外，允许固定语义色。 */
 .book-card {
   position: relative;
   display: flex;
   flex-direction: column;
   min-height: 232px;
-  padding: 18px 20px 14px;
-  background: var(--app-surface);
-  border: 1px solid var(--app-border);
-  border-radius: 16px;
+  padding: 18px 24px 14px 20px; /* 右侧让出页缘厚度带 */
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.5), transparent 30%, rgba(255, 255, 255, 0.14) 74%),
+    linear-gradient(148deg, #f6f8f5, #dfe6df 58%, #e7ede8);
+  border: 1px solid rgba(24, 36, 30, 0.16);
+  border-radius: 10px;
+  color: #1a221d;
   cursor: pointer;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.6),
+    inset 1px 0 rgba(255, 255, 255, 0.28),
+    0 6px 14px -6px rgba(15, 23, 42, 0.18);
+  transition: transform 0.24s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.24s ease, border-color 0.2s ease;
   animation: fade-up 0.35s ease both;
   overflow: hidden;
 }
 
+/* 悬停：整册书离桌面浮起，投影接地加深 */
 .book-card:hover {
-  border-color: var(--color-brand, #2563eb);
-  box-shadow: 0 4px 16px rgba(37, 99, 235, 0.12);
+  transform: translateY(-4px);
+  border-color: rgba(255, 255, 255, 0.85);
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.7),
+    0 16px 26px -10px rgba(15, 23, 42, 0.3);
 }
 
+/* 选中：品牌色描环 */
 .book-card.is-selected {
-  border-color: var(--color-brand, #2563eb);
-  background: var(--color-brand-light, rgba(37, 99, 235, 0.05));
+  border-color: var(--color-brand);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--color-brand) 35%, transparent),
+    0 10px 20px -8px rgba(15, 23, 42, 0.22);
+}
+
+/* 右缘纸页厚度：页层线 + 暖纸渐变，材质属于封面 */
+.book-card::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  right: 0;
+  width: 8px;
+  background:
+    repeating-linear-gradient(90deg, transparent 0 2px, rgba(88, 104, 94, 0.2) 2px 3px),
+    linear-gradient(90deg, #cfd8d1, #f2f6f3 26%, #d8e0da 78%, #b8c2bb);
+  border-left: 1px solid rgba(24, 36, 30, 0.12);
+  pointer-events: none;
 }
 
 /* 阶段状态小圆点 */
@@ -1116,10 +1192,19 @@ onMounted(() => {
   min-width: 0;
 }
 
+/* 悬停时类型指纹退场，让位给操作行（同位置淡入淡出） */
+.genre-chip {
+  transition: opacity 0.18s ease;
+}
+
+.book-card:hover .genre-chip {
+  opacity: 0;
+}
+
 .stage-label {
   font-size: 12px;
   font-weight: 600;
-  color: var(--app-text-secondary);
+  color: rgba(30, 38, 33, 0.66);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1138,26 +1223,26 @@ onMounted(() => {
   text-overflow: ellipsis;
 }
 
-/* 书名：宋体书脊感，两行截断 */
+/* 书名：宋体书脊感，两行截断（墨色固定，封面资产） */
 .book-card-title {
   margin: 0 0 6px;
   font-family: 'Noto Serif SC', 'Songti SC', 'SimSun', serif;
   font-size: 17px;
   font-weight: 700;
   line-height: 1.4;
-  color: var(--app-text-primary);
+  color: #1c2621;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 
-/* 梗概摘要：两行淡出填中段 */
+/* 梗概摘要：两行淡出填中段（褪墨色） */
 .card-premise {
   margin: 0;
   font-size: 12px;
   line-height: 1.65;
-  color: var(--app-text-muted);
+  color: rgba(30, 38, 33, 0.62);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -1165,14 +1250,14 @@ onMounted(() => {
   flex: 1;
 }
 
-/* 版权页式数据区：大数字 + 小标签，虚线分隔，沉底 */
+/* 版权页式数据区：大数字 + 小标签，虚线分隔，沉底（墨色固定） */
 .card-stats {
   display: flex;
   align-items: flex-end;
   gap: 14px;
   margin-top: 14px;
   padding-top: 12px;
-  border-top: 1px dashed var(--app-border);
+  border-top: 1px dashed rgba(24, 36, 30, 0.22);
 }
 
 .stat-block {
@@ -1186,21 +1271,21 @@ onMounted(() => {
   font-size: 21px;
   font-weight: 700;
   line-height: 1.15;
-  color: var(--app-text-primary);
+  color: #1c2621;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
 }
 
 .stat-label {
   font-size: 10px;
-  color: var(--app-text-muted);
+  color: rgba(30, 38, 33, 0.55);
   letter-spacing: 0.12em;
 }
 
 .stat-divider {
   width: 1px;
   height: 26px;
-  background: var(--app-border);
+  background: rgba(24, 36, 30, 0.22);
   margin-bottom: 3px;
 }
 
