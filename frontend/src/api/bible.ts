@@ -2,6 +2,7 @@ import type { AxiosRequestConfig } from 'axios'
 
 import { WIZARD_STEP_TIMEOUT_MS } from '@/constants/wizard'
 import { runtimePerformance } from '@/config/performance'
+import { readableErrorMessage } from '@/utils/readableErrorMessage'
 import { apiClient, resolveHttpUrl } from './config'
 
 /** Bible 人物关系：字符串 或 LLM 结构化对象 */
@@ -21,7 +22,7 @@ export interface CharacterDTO {
   background?: string
   core_motivation?: string
   inner_lack?: string
-  /** AI 生成时的角色定位（主角/配角等）— 后端不持久化此字段，仅从 description 解析 */
+  /** AI 生成时的角色定位（主角/配角等） */
   role?: string
   mental_state?: string
   verbal_tic?: string
@@ -81,6 +82,7 @@ export interface AddCharacterRequest {
   character_id: string
   name: string
   description: string
+  role?: string
 }
 
 type SilentAxiosRequestConfig = AxiosRequestConfig & { silentGlobalFeedback?: boolean }
@@ -368,8 +370,9 @@ export async function consumeBibleGenerateStream(
     signal: handlers.signal,
   })
   if (!res.ok || !res.body) {
+    // 把 {"detail":...} 或纯文本响应体读成可读报错（例：503 LLM 未配置）
     const t = await res.text().catch(() => '')
-    handlers.onError?.(t || `HTTP ${res.status}`)
+    handlers.onError?.(readableErrorMessage(t) || `HTTP ${res.status}`)
     return
   }
 

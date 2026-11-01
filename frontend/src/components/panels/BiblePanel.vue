@@ -333,9 +333,9 @@ const fromApiFormat = (bible: any) => {
           const parts = desc.split('\n---\n')
           return {
             name: c.name || '',
-            role: parts[0] || '',
-            traits: parts[1] || '',
-            arc_note: parts[2] || '',
+            role: c.role || parts[0] || '',
+            traits: c.role ? parts[0] || '' : parts[1] || '',
+            arc_note: c.role ? parts[1] || '' : parts[2] || '',
           }
         })
       : [],
@@ -356,7 +356,8 @@ const toApiFormat = (data: any) => {
   const characters: CharacterDTO[] = data.characters.map((c: BibleCharacter, i: number) => ({
     id: `char-${i + 1}`,
     name: c.name || '',
-    description: [c.role, c.traits, c.arc_note].filter(Boolean).join('\n---\n'),
+    role: c.role || '',
+    description: [c.traits, c.arc_note].filter(Boolean).join('\n---\n'),
     relationships: [],
   }))
 

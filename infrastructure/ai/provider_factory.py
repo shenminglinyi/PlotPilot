@@ -12,12 +12,12 @@ from application.ai.trace_context import (
     prompt_preview,
     prompt_to_hash_payload,
 )
+from domain.ai.errors import LLMNotConfiguredError
 from domain.ai.services.llm_service import GenerationConfig, GenerationResult, LLMService
 from domain.ai.value_objects.prompt import Prompt
 from infrastructure.ai.config.settings import Settings
 from infrastructure.ai.providers.anthropic_provider import AnthropicProvider
 from infrastructure.ai.providers.gemini_provider import GeminiProvider
-from infrastructure.ai.providers.mock_provider import MockProvider
 from infrastructure.ai.providers.openai_provider import OpenAIProvider
 from infrastructure.ai.trace_recorder import get_trace_recorder
 from infrastructure.ai.url_utils import (
@@ -35,12 +35,19 @@ class LLMProviderFactory:
         self.control_service = control_service or LLMControlService()
 
     def create_from_profile(self, profile: Optional[LLMProfile]) -> LLMService:
+        # 不再退回 MockProvider：未配置时直接报错，让失败冒到调用方，
+        # 避免「生成完成」的假象（mock 只保留给测试/离线评估脚本显式使用）
         if profile is None:
-            return MockProvider()
+            raise LLMNotConfiguredError(
+                "未找到任何 LLM 配置：请在前台「LLM 控制」中添加并激活一个模型档案"
+            )
 
         resolved = self.control_service.resolve_profile(profile)
         if not resolved.api_key.strip() or not resolved.model.strip():
-            return MockProvider()
+            raise LLMNotConfiguredError(
+                f"当前激活配置「{resolved.name}」缺少 API Key 或模型名，无法创建 Provider；"
+                "请在前台「LLM 控制」中补全后重试"
+            )
 
         settings = self._profile_to_settings(resolved)
         if resolved.protocol == "anthropic":
@@ -53,12 +60,14 @@ class LLMProviderFactory:
         return self.create_from_profile(self.control_service.resolve_active_profile())
 
     def create_from_profile_id(self, profile_id: str) -> LLMService:
-        """根据档案 ID 创建 Provider；未找到时退回 MockProvider。"""
+        """根据档案 ID 创建 Provider；未找到时直接报错（不再退回 mock）。"""
         try:
             config = self.control_service.get_config()
             profile = next((p for p in config.profiles if p.id == profile_id), None)
         except Exception:
             profile = None
+        if profile is None:
+            raise LLMNotConfiguredError(f"未找到 LLM 档案 {profile_id}，无法创建独立 Provider")
         return self.create_from_profile(profile)
 
     def _profile_to_settings(self, profile: LLMProfile) -> Settings:

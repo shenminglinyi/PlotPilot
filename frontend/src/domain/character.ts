@@ -36,12 +36,22 @@ const ROLE_ALIASES: Record<string, CharacterRole> = {
   main: 'PROTAGONIST',
   lead: 'PROTAGONIST',
   hero: 'PROTAGONIST',
+  主角: 'PROTAGONIST',
+  主人公: 'PROTAGONIST',
   supporting: 'SUPPORTING',
   support: 'SUPPORTING',
   secondary: 'SUPPORTING',
+  配角: 'SUPPORTING',
+  主要配角: 'SUPPORTING',
+  对立角色: 'SUPPORTING',
+  反派: 'SUPPORTING',
+  盟友: 'SUPPORTING',
+  次要角色: 'SUPPORTING',
   minor: 'MINOR',
   cameo: 'MINOR',
   extra: 'MINOR',
+  龙套: 'MINOR',
+  路人: 'MINOR',
 }
 
 const SPEECH_TEMPO_LABELS: Record<string, string> = {

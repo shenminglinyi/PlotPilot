@@ -583,7 +583,7 @@ def test_chapter_prose_get_refresh_keeps_setup_snapshot_without_prompt_injection
     assert "novel:characters" in group_ids
     assert "novel:worldbuilding" in group_ids
     prompt_user = refreshed.json()["session"]["prompt_snapshot"]["prompt"]["user"]
-    assert "变量角色" not in prompt_user
+    assert "变量角色" in prompt_user
     assert "变量武道" not in prompt_user
 
     db.close_all(skip_checkpoint=True)

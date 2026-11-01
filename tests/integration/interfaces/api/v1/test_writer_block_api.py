@@ -13,6 +13,22 @@ class TestWriterBlockAPI:
         return TestClient(app)
 
     @pytest.fixture
+    def client_with_fake_analyzer(self):
+        """校验类测试专用：override 掉 LLM 依赖（否则未配置时依赖层先 503，
+        校验逻辑到不了），用一个假 analyzer 让路由本体逻辑照常执行。"""
+        from interfaces.api.dependencies import get_tension_analyzer
+
+        class _FakeAnalyzer:
+            def analyze(self, *args, **kwargs):
+                return {"tension_level": "low", "diagnosis": "x", "missing_elements": [], "suggestions": ["引入"]}
+
+        app.dependency_overrides[get_tension_analyzer] = lambda: _FakeAnalyzer()
+        try:
+            yield TestClient(app)
+        finally:
+            app.dependency_overrides.pop(get_tension_analyzer, None)
+
+    @pytest.fixture
     def setup_test_data(self):
         """设置测试数据"""
         from infrastructure.persistence.database.connection import get_database
@@ -85,22 +101,10 @@ class TestWriterBlockAPI:
             json=request_data
         )
 
-        # 验证响应
-        assert response.status_code == 200
-        diagnosis = response.json()
-
-        # 验证响应结构
-        assert "diagnosis" in diagnosis
-        assert "tension_level" in diagnosis
-        assert "missing_elements" in diagnosis
-        assert "suggestions" in diagnosis
-
-        # 验证内容
-        assert diagnosis["tension_level"] in ["low", "medium", "high"]
-        assert isinstance(diagnosis["missing_elements"], list)
-        assert isinstance(diagnosis["suggestions"], list)
-        assert len(diagnosis["diagnosis"]) > 0
-        assert len(diagnosis["suggestions"]) > 0
+        # 验证响应：未配置 LLM 时必须明确 503（回归：不再静默走 MockProvider 假成功）
+        assert response.status_code == 503
+        body = response.json()
+        assert "配置" in body["detail"]
 
     @pytest.mark.asyncio
     async def test_tension_slingshot_with_stuck_reason(self, client, setup_test_data):
@@ -120,13 +124,10 @@ class TestWriterBlockAPI:
             json=request_data
         )
 
-        # 验证响应
-        assert response.status_code == 200
-        diagnosis = response.json()
-
-        # 验证响应包含诊断
-        assert len(diagnosis["diagnosis"]) > 0
-        assert len(diagnosis["suggestions"]) > 0
+        # 验证响应：未配置 LLM 时必须明确 503（回归：不再走 MockProvider 假成功）
+        assert response.status_code == 503
+        body = response.json()
+        assert "配置" in body["detail"]
 
     @pytest.mark.asyncio
     async def test_tension_slingshot_high_tension(self, client, setup_test_data):
@@ -145,15 +146,12 @@ class TestWriterBlockAPI:
             json=request_data
         )
 
-        # 验证响应
-        assert response.status_code == 200
-        diagnosis = response.json()
+        # 验证响应：未配置 LLM 时必须明确 503（回归：不再走 MockProvider 假成功）
+        assert response.status_code == 503
+        body = response.json()
+        assert "配置" in body["detail"]
 
-        # 验证响应结构
-        assert "tension_level" in diagnosis
-        assert diagnosis["tension_level"] in ["low", "medium", "high"]
-
-    def test_tension_slingshot_validation_novel_id_mismatch(self, client):
+    def test_tension_slingshot_validation_novel_id_mismatch(self, client_with_fake_analyzer):
         """测试：验证 novel_id 不匹配时返回错误"""
         # 路径中的 novel_id 与请求体中的不匹配
         request_data = {
@@ -161,7 +159,7 @@ class TestWriterBlockAPI:
             "chapter_number": 1
         }
 
-        response = client.post(
+        response = client_with_fake_analyzer.post(
             "/api/v1/novels/test-novel/writer-block/tension-slingshot",
             json=request_data
         )
@@ -170,7 +168,7 @@ class TestWriterBlockAPI:
         assert response.status_code == 400
         assert "does not match" in response.json()["detail"]
 
-    def test_tension_slingshot_validation_missing_fields(self, client):
+    def test_tension_slingshot_validation_missing_fields(self, client_with_fake_analyzer):
         """测试：验证缺少必需字段时返回错误"""
         novel_id = "test-novel"
 
@@ -180,7 +178,7 @@ class TestWriterBlockAPI:
             # 缺少 chapter_number
         }
 
-        response = client.post(
+        response = client_with_fake_analyzer.post(
             f"/api/v1/novels/{novel_id}/writer-block/tension-slingshot",
             json=invalid_request
         )
@@ -219,10 +217,11 @@ class TestWriterBlockAPI:
             json=request_data
         )
 
-        # 验证响应
-        assert response.status_code == 200
-        diagnosis = response.json()
-        assert "diagnosis" in diagnosis
+        # 验证响应：未配置 LLM 时必须明确 503 报错（回归：不再静默走 MockProvider 假成功）
+        assert response.status_code == 503
+        body = response.json()
+        assert "detail" in body
+        assert "配置" in body["detail"]
 
         # 清理
         db.execute("DELETE FROM novels WHERE id = ?", (novel_id,))
@@ -245,19 +244,8 @@ class TestWriterBlockAPI:
             json=request_data
         )
 
-        # 验证响应
-        assert response.status_code == 200
-        diagnosis = response.json()
-
-        # 验证建议不为空
-        assert len(diagnosis["suggestions"]) > 0
-
-        # 验证建议包含动作动词（至少有一个建议包含）
-        action_verbs = ["引入", "增加", "设置", "让", "创造", "提高", "添加", "加入"]
-        has_action = any(
-            any(verb in suggestion for verb in action_verbs)
-            for suggestion in diagnosis["suggestions"]
-        )
-        # 注意：由于使用 MockProvider，可能不会生成真实的动作建议
-        # 这里只验证建议存在即可
-        assert len(diagnosis["suggestions"]) > 0
+        # 验证响应：未配置 LLM 时必须明确 503 报错（回归：不再静默走 MockProvider 假成功）
+        assert response.status_code == 503
+        body = response.json()
+        assert "detail" in body
+        assert "配置" in body["detail"]
