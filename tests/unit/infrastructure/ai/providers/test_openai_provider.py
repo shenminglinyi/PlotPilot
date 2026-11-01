@@ -209,10 +209,10 @@ class TestOpenAIProviderResponses:
             output=[
                 SimpleNamespace(
                     type="message",
-                    content=[SimpleNamespace(type="text", text="Hi from responses!")],
+                    content=[SimpleNamespace(type="output_text", text="Hi from responses!")],
                 )
             ],
-            usage=SimpleNamespace(prompt_tokens=8, completion_tokens=4),
+            usage=SimpleNamespace(input_tokens=8, output_tokens=4),
         )
 
         with patch.object(provider.async_client.responses, "create", new_callable=AsyncMock) as mock_create:
@@ -228,6 +228,25 @@ class TestOpenAIProviderResponses:
             assert call_kwargs["model"] == "gpt-4o"
             assert call_kwargs["temperature"] == 0.5
             assert call_kwargs["max_output_tokens"] == DEFAULT_MAX_OUTPUT_TOKENS
+
+    @pytest.mark.anyio
+    async def test_generate_responses_prefers_sdk_output_text_aggregate(self, provider):
+        prompt = Prompt(system="s", user="u")
+        config = GenerationConfig(model="gpt-4o", temperature=0, max_tokens=32)
+        response = SimpleNamespace(
+            output_text="Aggregated SDK text",
+            output=[],
+            usage=SimpleNamespace(input_tokens=2, output_tokens=3),
+        )
+
+        with patch.object(provider.async_client.responses, "create", new_callable=AsyncMock) as mock_create:
+            mock_create.return_value = response
+
+            result = await provider.generate(prompt, config)
+
+            assert result.content == "Aggregated SDK text"
+            assert result.token_usage.input_tokens == 2
+            assert result.token_usage.output_tokens == 3
 
     @pytest.mark.anyio
     async def test_generate_responses_joins_multiple_text_parts(self, provider):
@@ -261,7 +280,7 @@ class TestOpenAIProviderResponses:
         stream = _FakeStream([
             SimpleNamespace(
                 type="response.content_part.added",
-                part=SimpleNamespace(type="text", text="Hello"),
+                part=SimpleNamespace(type="output_text", text="Hello"),
             ),
             SimpleNamespace(type="response.completed"),
         ])
