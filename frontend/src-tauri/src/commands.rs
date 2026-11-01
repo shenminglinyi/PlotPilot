@@ -64,44 +64,6 @@ pub fn open_in_browser(url: String) -> Result<(), String> {
     webbrowser::open(&url).map_err(|e| format!("打开浏览器失败: {}", e))
 }
 
-/// 打开线上提示词广场（独立 WebView 窗口）
-///
-/// 用独立窗口而非系统浏览器：广场依赖 cookie 会话，独立 WebView 里
-/// plotpilot.xyz 是第一方上下文，登录态与 Cookie 策略都正常工作；
-/// 嵌 iframe 则是第三方上下文，SameSite 会拦截会话 Cookie。
-/// 已开过则聚焦已有窗口，不重复开。
-#[tauri::command]
-pub fn open_online_square(app: tauri::AppHandle, url: String) -> Result<(), String> {
-    let trimmed = url.trim();
-    if trimmed != url || trimmed.chars().any(|ch| ch.is_control()) {
-        return Err("URL 含非法空白或控制字符".to_string());
-    }
-    let lower = trimmed.to_ascii_lowercase();
-    if !(lower.starts_with("https://") || lower.starts_with("http://")) {
-        return Err("仅允许打开 http/https URL".to_string());
-    }
-
-    // 已开过：聚焦即可
-    if let Some(win) = app.get_webview_window("online-square") {
-        let _ = win.unminimize();
-        let _ = win.set_focus();
-        return Ok(());
-    }
-
-    tauri::WebviewWindowBuilder::new(
-        &app,
-        "online-square",
-        tauri::WebviewUrl::External(trimmed.parse().map_err(|e| format!("URL 解析失败: {e:?}"))?),
-    )
-    .title("PlotPilot · 提示词广场")
-    .inner_size(1280.0, 860.0)
-    .min_inner_size(960.0, 640.0)
-    .center()
-    .build()
-    .map_err(|e| format!("打开广场窗口失败: {e}"))?;
-    Ok(())
-}
-
 /// 🔥 打开开发者工具（F12 或前端调用）
 #[tauri::command]
 pub fn toggle_devtools(app: tauri::AppHandle) -> Result<(), String> {

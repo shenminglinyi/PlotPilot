@@ -574,14 +574,15 @@ watch(drawerTab, (tab) => {
 }
 
 .global-llm-main.variant-sidebar {
+  /* 紧凑导航行（配 StatsSidebar 重设计后的 38px 入口行，不再是大渐变砖） */
   width: 100%;
   box-sizing: border-box;
-  min-height: 58px;
-  padding: 0 14px;
-  border-radius: 16px;
-  background: linear-gradient(135deg, var(--color-brand-hover) 0%, var(--color-brand) 55%, var(--color-brand-pressed) 100%);
-  color: var(--app-text-inverse);
-  border: 1px solid color-mix(in srgb, var(--color-brand, #4f46e5) 52%, transparent);
+  min-height: 38px;
+  padding: 0 12px;
+  border-radius: 10px;
+  background: var(--app-surface);
+  color: var(--app-text-primary);
+  border: 1px solid var(--app-border);
   box-shadow: none;
 }
 
@@ -593,8 +594,9 @@ watch(drawerTab, (tab) => {
 
 .global-llm-main.variant-sidebar:hover {
   filter: none;
-  transform: none;
-  background: linear-gradient(135deg, var(--color-brand, #4f46e5) 0%, var(--color-brand-hover, #6366f1) 55%, var(--color-brand-pressed, #4338ca) 100%);
+  transform: translateY(-1px);
+  background: var(--app-surface);
+  border-color: var(--color-brand, #4f46e5);
   box-shadow: none;
 }
 
@@ -616,8 +618,9 @@ watch(drawerTab, (tab) => {
 }
 .global-llm-main.variant-sidebar .global-llm-main-content {
   flex-direction: row;
-  justify-content: center;
-  gap: 8px;
+  justify-content: flex-start;
+  gap: 9px;
+  width: 100%;
 }
 
 .global-llm-main.variant-sidebar .global-llm-glow {
@@ -630,7 +633,8 @@ watch(drawerTab, (tab) => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--app-text-inverse);
+  color: var(--color-brand, #4f46e5);
+  flex: none;
 }
 
 .global-llm-plain-icon svg {
@@ -639,15 +643,16 @@ watch(drawerTab, (tab) => {
 }
 
 [data-theme='anchor'] .global-llm-main.variant-sidebar {
-  background: linear-gradient(135deg, var(--color-brand-hover, #ddb930) 0%, var(--color-brand, #c9a227) 55%, var(--color-brand-pressed, #a88a1f) 100%);
-  border-color: color-mix(in srgb, var(--color-brand, #c9a227) 62%, transparent);
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  color: var(--app-text-primary);
   box-shadow: none;
 }
 
 [data-theme='anchor'] .global-llm-main.variant-sidebar:hover {
-  transform: none;
+  transform: translateY(-1px);
   filter: none;
-  border-color: color-mix(in srgb, var(--color-brand, #c9a227) 74%, transparent);
+  border-color: var(--color-brand, #c9a227);
   box-shadow: none;
 }
 
@@ -735,10 +740,12 @@ watch(drawerTab, (tab) => {
   letter-spacing: 0.02em;
 }
 .global-llm-main.variant-sidebar .global-llm-title { 
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 600;
   line-height: 1;
   white-space: nowrap;
+  flex: 1;
+  text-align: left;
 }
 
 .global-llm-status {

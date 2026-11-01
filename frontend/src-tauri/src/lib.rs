@@ -111,7 +111,6 @@ pub fn run() {
             commands::get_backend_status,
             commands::restart_backend,
             commands::open_in_browser,
-            commands::open_online_square,
             commands::toggle_devtools,
             commands::run_installation,
             commands::check_environment,

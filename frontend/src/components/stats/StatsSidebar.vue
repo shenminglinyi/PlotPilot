@@ -1,6 +1,6 @@
 <template>
   <aside class="stats-sidebar" :class="{ 'is-collapsed': collapsed }">
-    <!-- Brand Header -->
+    <!-- Brand Header（紧凑：一行 logo + 名称，双行文案收成单行副题） -->
     <header class="sidebar-brand">
       <div class="brand-logo">
         <span class="logo-icon">✦</span>
@@ -14,7 +14,7 @@
         :aria-label="collapsed ? '展开侧边栏' : '收起侧边栏'"
         @click="toggleCollapse"
       >
-        <svg viewBox="0 0 24 24" fill="none" width="16" height="16">
+        <svg viewBox="0 0 24 24" fill="none" width="14" height="14">
           <path
             :d="collapsed ? 'M9 18l6-6-6-6' : 'M15 18l-6-6 6-6'"
             stroke="currentColor"
@@ -26,96 +26,71 @@
       </button>
     </header>
 
-    <!-- Stats Overview -->
-    <section class="stats-section">
-      <div class="section-header">
-        <h2 class="section-title">
-          <span class="title-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none">
-              <path d="M4 19h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-              <rect x="6" y="11" width="3.5" height="6" rx="1.2" stroke="currentColor" stroke-width="1.6"/>
-              <rect x="10.5" y="8" width="3.5" height="9" rx="1.2" stroke="currentColor" stroke-width="1.6"/>
-              <rect x="15" y="5" width="3.5" height="12" rx="1.2" stroke="currentColor" stroke-width="1.6"/>
-            </svg>
-          </span>
-          数据概览
-        </h2>
-        <button
-          class="refresh-btn"
-          @click="handleRefresh"
-          :disabled="loading"
-          :class="{ loading: loading }"
-          aria-label="刷新数据"
-        >
-          <span class="refresh-icon">↻</span>
-        </button>
-      </div>
-
-      <div class="stats-grid">
-        <StatCard
-          title="总书籍数"
-          :value="globalStats?.total_books ?? 0"
-          icon="books"
-          unit="本"
-          :loading="loading"
-        />
-        <StatCard
-          title="总章节数"
-          :value="globalStats?.total_chapters ?? 0"
-          icon="chapters"
-          unit="章"
-          :loading="loading"
-        />
-        <StatCard
-          title="总字数"
-          :value="formatNumber(globalStats?.total_words ?? 0)"
-          icon="words"
-          unit="字"
-          :loading="loading"
-        />
-      </div>
-
-      <!-- 各阶段书籍：始终占位，避免异步出现后挤压下方快捷操作 / 弹层触发区 -->
-      <div class="stage-distribution">
-        <h3 class="stage-title">各阶段书籍</h3>
-        <div v-if="loading" class="stage-list" aria-hidden="true">
-          <div v-for="n in 4" :key="n" class="stage-item stage-item--skeleton">
-            <span class="stage-dot stage-dot--placeholder" />
-            <n-skeleton style="flex: 1; max-width: 68%" :height="14" round />
-            <n-skeleton :width="40" :height="22" round />
-          </div>
-        </div>
-        <div
-          v-else-if="globalStats?.books_by_stage && Object.keys(globalStats.books_by_stage).length > 0"
-          class="stage-list"
-        >
-          <div
-            v-for="(count, stage) in globalStats.books_by_stage"
-            :key="stage"
-            class="stage-item"
+    <div class="sidebar-scroll">
+      <!-- Stats Overview（紧凑：三指标一行 + 阶段分布收窄） -->
+      <section class="stats-section">
+        <div class="section-header">
+          <h2 class="section-title">数据概览</h2>
+          <button
+            class="refresh-btn"
+            @click="handleRefresh"
+            :disabled="loading"
+            :class="{ loading: loading }"
+            aria-label="刷新数据"
           >
-            <span class="stage-dot" :class="`stage-${stage}`" />
-            <span class="stage-name">{{ getStageLabel(stage as string) }}</span>
-            <span class="stage-count">{{ count }}</span>
+            <span class="refresh-icon">↻</span>
+          </button>
+        </div>
+
+        <div class="stats-row">
+          <div class="stat-metric" :class="{ loading }">
+            <span class="metric-value">{{ globalStats?.total_books ?? 0 }}</span>
+            <span class="metric-label">本书</span>
+          </div>
+          <div class="metric-divider" />
+          <div class="stat-metric" :class="{ loading }">
+            <span class="metric-value">{{ globalStats?.total_chapters ?? 0 }}</span>
+            <span class="metric-label">章</span>
+          </div>
+          <div class="metric-divider" />
+          <div class="stat-metric" :class="{ loading }">
+            <span class="metric-value">{{ formatNumber(globalStats?.total_words ?? 0) }}</span>
+            <span class="metric-label">字</span>
           </div>
         </div>
-        <div v-else class="stage-list stage-empty">
-          <span class="stage-empty-hint">暂无分阶段统计</span>
-        </div>
-      </div>
-    </section>
 
-    <!-- Quick Actions -->
-    <section class="quick-actions">
-      <h3 class="actions-title">
-        <span class="title-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none">
-            <path d="M13.5 3.5 7.8 12h4l-1.3 8.5 6.2-9h-4.3L13.5 3.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
-          </svg>
-        </span>
-        快捷操作
-      </h3>
-      <div class="actions-grid">
+        <!-- 各阶段书籍：始终占位，避免异步出现后挤压下方功能区 -->
+        <div class="stage-distribution">
+          <h3 class="stage-title">各阶段</h3>
+          <div v-if="loading" class="stage-list" aria-hidden="true">
+            <div v-for="n in 4" :key="n" class="stage-item stage-item--skeleton">
+              <span class="stage-dot stage-dot--placeholder" />
+              <n-skeleton style="flex: 1; max-width: 68%" :height="12" round />
+              <n-skeleton :width="28" :height="18" round />
+            </div>
+          </div>
+          <div
+            v-else-if="globalStats?.books_by_stage && Object.keys(globalStats.books_by_stage).length > 0"
+            class="stage-list"
+          >
+            <div
+              v-for="(count, stage) in globalStats.books_by_stage"
+              :key="stage"
+              class="stage-item"
+            >
+              <span class="stage-dot" :class="`stage-${stage}`" />
+              <span class="stage-name">{{ getStageLabel(stage as string) }}</span>
+              <span class="stage-count">{{ count }}</span>
+            </div>
+          </div>
+          <div v-else class="stage-list stage-empty">
+            <span class="stage-empty-hint">暂无分阶段统计</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 快捷操作（紧凑主按钮一行两个） -->
+      <section class="quick-actions">
         <button class="action-btn action-create" @click="$emit('create-book')">
           <span class="action-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none">
@@ -134,11 +109,16 @@
           </span>
           <span>刷新列表</span>
         </button>
+      </section>
+
+      <!-- 功能入口（紧凑导航行，不再是渐变大按钮） -->
+      <section class="entry-nav">
+        <h3 class="entry-title">功能入口</h3>
         <GlobalLLMEntryButton appearance="sidebar" />
         <PromptPlazaEntryButton appearance="sidebar" />
         <OnlineSquareEntryButton />
-      </div>
-    </section>
+      </section>
+    </div>
 
     <!-- Footer -->
     <footer class="sidebar-footer">
@@ -170,7 +150,6 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { NSkeleton } from 'naive-ui'
-import StatCard from './StatCard.vue'
 import { useStatsStore } from '@/stores/statsStore'
 import GlobalLLMEntryButton from '@/components/global/GlobalLLMEntryButton.vue'
 import PromptPlazaEntryButton from '@/components/global/PromptPlazaEntryButton.vue'
@@ -275,26 +254,34 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
   width: 300px;
   height: 100vh;
   box-sizing: border-box;
-  padding-top: env(safe-area-inset-top);
-  background: linear-gradient(180deg, var(--app-surface-subtle) 0%, var(--app-border) 100%);
+  background: var(--app-surface);
   border-right: 1px solid var(--app-border);
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
-  overflow-x: hidden;
   z-index: 100;
   transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .stats-sidebar.is-collapsed {
   width: 52px;
+}
+
+/* 中段可滚动，品牌与页脚钉住：高窗口不空、矮窗口不挤 */
+.sidebar-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.is-collapsed .sidebar-scroll {
   overflow: hidden;
 }
 
-/* Brand Header */
+/* Brand Header（64px 紧凑条） */
 .sidebar-brand {
-  min-height: 100px;
-  padding: 20px 24px;
+  min-height: 64px;
+  padding: 12px 16px;
   background: linear-gradient(135deg, var(--color-brand, #4f46e5) 0%, var(--color-brand-pressed, #7c3aed) 100%);
   position: relative;
   overflow: visible;
@@ -304,34 +291,43 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
   flex-shrink: 0;
 }
 
-/* 折叠时 brand header 缩小 */
+.sidebar-brand::before {
+  content: '';
+  position: absolute;
+  top: -60%;
+  right: -40%;
+  width: 120px;
+  height: 120px;
+  background: radial-gradient(circle, var(--app-text-inverse, rgba(255,255,255,0.1)) 0%, transparent 70%);
+  pointer-events: none;
+}
+
 .is-collapsed .sidebar-brand {
-  min-height: auto;
+  min-height: 56px;
   padding: 12px 0;
   justify-content: center;
 }
 
 .is-collapsed .brand-text,
-.is-collapsed .stats-section,
-.is-collapsed .quick-actions,
+.is-collapsed .sidebar-scroll,
 .is-collapsed .sidebar-footer {
   display: none;
 }
 
 .is-collapsed .logo-icon {
-  width: 36px;
-  height: 36px;
-  font-size: 18px;
+  width: 32px;
+  height: 32px;
+  font-size: 16px;
+  border-radius: 9px;
 }
 
-/* 折叠/展开切换按钮 */
 .collapse-toggle {
   flex-shrink: 0;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border: none;
   background: rgba(255, 255, 255, 0.18);
-  border-radius: 8px;
+  border-radius: 7px;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -346,116 +342,93 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 }
 
 .is-collapsed .collapse-toggle {
-  margin: 0 auto;
-}
-
-.sidebar-brand::before {
-  content: '';
-  position: absolute;
-  top: -38%;
-  right: -46%;
-  width: 132px;
-  height: 132px;
-  background: radial-gradient(circle, var(--app-text-inverse, rgba(255,255,255,0.09)) 0%, transparent 72%);
-  pointer-events: none;
+  display: none;
 }
 
 .brand-logo {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
+  min-width: 0;
 }
 
 .logo-icon {
-  width: 44px;
-  height: 44px;
+  width: 34px;
+  height: 34px;
   background: var(--color-brand-light, rgba(255, 255, 255, 0.2));
-  border-radius: 12px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 22px;
+  font-size: 17px;
   color: var(--app-text-inverse, #fff);
   backdrop-filter: blur(8px);
   border: 1px solid var(--app-text-inverse, rgba(255, 255, 255, 0.2));
+  flex: none;
 }
 
 .brand-text {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
+  min-width: 0;
 }
 
 .brand-name {
-  font-size: 22px;
+  font-size: 17px;
   font-weight: 700;
   color: var(--app-text-inverse, #fff);
   margin: 0;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
 }
 
 .brand-slogan {
-  font-size: 12px;
+  font-size: 10.5px;
   color: rgba(255, 255, 255, 0.82);
   margin: 0;
   font-weight: 400;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.16);
+  white-space: nowrap;
 }
 
 /* Stats Section */
 .stats-section {
-  padding: 16px;
-  flex: 0 0 auto;
+  padding: 14px 16px 4px;
 }
 
 .section-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
 .section-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--app-text-primary);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--app-text-muted);
   margin: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.title-icon {
-  width: 16px;
-  height: 16px;
-  color: var(--app-text-secondary, #64748b);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.title-icon svg {
-  width: 16px;
-  height: 16px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
 
 .refresh-btn {
-  width: 32px;
-  height: 32px;
+  width: 26px;
+  height: 26px;
   border: none;
-  background: var(--app-surface);
-  border-radius: 8px;
+  background: var(--app-surface-subtle);
+  border-radius: 7px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--app-text-muted, #64748b);
   transition: all 0.2s ease;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  padding: 0;
 }
 
 .refresh-btn:hover:not(:disabled) {
-  background: var(--app-surface-subtle);
+  background: var(--app-surface);
   color: var(--color-brand, #4f46e5);
 }
 
@@ -469,7 +442,7 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 }
 
 .refresh-icon {
-  font-size: 16px;
+  font-size: 13px;
 }
 
 @keyframes spin {
@@ -477,25 +450,63 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
   to { transform: rotate(360deg); }
 }
 
-.stats-grid {
+/* 三指标一行（替代原三张纵排大卡） */
+.stats-row {
+  display: flex;
+  align-items: stretch;
+  background: var(--app-surface-subtle);
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+  padding: 10px 6px;
+  margin-bottom: 12px;
+}
+
+.stat-metric {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-bottom: 14px;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.stat-metric.loading .metric-value {
+  opacity: 0.35;
+}
+
+.metric-value {
+  font-size: 19px;
+  font-weight: 800;
+  color: var(--app-text-primary);
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.metric-label {
+  font-size: 11px;
+  color: var(--app-text-muted);
+}
+
+.metric-divider {
+  width: 1px;
+  background: var(--app-border);
+  margin: 2px 0;
+  flex: none;
 }
 
 /* Stage Distribution（固定占位高度，避免布局抖动） */
 .stage-distribution {
-  background: var(--app-surface);
+  background: var(--app-surface-subtle);
+  border: 1px solid var(--app-border);
   border-radius: 12px;
-  padding: 16px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-  min-height: 168px;
+  padding: 12px 14px;
+  min-height: 128px;
   box-sizing: border-box;
 }
 
 .stage-item--skeleton {
-  padding: 6px 0;
+  padding: 5px 0;
 }
 
 .stage-dot--placeholder {
@@ -504,7 +515,7 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 }
 
 .stage-list.stage-empty {
-  min-height: 88px;
+  min-height: 64px;
   justify-content: center;
   align-items: center;
 }
@@ -515,28 +526,30 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 }
 
 .stage-title {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 700;
   color: var(--app-text-muted, #64748b);
-  margin: 0 0 12px;
+  margin: 0 0 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .stage-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 2px;
 }
 
 .stage-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 0;
+  gap: 9px;
+  padding: 6px 0;
 }
 
 .stage-dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   flex-shrink: 0;
 }
@@ -548,38 +561,26 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 
 .stage-name {
   flex: 1;
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--app-text-secondary);
 }
 
 .stage-count {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 700;
   color: var(--app-text-primary);
-  background: var(--app-surface-subtle);
-  padding: 2px 10px;
-  border-radius: 12px;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  padding: 1px 8px;
+  border-radius: 999px;
 }
 
-/* Quick Actions */
+/* Quick Actions（紧凑 38px 一行两个） */
 .quick-actions {
-  padding: 0 16px 10px;
-}
-
-.actions-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--app-text-primary);
-  margin: 0 0 10px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.actions-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 7px;
+  padding: 12px 16px 0;
 }
 
 .action-btn {
@@ -587,65 +588,77 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
   flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  min-height: 58px;
-  padding: 0 14px;
-  background: linear-gradient(135deg, var(--color-brand-hover, #6366f1) 0%, var(--color-brand, #4f46e5) 55%, var(--color-brand-pressed, #4338ca) 100%);
-  border: 1px solid color-mix(in srgb, var(--color-brand, #4f46e5) 52%, transparent);
-  border-radius: 16px;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 10px;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
   cursor: pointer;
-  transition: all 0.2s ease;
-  font-size: 15px;
+  transition: all 0.16s ease;
+  font-size: 12.5px;
   font-weight: 600;
   line-height: 1;
-  color: var(--app-text-inverse, #ffffff);
-  box-shadow: none;
+  color: var(--app-text-secondary);
   white-space: nowrap;
 }
 
-.action-btn.action-create {
-  background: linear-gradient(135deg, var(--color-brand-hover, #6366f1) 0%, var(--color-brand, #4f46e5) 55%, var(--color-brand-pressed, #4338ca) 100%);
-  border-color: color-mix(in srgb, var(--color-brand, #4f46e5) 52%, transparent);
-}
-
-.action-btn.action-refresh {
-  background: linear-gradient(135deg, var(--color-brand-hover, #6366f1) 0%, var(--color-brand, #4f46e5) 55%, var(--color-brand-pressed, #4338ca) 100%);
-  border-color: color-mix(in srgb, var(--color-brand, #4f46e5) 52%, transparent);
-}
-
 .action-btn:hover {
-  filter: none;
-  transform: none;
-  background: linear-gradient(135deg, var(--color-brand, #4f46e5) 0%, var(--color-brand-hover, #6366f1) 55%, var(--color-brand-pressed, #4338ca) 100%);
-  box-shadow: none;
+  border-color: var(--color-brand, #4f46e5);
+  color: var(--color-brand, #4f46e5);
+  transform: translateY(-1px);
+}
+
+.action-btn.action-create {
+  background: linear-gradient(135deg, var(--color-brand-hover, #6366f1) 0%, var(--color-brand, #4f46e5) 100%);
+  border-color: color-mix(in srgb, var(--color-brand, #4f46e5) 52%, transparent);
+  color: var(--app-text-inverse, #ffffff);
+}
+
+.action-btn.action-create:hover {
+  filter: brightness(1.08);
+  border-color: var(--color-brand-hover, #6366f1);
+  color: var(--app-text-inverse, #ffffff);
 }
 
 .action-icon {
-  width: 16px;
-  height: 16px;
-  color: var(--app-text-inverse, #ffffff);
+  width: 14px;
+  height: 14px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: none;
 }
 
 .action-icon svg {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
 }
 
-[data-theme='anchor'] .action-btn:hover {
-  transform: none;
-  box-shadow: none;
+/* 功能入口（紧凑导航行） */
+.entry-nav {
+  padding: 14px 16px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.entry-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--app-text-muted);
+  margin: 0 0 1px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
 
 /* Footer */
 .sidebar-footer {
-  margin-top: auto;
-  padding: 10px 16px 12px;
+  flex-shrink: 0;
+  padding: 9px 16px 10px;
   border-top: 1px solid var(--app-divider, rgba(15, 23, 42, 0.06));
   display: block;
-  background: var(--app-surface-subtle, rgba(248, 250, 252, 0.8));
+  background: var(--app-surface);
 }
 
 .footer-info {
@@ -656,7 +669,7 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 }
 
 .update-time {
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--app-text-muted, #64748b);
   display: flex;
   align-items: center;
@@ -664,26 +677,26 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 }
 
 .time-icon {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
 
 .time-icon svg {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
 }
 
 .footer-link {
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--app-text-muted, #64748b);
   text-decoration: none;
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 8px;
+  padding: 3px 7px;
   border-radius: 6px;
   transition: all 0.2s ease;
   white-space: nowrap;
@@ -695,15 +708,15 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 }
 
 .link-icon {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
 
 .link-icon svg {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
 }
 </style>
