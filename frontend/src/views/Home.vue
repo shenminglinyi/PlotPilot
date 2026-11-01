@@ -98,16 +98,20 @@
           </div>
 
           <!-- 书架舞台：自 pw fe 移植的 3D 书架（书脊朝外，选中抽出翻面） -->
-          <ProjectDeck
-            v-else
-            :books="filteredBooks"
-            :loading="loading"
-            :busy="Boolean(deletingSlug)"
-            :title="searchQuery ? `搜索结果 · ${filteredBooks.length} 本` : '我的书目'"
-            @open="navigateToBook"
-            @delete="requestDeleteBook"
-            @new-book="openCreateModal"
-          />
+          <!-- 舞台不带壳（标题/搜索/新建由 section-header 承担），搜索命中时给一行提示 -->
+          <template v-else>
+            <p v-if="searchQuery" class="search-result-hint">
+              搜索「{{ searchQuery }}」命中 {{ filteredBooks.length }} 本
+            </p>
+            <ProjectDeck
+              :books="filteredBooks"
+              :loading="loading"
+              :busy="Boolean(deletingSlug)"
+              @open="navigateToBook"
+              @delete="requestDeleteBook"
+              @new-book="openCreateModal"
+            />
+          </template>
         </section>
 
         <!-- 底部版权 -->
@@ -838,6 +842,12 @@ onMounted(() => {
   background: var(--app-surface-subtle);
   padding: 4px 10px;
   border-radius: 12px;
+}
+
+.search-result-hint {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--app-text-muted);
 }
 
 .section-right {

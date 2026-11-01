@@ -1,12 +1,6 @@
 <template>
-  <section class="project-deck-panel" aria-labelledby="project-deck-title">
-    <header class="project-deck-panel__header">
-      <div class="project-deck-panel__heading">
-        <h2 id="project-deck-title">{{ title }}</h2>
-        <slot name="filters" />
-      </div>
-    </header>
-
+  <!-- 裸舞台：壳（标题/搜索/新建）由 Home 的 books-section 提供，本组件不再自带面板壳 -->
+  <div class="project-deck-shell">
     <div
       v-if="books.length"
       ref="deckRef"
@@ -142,7 +136,7 @@
         @click="selectAt(index)"
       />
     </div>
-  </section>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -160,7 +154,7 @@ export interface DeckBookItem {
   word_count?: number
 }
 
-const props = defineProps<{ books: DeckBookItem[]; loading?: boolean; busy?: boolean; title: string }>()
+const props = defineProps<{ books: DeckBookItem[]; loading?: boolean; busy?: boolean }>()
 const emit = defineEmits<{ open: [slug: string]; delete: [slug: string]; 'new-book': [] }>()
 
 const deckRef = ref<HTMLElement | null>(null)
@@ -460,56 +454,20 @@ onUnmounted(() => {
 /* ══ 书架舞台（自 pw fe home-cockpit 移植；台面/面板走主题 token，
       书籍封面是品牌资产固定色，不随主题换肤）══════════════════ */
 
-.project-deck-panel {
+.project-deck-shell {
   position: relative;
   min-width: 0;
-  min-height: 424px;
-  overflow: hidden;
-  border: 1px solid var(--app-border);
-  border-radius: 16px;
-  background: var(--app-surface);
-  box-shadow: var(--app-shadow-md);
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
   isolation: isolate;
 }
 
 /* 舞台背景：树影纹理极低透明度叠主题表面，浅深主题共用 */
-.project-deck-panel::before {
+.project-deck-shell::before {
   content: '';
   position: absolute;
   z-index: -1;
-  inset: 56px 0 0;
+  inset: 0;
   background: url('/images/home/sakura-bloom-tree.webp') center 44% / cover no-repeat;
   opacity: 0.06;
-}
-
-.project-deck-panel__header {
-  min-height: 56px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 9px 18px;
-  border-bottom: 1px solid var(--app-border);
-}
-
-.project-deck-panel__heading {
-  min-width: 0;
-  display: flex;
-  flex: 1;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px 14px;
-}
-
-.project-deck-panel__header h2 {
-  margin: 0;
-  color: var(--app-text-primary);
-  font-size: 15px;
-  font-weight: 700;
-  line-height: 1.25;
-  white-space: nowrap;
 }
 
 .project-deck {
@@ -1200,7 +1158,7 @@ onUnmounted(() => {
 
 /* 窄屏：舞台退化为正常流，竖向滚动放行 */
 @media (max-width: 820px) {
-  .project-deck-panel {
+  .project-deck-shell {
     min-height: 0;
   }
 }
