@@ -30,7 +30,7 @@
     </header>
 
     <n-alert v-if="panelData?.runtime?.using_mock" type="warning" :show-icon="true" class="llm-alert">
-      {{ panelData?.runtime?.reason || '当前未配置可用模型，运行时会退回 MockProvider。' }}
+      {{ panelData?.runtime?.reason || '当前未配置可用模型，AI 生成请求将直接报错。请在下方配置 API Key 并激活。' }}
     </n-alert>
 
     <section v-if="panelData && quickImportPresets.length" class="llm-preset-strip">
@@ -323,7 +323,7 @@ const selectedPreset = computed<LLMPreset | null>(() => {
 const runtimeLabel = computed(() => {
   const runtime = panelData.value?.runtime
   if (!runtime) return '未加载'
-  if (runtime.using_mock) return 'MockProvider'
+  if (runtime.using_mock) return '未配置'
   return runtime.active_profile_name || '已配置'
 })
 

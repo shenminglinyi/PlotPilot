@@ -1,0 +1,13 @@
+/* ═══════════════════════════════════════════════════
+   品牌字标字体：Anton（OFL 许可，google/fonts）
+   用途：PlotPilot 字标（启动屏 / 登录页 / 关于页）。
+   风格参照：紧凑超粗几何美术字。
+   仅注册 400；展示字号下无需多字重。
+   ═══════════════════════════════════════════════════ */
+@font-face {
+  font-family: 'Anton';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(/fonts/Anton-Regular.ttf) format('truetype');
+}

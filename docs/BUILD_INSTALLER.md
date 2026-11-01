@@ -57,3 +57,33 @@ npm run tauri build
 ```
 
 直接 `tauri build` 前须已存在冻结目录 `out/tauri/plotpilot-backend/`（含 `plotpilot-backend.exe` 或至少 `.gitkeep` 占位）。
+## 应用内自动更新（updater）
+
+应用已接入 `tauri-plugin-updater`：启动静默检查 + 每 4 小时复查，发现新版本右下角浮条推送（版本号 + 更新说明），确认后下载（带进度）→ 安装 → 自动重启。更新清单固定指向 GitHub Releases：
+
+```
+https://github.com/shenminglinyi/PlotPilot/releases/latest/download/latest.json
+```
+
+### 签名密钥（更新包防篡改）
+
+updater 强制签名校验，公钥已写入 `frontend/src-tauri/tauri.conf.json`（`plugins.updater.pubkey`）。**私钥不在仓库**，由发行维护者保存（离线备份）。
+
+构建签名包需提供环境变量：
+
+| 环境变量 | 说明 |
+| --- | --- |
+| `TAURI_SIGNING_PRIVATE_KEY_PATH` | 私钥文件路径（或用 `TAURI_SIGNING_PRIVATE_KEY` 直接传内容） |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | 私钥密码（本 keypair 为空，可省略） |
+
+私钥一旦丢失，老版本将无法校验通过任何新更新包——**离线多备份**。
+
+### 发一次更新的流程
+
+1. `tauri.conf.json` 顶层 `version` 升版本号（updater 比对的是这个，不是 Cargo.toml）
+2. 带签名环境变量执行 `npm run tauri build`（Windows: NSIS 产物 `*-setup.exe`）
+3. 构建产物目录里同时生成 `latest.json`（含各平台签名 `signature` 字段）
+4. GitHub 建 Release：tag 与版本号一致，上传 `*-setup.exe` 与 `latest.json`
+5. 老客户端自动发现 → 推送 → 下载校验签名 → passive 模式静默安装 → 自动重启
+
+注意：`latest.json` 里的下载 URL 指向本次 Release 的 asset 地址，由 `tauri build` 自动生成；如果手动改动（如改名），需要同步修正其中的 `url` 字段。
