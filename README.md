@@ -3,7 +3,7 @@
 > 剧情引擎内核准备重启，欢迎贡献者踊跃加入~
 
 <p align="center">
-  <img src="docs/plotpilot-readme.256.png" alt="PlotPilot 墨枢" width="120" />
+  <img src="frontend/src/assets/brand-logo.png" alt="PlotPilot 墨枢" width="120" />
 </p>
 
 <p align="center">
