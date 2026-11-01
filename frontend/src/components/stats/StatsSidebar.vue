@@ -136,6 +136,7 @@
         </button>
         <GlobalLLMEntryButton appearance="sidebar" />
         <PromptPlazaEntryButton appearance="sidebar" />
+        <OnlineSquareEntryButton />
       </div>
     </section>
 
@@ -173,6 +174,7 @@ import StatCard from './StatCard.vue'
 import { useStatsStore } from '@/stores/statsStore'
 import GlobalLLMEntryButton from '@/components/global/GlobalLLMEntryButton.vue'
 import PromptPlazaEntryButton from '@/components/global/PromptPlazaEntryButton.vue'
+import OnlineSquareEntryButton from '@/components/global/OnlineSquareEntryButton.vue'
 import { storageKeys } from '@/config/storageKeys'
 import { runtimePerformance } from '@/config/performance'
 import { readStorageBoolean, writeStorageBoolean } from '@/utils/storage'

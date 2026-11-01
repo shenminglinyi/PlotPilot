@@ -13,6 +13,9 @@ crate-type = ["lib", "cdylib", "staticlib"]
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-png", "devtools"] }
 tauri-plugin-single-instance = "2"
+# 应用内更新：检查/下载/安装（签名校验）；process 用于装完后 relaunch
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
