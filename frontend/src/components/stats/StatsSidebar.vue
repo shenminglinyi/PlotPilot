@@ -3,7 +3,15 @@
     <!-- Brand Header（紧凑：一行 logo + 名称，双行文案收成单行副题） -->
     <header class="sidebar-brand">
       <div class="brand-logo">
-        <span class="logo-icon">✦</span>
+        <span
+          class="logo-icon"
+          :class="{ 'is-expandable': collapsed }"
+          :role="collapsed ? 'button' : undefined"
+          :aria-label="collapsed ? '展开侧边栏' : undefined"
+          :tabindex="collapsed ? 0 : undefined"
+          @click="onStarClick"
+          @keydown.enter.prevent="onStarClick"
+        >✦</span>
         <div class="brand-text">
           <h1 class="brand-name">PlotPilot</h1>
           <p class="brand-slogan">墨枢 · 作者的领航员</p>
@@ -170,6 +178,11 @@ function toggleCollapse() {
   collapsed.value = !collapsed.value
   writeStorageBoolean(storageKeys.statsSidebarCollapsed, collapsed.value)
   emit('collapsed-change', collapsed.value)
+}
+
+// 收起态：✦ 星标本体即展开控件——悬浮转一圈提示，点击直接展开
+function onStarClick() {
+  if (collapsed.value) toggleCollapse()
 }
 
 const statsStore = useStatsStore()
@@ -343,26 +356,28 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
   background: rgba(255, 255, 255, 0.32);
 }
 
+/* 收起态独立按钮彻底退场：✦ 星标本体接管展开（悬浮转一圈） */
 .is-collapsed .collapse-toggle {
-  /* 收起态平时不占位（绝对定位浮在 logo 正下方），悬浮 ✦ 时淡入；
-     隐身期仍保留 hover 命中，鼠标从 logo 滑向按钮不中途消失 */
-  position: absolute;
-  top: calc(100% - 4px);
-  left: 50%;
-  transform: translate(-50%, 2px);
-  margin: 0;
-  opacity: 0;
-  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.28);
-  transition:
-    opacity 0.22s ease 0.25s,
-    background 0.18s ease;
-  z-index: 3;
+  display: none;
 }
 
-.is-collapsed .brand-logo:hover + .collapse-toggle,
-.is-collapsed .collapse-toggle:hover {
-  opacity: 1;
-  transition-delay: 0s;
+/* ✦ 转一圈动画：hover 触发一次 360°，松手回 0°（360≡0 无跳变），
+   再次悬浮再转一圈 */
+@keyframes star-spin-once {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.is-collapsed .logo-icon {
+  cursor: pointer;
+}
+
+.is-collapsed .logo-icon:hover,
+.is-collapsed .logo-icon:focus-visible {
+  animation: star-spin-once 0.55s cubic-bezier(0.45, 0, 0.25, 1) forwards;
+  background: rgba(255, 255, 255, 0.34);
+  border-color: rgba(255, 255, 255, 0.45);
+  box-shadow: 0 0 18px rgba(255, 255, 255, 0.4);
 }
 
 .brand-logo {
