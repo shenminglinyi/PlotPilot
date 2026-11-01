@@ -1,10 +1,5 @@
 <template>
-  <aside
-    class="stats-sidebar"
-    :class="{ 'is-collapsed': collapsed && !hoverExpanded, 'is-float-expanded': hoverExpanded }"
-    @mouseenter="onSidebarMouseEnter"
-    @mouseleave="onSidebarMouseLeave"
-  >
+  <aside class="stats-sidebar" :class="{ 'is-collapsed': collapsed }">
     <!-- Brand Header（紧凑：一行 logo + 名称，双行文案收成单行副题） -->
     <header class="sidebar-brand">
       <div class="brand-logo">
@@ -171,23 +166,9 @@ const emit = defineEmits<{
 
 const collapsed = ref(readStorageBoolean(storageKeys.statsSidebarCollapsed))
 
-// 收起态悬浮直接展开：以浮层盖在正文上（fixed 定位天然不推开内容），
-// 移出即收回；点击切换仍是「钉住/放开」的持久语义
-const hoverExpanded = ref(false)
-
-function onSidebarMouseEnter() {
-  if (collapsed.value) hoverExpanded.value = true
-}
-
-function onSidebarMouseLeave() {
-  hoverExpanded.value = false
-}
-
 function toggleCollapse() {
   collapsed.value = !collapsed.value
   writeStorageBoolean(storageKeys.statsSidebarCollapsed, collapsed.value)
-  // 点击收起时清掉悬浮态：指针还停在栏内也不会立刻又弹开
-  if (collapsed.value) hoverExpanded.value = false
   emit('collapsed-change', collapsed.value)
 }
 
@@ -285,12 +266,6 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
   width: 52px;
 }
 
-/* 收起态悬浮展开：宽度还原（is-collapsed 类已摘除），此处只做浮层外观 */
-.stats-sidebar.is-float-expanded {
-  box-shadow: 0 8px 32px rgba(15, 23, 42, 0.18);
-  border-right: none;
-  border-radius: 0 14px 14px 0;
-}
 
 /* 中段可滚动，品牌与页脚钉住：高窗口不空、矮窗口不挤 */
 .sidebar-scroll {
@@ -332,7 +307,6 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
   min-height: 0;
   padding: 14px 0 12px;
   flex-direction: column;
-  gap: 10px;
   justify-content: center;
 }
 
@@ -370,8 +344,25 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 }
 
 .is-collapsed .collapse-toggle {
-  /* 收起态仍可点击展开：logo 下方纵向排列，不隐藏 */
+  /* 收起态平时不占位（绝对定位浮在 logo 正下方），悬浮 ✦ 时淡入；
+     隐身期仍保留 hover 命中，鼠标从 logo 滑向按钮不中途消失 */
+  position: absolute;
+  top: calc(100% - 4px);
+  left: 50%;
+  transform: translate(-50%, 2px);
   margin: 0;
+  opacity: 0;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.28);
+  transition:
+    opacity 0.22s ease 0.25s,
+    background 0.18s ease;
+  z-index: 3;
+}
+
+.is-collapsed .brand-logo:hover + .collapse-toggle,
+.is-collapsed .collapse-toggle:hover {
+  opacity: 1;
+  transition-delay: 0s;
 }
 
 .brand-logo {
