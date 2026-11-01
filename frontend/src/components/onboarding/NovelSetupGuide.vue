@@ -782,6 +782,11 @@ import {
 } from '@/onboarding/plotOutlineModel'
 import { useAIInvocationStore } from '@/stores/aiInvocationStore'
 import { extractBoundOutputMaps, parseJsonLikeRecord } from '@/utils/invocationOutput'
+import {
+  extractArrayObjectsPartial,
+  extractWorldbuildingPartial,
+  worldbuildingDimComplete,
+} from '@/utils/partialJsonStream'
 import BibleLocationsGraphPreview from './BibleLocationsGraphPreview.vue'
 import WizardSkeleton from './WizardSkeleton.vue'
 import {
@@ -837,15 +842,108 @@ function applyWorldbuildingBoundOutputs(record: Record<string, unknown>, binding
 }
 
 function applyBibleInvocationPreview(stage: 'worldbuilding' | 'characters' | 'locations', payload: InvocationResponseDTO) {
-  if (stage !== 'worldbuilding') return
+  // headless 轮询模式：attempt.content 是后端每 0.35s 落库的部分 LLM 输出，
+  // 逐轮增量解析（出一个渲染一个）——未闭合 JSON 也能提出已完成字段/对象
   const content = payload.attempt?.content || ''
+  if (content) {
+    if (stage === 'worldbuilding') applyWorldbuildingPartialPreview(content)
+    else if (stage === 'characters') applyCharactersPartialPreview(content)
+    else if (stage === 'locations') applyLocationsPartialPreview(content)
+  }
+
+  // 完整 JSON（生成结束/审阅确认后）：走既有完整归一化（含变量绑定输出）
   const record = parseJsonLikeRecord(content)
   if (!record) return
-  applyWorldbuildingRecord(record)
-  applyWorldbuildingBoundOutputs(
-    record,
-    payload.session?.output_bindings || payload.session?.variable_plan?.bindings || [],
-  )
+  if (stage === 'worldbuilding') {
+    applyWorldbuildingRecord(record)
+    applyWorldbuildingBoundOutputs(
+      record,
+      payload.session?.output_bindings || payload.session?.variable_plan?.bindings || [],
+    )
+  }
+}
+
+/** 世界观部分输出 → 逐字段渲染（维度卡片实时填充，style 打字机效果） */
+function applyWorldbuildingPartialPreview(content: string) {
+  const partial = extractWorldbuildingPartial(content)
+
+  if (partial.style) {
+    styleText.value = partial.style
+    if (partial.styleComplete && !phaseMessage.value.includes('世界观')) {
+      phaseMessage.value = '文风公约已生成，正在构建五维世界观...'
+    }
+  }
+
+  const dimKeys = Object.keys(partial.dims)
+  if (!dimKeys.length) return
+
+  // 维度顺序即生成顺序：活跃维度取最后一个有产出且未完整的维度
+  for (const dimKey of dimKeys) {
+    const fields = partial.dims[dimKey]
+    const dim = dimKey as keyof typeof worldbuildingData.value
+    const known = worldbuildingData.value[dim] as Record<string, string>
+    for (const [k, v] of Object.entries(fields)) {
+      if (String(known[k] || '').trim() && known[k] === v) continue
+      known[k] = v
+      activeDimension.value = dimKey
+      activeField.value = k
+      arrivedFields.value = new Set([...arrivedFields.value, k])
+    }
+    if (worldbuildingDimComplete(dimKey, fields)) {
+      completedDimensions.value = new Set([...completedDimensions.value, dimKey])
+    }
+  }
+  // 活跃维度未完整前保持高亮；全部完成后清空
+  const pending = dimKeys.filter(k => !worldbuildingDimComplete(k, partial.dims[k]))
+  if (pending.length) {
+    activeDimension.value = pending[pending.length - 1]
+  }
+}
+
+/** 人物部分输出 → 已闭合角色对象逐个呈现（重建数组防重复） */
+function applyCharactersPartialPreview(content: string) {
+  const items = extractArrayObjectsPartial(content, 'characters')
+  if (!items.length) return
+  const next: typeof streamingCharacters.value = []
+  for (const c of items) {
+    const payload = c as GeneratedCharacterPayload
+    if (!payload.name) continue
+    const editable = mapGeneratedCharacterToEditable(payload)
+    next.push(editable)
+    const draftKey = characterDraftKey({ id: editable.id, name: editable.name })
+    if (draftKey) {
+      generatedCharacterDrafts.value = {
+        ...generatedCharacterDrafts.value,
+        [draftKey]: editable,
+      }
+    }
+  }
+  streamingCharacters.value = next
+  if (!phaseMessage.value.includes('正在生成人物')) {
+    phaseMessage.value = `正在生成人物（已出场 ${next.length} 个）...`
+  }
+}
+
+/** 地点部分输出 → 已闭合地点对象逐个呈现 */
+function applyLocationsPartialPreview(content: string) {
+  const items = extractArrayObjectsPartial(content, 'locations')
+  if (!items.length) return
+  const next: typeof streamingLocations.value = []
+  for (const loc of items) {
+    const name = String(loc.name || '').trim()
+    if (!name) continue
+    next.push({
+      name,
+      id: typeof loc.id === 'string' ? loc.id : undefined,
+      type: typeof loc.type === 'string' ? loc.type : undefined,
+      location_type: typeof loc.location_type === 'string' ? loc.location_type : undefined,
+      description: String(loc.description || ''),
+    })
+  }
+  streamingLocations.value = next
+  if (!phaseMessage.value.includes('正在生成地图')) {
+    phaseMessage.value = `正在生成地图（已出现 ${next.length} 个地点）...`
+  }
 }
 
 function applyWorldbuildingChunk(chunk: string) {
