@@ -67,5 +67,17 @@
     "publisher": "PlotPilot Team",
     "copyright": "© 2025 PlotPilot Team. All rights reserved."
   },
-  "plugins": {}
+  "plugins": {
+    "updater": {
+      "active": true,
+      "dialog": false,
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM2MjMzMzQ3QjNDRDc5QUQKUldTdGVjMnpSek1qTm1YMFkrMG1wY0Q4RkNXajhNQTFoa0lpY3F3aG9wajZvKytZYUpOSkJKVVkK",
+      "windows": {
+        "installMode": "passive"
+      },
+      "endpoints": [
+        "https://github.com/shenminglinyi/PlotPilot/releases/latest/download/latest.json"
+      ]
+    }
+  }
 }
