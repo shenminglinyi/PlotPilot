@@ -1,8 +1,11 @@
 <template>
   <!-- 云端读取失败/需登录的统一占位块 -->
-  <div class="square-state" :class="{ 'needs-login': needsLogin }">
+  <div class="square-state" :class="{ 'needs-login': needsLogin, 'is-suspended': suspended }">
     <span class="state-icon" aria-hidden="true">
-      <svg v-if="needsLogin" viewBox="0 0 24 24" fill="none">
+      <svg v-if="suspended" viewBox="0 0 24 24" fill="none">
+        <path d="M20 13.2A7.6 7.6 0 0 1 10.8 4 7.9 7.9 0 1 0 20 13.2Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+      </svg>
+      <svg v-else-if="needsLogin" viewBox="0 0 24 24" fill="none">
         <rect x="5" y="10.5" width="14" height="9.5" rx="2.2" stroke="currentColor" stroke-width="1.8"/>
         <path d="M8.5 10.5V7.8a3.5 3.5 0 0 1 7 0v2.7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
         <circle cx="12" cy="15.2" r="1.4" fill="currentColor"/>
@@ -16,8 +19,11 @@
     <p class="state-title">{{ title }}</p>
     <p v-if="hint" class="state-hint">{{ hint }}</p>
     <div class="state-actions">
-      <button v-if="needsLogin" type="button" class="state-btn primary" @click="$emit('login')">登录云端</button>
-      <button type="button" class="state-btn" @click="$emit('retry')">重试</button>
+      <button v-if="suspended" type="button" class="state-btn ghost" @click="$emit('retry')">稍后再试</button>
+      <template v-else>
+        <button v-if="needsLogin" type="button" class="state-btn primary" @click="$emit('login')">登录云端</button>
+        <button type="button" class="state-btn" @click="$emit('retry')">重试</button>
+      </template>
     </div>
   </div>
 </template>
@@ -36,9 +42,13 @@ defineEmits<{
   (e: 'login'): void
 }>()
 
+/** 管理端斩断：整页只留一句「线上暂未提供服务，静待～」+ 轻刷新 */
+const suspended = computed(() => props.error?.kind === 'suspended')
+
 const needsLogin = computed(() => props.error?.kind === 'auth' && props.showLogin !== false)
 
 const title = computed(() => {
+  if (suspended.value) return props.error?.message || '线上暂未提供服务，静待～'
   if (props.error?.kind === 'auth') return needsLogin.value ? '登录后查看' : '需要登录云端'
   if (props.error?.kind === 'unreachable') return '云端暂不可达'
   if (props.error?.kind === 'upstream') return props.error.message || '云端暂无数据'
@@ -46,6 +56,7 @@ const title = computed(() => {
 })
 
 const hint = computed(() => {
+  if (suspended.value) return ''
   if (props.error?.kind === 'auth') {
     return '这部分内容需要登录 plotpilot.xyz 账号；凭证只存本地内核，浏览器零凭证。'
   }
@@ -64,6 +75,25 @@ const hint = computed(() => {
   gap: 8px;
   padding: 56px 24px;
   text-align: center;
+}
+
+.square-state.is-suspended {
+  padding: 110px 24px 90px;
+}
+
+.square-state.is-suspended .state-icon {
+  color: var(--color-gold, #f59e0b);
+  opacity: 0.55;
+}
+
+.square-state.is-suspended .state-title {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.state-btn.ghost {
+  background: transparent;
 }
 
 .state-icon {

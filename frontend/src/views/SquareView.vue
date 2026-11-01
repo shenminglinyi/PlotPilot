@@ -51,8 +51,14 @@
 
     <!-- 主内容区 -->
     <main class="square-body">
+      <!-- 管理端斩断：整页静待态（优先于任何 tab） -->
+      <StateBlock
+        v-if="suspendedError"
+        :error="suspendedError"
+        @retry="refreshAll"
+      />
       <!-- 官方书元 -->
-      <section v-if="activeTab === 'official'" class="tab-panel">
+      <section v-else-if="activeTab === 'official'" class="tab-panel">
         <div class="filter-row">
           <div class="genre-chips" role="list">
             <button
@@ -627,6 +633,12 @@ const detail = reactive<{
 }>({ show: false, kind: 'official', asset: null, community: null })
 
 const communityDetailTitle = computed(() => detail.community?.asset?.title || '社区模板详情')
+
+/** 管理端斩断门：任一激活数据面的错误是 suspended 时整页静待 */
+const suspendedError = computed(() => {
+  const pool = [official.error, community.error, hot.error]
+  return pool.find(e => e?.kind === 'suspended') ?? null
+})
 
 async function openOfficialDetail(asset: SquareAsset): Promise<void> {
   detail.kind = 'official'

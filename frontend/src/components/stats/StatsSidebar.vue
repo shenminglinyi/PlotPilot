@@ -303,8 +303,10 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 }
 
 .is-collapsed .sidebar-brand {
-  min-height: 56px;
-  padding: 12px 0;
+  min-height: 0;
+  padding: 14px 0 12px;
+  flex-direction: column;
+  gap: 10px;
   justify-content: center;
 }
 
@@ -342,7 +344,8 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 }
 
 .is-collapsed .collapse-toggle {
-  display: none;
+  /* 收起态仍可点击展开：logo 下方纵向排列，不隐藏 */
+  margin: 0;
 }
 
 .brand-logo {
