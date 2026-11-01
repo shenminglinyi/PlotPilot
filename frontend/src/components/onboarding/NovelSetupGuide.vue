@@ -1552,6 +1552,8 @@ function startBibleGenerationSSE() {
       finishWorldbuildingGeneration()
     },
     onError: (msg) => {
+      // 报错时必须退出生成中状态（否则骨架屏/转圈永不停止，错误被淹没）
+      generatingBible.value = false
       bibleError.value = msg
       phaseMessage.value = ''
     },

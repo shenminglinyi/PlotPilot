@@ -409,7 +409,7 @@ class LLMControlService:
             return LLMRuntimeSummary(
                 source='mock',
                 using_mock=True,
-                reason='未找到任何 LLM 配置',
+                reason='未找到任何 LLM 配置：AI 生成请求将直接报错，请先在「LLM 控制」中添加并激活模型档案',
             )
 
         if not profile.api_key.strip() or not profile.model.strip():
@@ -421,7 +421,7 @@ class LLMControlService:
                 model=profile.model or None,
                 base_url=profile.base_url or None,
                 using_mock=True,
-                reason='当前激活配置缺少 API Key 或模型名，运行时将退回 MockProvider',
+                reason='当前激活配置缺少 API Key 或模型名：AI 生成请求将直接报错，请先补全配置',
             )
 
         return LLMRuntimeSummary(

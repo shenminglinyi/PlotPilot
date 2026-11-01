@@ -3,6 +3,8 @@
 提供 FastAPI 依赖注入函数，用于创建服务和仓储实例。
 """
 import logging
+
+from fastapi import HTTPException
 from pathlib import Path
 from functools import lru_cache
 from typing import TYPE_CHECKING, Optional
@@ -130,6 +132,12 @@ def get_llm_provider_factory() -> LLMProviderFactory:
 def llm_runtime_is_mock(llm_service: Optional[LLMService] = None) -> bool:
     runtime = get_llm_control_service().get_runtime_summary()
     return runtime.using_mock
+
+
+def raise_llm_not_configured() -> None:
+    """LLM 未配置时抛 503，让前端拿到明确报错（不再静默走 mock 假成功）。"""
+    runtime = get_llm_control_service().get_runtime_summary()
+    raise HTTPException(status_code=503, detail=runtime.reason or "LLM 未配置：请先在「LLM 控制」中配置 API Key 并激活模型")
 
 
 def get_storage() -> FileStorage:
@@ -788,7 +796,8 @@ def get_auto_workflow() -> AutoNovelGenerationWorkflow:
     """
     llm_service = get_llm_service()
     if llm_runtime_is_mock(llm_service):
-        logger.warning("No API key found, using MockProvider for workflow")
+        # 未配置直接失败，不再走 mock 假成功
+        raise_llm_not_configured()
     else:
         logger.info(f"Using {llm_service.__class__.__name__} for workflow")
 
@@ -803,7 +812,8 @@ def get_auto_bible_generator() -> AutoBibleGenerator:
     """
     llm_service = get_llm_service()
     if llm_runtime_is_mock(llm_service):
-        logger.warning("No API key found, using MockProvider for Bible generation")
+        # 未配置直接失败，不再走 mock 假成功
+        raise_llm_not_configured()
     else:
         logger.info(f"Using {llm_service.__class__.__name__} for Bible generation")
 
@@ -872,7 +882,8 @@ def get_beat_sheet_service():
 
     llm_service = get_llm_service()
     if llm_runtime_is_mock(llm_service):
-        logger.warning("No API key found, using MockProvider for beat sheet generation")
+        # 未配置直接失败，不再走 mock 假成功
+        raise_llm_not_configured()
     else:
         logger.info(f"Using {llm_service.__class__.__name__} for beat sheet generation")
 
@@ -896,7 +907,8 @@ def get_scene_generation_service():
 
     llm_service = get_llm_service()
     if llm_runtime_is_mock(llm_service):
-        logger.warning("No API key found, using MockProvider for scene generation")
+        # 未配置直接失败，不再走 mock 假成功
+        raise_llm_not_configured()
     else:
         logger.info(f"Using {llm_service.__class__.__name__} for scene generation")
 
@@ -931,7 +943,8 @@ def get_scene_director_service() -> "SceneDirectorService":
 
     llm_service = get_llm_service()
     if llm_runtime_is_mock(llm_service):
-        logger.warning("No API key found, using MockProvider for scene director")
+        # 未配置直接失败，不再走 mock 假成功
+        raise_llm_not_configured()
     else:
         logger.info(f"Using {llm_service.__class__.__name__} for scene director")
         
@@ -1028,7 +1041,8 @@ def get_macro_refactor_proposal_service():
 
     llm_service = get_llm_service()
     if llm_runtime_is_mock(llm_service):
-        logger.warning("No API key found, using MockProvider for macro refactor proposals")
+        # 未配置直接失败，不再走 mock 假成功
+        raise_llm_not_configured()
     else:
         logger.info(f"Using {llm_service.__class__.__name__} for macro refactor proposals")
 
@@ -1076,7 +1090,8 @@ def get_tension_analyzer():
 
     llm_provider = get_llm_service()
     if llm_runtime_is_mock(llm_provider):
-        logger.warning("No API key found, using MockProvider for tension analyzer")
+        # 未配置直接失败，不再走 mock 假成功
+        raise_llm_not_configured()
     else:
         logger.info(f"Using {llm_provider.__class__.__name__} for tension analyzer")
 
