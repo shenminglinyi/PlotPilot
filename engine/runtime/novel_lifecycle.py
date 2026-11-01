@@ -22,6 +22,18 @@ def _is_novel_deleted(host: Any, novel: Novel) -> bool:
         return False
 
 
+def _active_invocation_state(novel_id: str) -> dict[str, Any]:
+    from application.ai_invocation.autopilot.shared_state import read_autopilot_shared_state
+
+    return read_autopilot_shared_state(novel_id)
+
+
+async def _has_persisted_macro_structure(host: Any, novel_id: str) -> bool:
+    """Use the story tree as the source of truth for stage advancement."""
+    nodes = await host.story_node_repo.get_by_novel(novel_id)
+    return any(getattr(getattr(node, "node_type", None), "value", "") == "volume" for node in nodes)
+
+
 async def process_novel(host: Any, novel: Novel) -> None:
     """处理单个小说（全流程状态机路由）"""
     try:
@@ -105,7 +117,21 @@ async def process_novel(host: Any, novel: Novel) -> None:
             await run_chapter_audit(host, novel)
         elif novel.current_stage == NovelStage.PAUSED_FOR_REVIEW:
             if getattr(novel, "auto_approve_mode", False):
-                logger.info("[%s] 全自动模式：跳过人工审阅", novel.novel_id)
+                shared = _active_invocation_state(novel.novel_id.value)
+                if shared.get("has_active_invocation"):
+                    logger.info(
+                        "[%s] 全自动模式：invocation 尚未完成，保持等待 status=%s session=%s",
+                        novel.novel_id,
+                        shared.get("active_invocation_status") or "unknown",
+                        shared.get("active_invocation_session_id") or "",
+                    )
+                    return
+                if not await _has_persisted_macro_structure(host, novel.novel_id.value):
+                    logger.warning("[%s] 全自动模式：宏观结构尚未落库，返回宏观规划", novel.novel_id)
+                    novel.current_stage = NovelStage.MACRO_PLANNING
+                    host._save_novel_state(novel)
+                    return
+                logger.info("[%s] 全自动模式：宏观结构已落库，跳过人工审阅", novel.novel_id)
                 novel.current_stage = NovelStage.ACT_PLANNING
                 host._save_novel_state(novel)
                 return
