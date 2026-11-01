@@ -139,11 +139,24 @@ class CloudConnectionService:
         json_body: dict[str, Any] | None = None,
         params: dict[str, Any] | None = None,
     ) -> CloudResponse:
-        """受控代理请求：白名单路径校验 + Bearer + 单次自动刷新。"""
+        """受控代理请求：白名单路径校验 + Bearer + 单次自动刷新。
+
+        GET 允许匿名（公开目录面：genres/facets/assets/community），
+        未登录时直接裸发，401 原样透传给前端决定是否引导登录；
+        非 GET 无会话直接报错。
+        """
         normalized = _normalize_proxy_path(path)
         if not normalized:
             raise ValueError(f"path not allowed: {path}")
-        session = self._require_session()
+        session = self._store.load()
+        if session is None or not session.access_token:
+            if str(method).upper() != "GET":
+                raise CloudSessionError("cloud session missing; sign in first")
+            try:
+                anonymous = self._send(None, method, normalized, json_body, params)
+            except httpx.HTTPError as exc:
+                raise CloudConnectionError(f"cloud unreachable: {exc}") from exc
+            return _to_cloud_response(anonymous)
         try:
             first = self._send(session, method, normalized, json_body, params)
         except httpx.HTTPError as exc:
@@ -164,12 +177,6 @@ class CloudConnectionService:
         return _to_cloud_response(second)
 
     # ── 内部 ──
-
-    def _require_session(self) -> CloudSession:
-        session = self._store.load()
-        if session is None or not session.access_token:
-            raise CloudSessionError("cloud session missing; sign in first")
-        return session
 
     def _refresh(self, session: CloudSession) -> CloudSession | None:
         """旋转：成功则先落盘再返回；失败返回 None（调用方报失效）。"""
@@ -211,22 +218,24 @@ class CloudConnectionService:
 
     def _send(
         self,
-        session: CloudSession,
+        session: CloudSession | None,
         method: str,
         path: str,
         json_body: dict[str, Any] | None,
         params: dict[str, Any] | None,
     ):
+        # session=None 即匿名 GET（公开目录面）：不带 Authorization，
+        # 服务端对受保护路径自然回 401，由前端引导登录
+        headers = {CLIENT_HEADER: self._settings.client_name}
+        if session is not None:
+            headers["Authorization"] = f"Bearer {session.access_token}"
         with self._new_client() as client:
             return client.request(
                 method,
                 path,
                 json=json_body,
                 params=params,
-                headers={
-                    "Authorization": f"Bearer {session.access_token}",
-                    CLIENT_HEADER: self._settings.client_name,
-                },
+                headers=headers,
             )
 
     def _default_client(self) -> httpx.Client:
@@ -242,8 +251,15 @@ class CloudConnectionService:
 
 # ── 模块级纯函数 ──
 
-# 代理白名单：只允许广场与社交面（数据边界契约，见 docs/social-plaza-design 13.3）
+# 代理白名单：只允许广场与社交面（数据边界契约，见 docs/social-plaza-design 13.3）。
+# 目录 GET（genres/facets/assets/hot-novels）供桌面端「拉下来」自渲染广场：
+# 公开目录可匿名读；hot-novels 服务端需登录，匿名时 401 透传由前端引导。
 _ALLOWED_PROXY_PREFIXES = (
+    "/api/v1/prompt-square/genres",
+    "/api/v1/prompt-square/facets",
+    "/api/v1/prompt-square/opening-workflow",
+    "/api/v1/prompt-square/assets",
+    "/api/v1/prompt-square/hot-novels",
     "/api/v1/prompt-square/community",
     "/api/v1/prompt-square/book-seeds",
     "/api/v1/social",

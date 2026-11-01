@@ -133,10 +133,66 @@ def test_login_stores_credentials_server_side_only(
     assert payload["refresh_cookie"] == "cookie-v1"
 
 
-def test_proxy_requires_login(service: tuple[CloudConnectionService, FakeCloud]):
+def test_proxy_requires_login_for_writes(
+    service: tuple[CloudConnectionService, FakeCloud],
+):
+    """非 GET 无会话直接报错（写操作必须登录）。"""
     connector, _ = service
     with pytest.raises(CloudSessionError):
-        connector.request("GET", "/api/v1/social/notifications")
+        connector.request("POST", "/api/v1/prompt-square/community/assets/c1/events")
+
+
+def test_proxy_anonymous_get_catalog(
+    service: tuple[CloudConnectionService, FakeCloud],
+):
+    """公开目录 GET 匿名可读（桌面端拉下来自渲染广场的入口）。"""
+    connector, cloud = service
+
+    # 未登录直接 GET 公开目录：裸发不带 Authorization
+    response = connector.request(
+        "GET", "/api/v1/prompt-square/genres", params={"limit": 24}
+    )
+
+    assert response.status_code == 404  # 桶未注册该路径但已放行转发
+    sent = cloud.requests[0]
+    assert sent["method"] == "GET"
+    assert sent["path"] == "/api/v1/prompt-square/genres"
+    assert sent["auth"] == ""
+    assert sent["client"] == "plotpilot-kernel"
+
+
+def test_proxy_anonymous_get_hot_novels_passes_401_through(
+    service: tuple[CloudConnectionService, FakeCloud],
+):
+    """匿名 GET 受保护路径（hot-novels）：401 原样透传，不拖拽会话/不报错。"""
+    connector, _ = service
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v1/prompt-square/hot-novels":
+            return httpx.Response(401, json={"detail": "authentication required"})
+        raise AssertionError(f"unexpected path: {request.url.path}")
+
+    service[1].handler = handler
+
+    response = connector.request("GET", "/api/v1/prompt-square/hot-novels")
+
+    assert response.status_code == 401
+    assert response.body["detail"] == "authentication required"
+    # 匿名路径不产生本地会话副作用
+    assert connector.status() == {"logged_in": False}
+
+
+def test_proxy_get_uses_bearer_when_logged_in(
+    service: tuple[CloudConnectionService, FakeCloud],
+):
+    """登录后 GET 目录走 Bearer（个性化/受保护面可访问）。"""
+    connector, cloud = service
+    connector.login("alice", "pw123")
+
+    connector.request("GET", "/api/v1/prompt-square/hot-novels")
+
+    sent = [r for r in cloud.requests if r["path"] == "/api/v1/prompt-square/hot-novels"][0]
+    assert sent["auth"].startswith("Bearer access-")
 
 
 def test_proxy_success_after_auto_refresh(
