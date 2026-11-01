@@ -145,13 +145,22 @@ export interface CloudSessionStatus {
 
 interface CloudProxyEnvelope {
   status_code: number
-  body: { data?: unknown; detail?: string } & Record<string, unknown>
+  body: { data?: unknown; detail?: string; message?: string } & Record<string, unknown>
 }
+
+/** 云端下发/服务端管控的机器码：管理端斩断开源端广场 */
+export const KERNEL_SQUARE_SUSPENDED_DETAIL = 'kernel_square_suspended'
 
 /** 云端不可达/会话失效等本地代理错误 */
 export class CloudSquareError extends Error {
-  /** 'unreachable' | 'auth' | 'upstream' | 'unknown' */
-  kind: 'unreachable' | 'auth' | 'upstream' | 'unknown'
+  /**
+   * - 'suspended'：管理端斩断（上游 403 + kernel_square_suspended）
+   * - 'unreachable'：本地内核/网络不可达
+   * - 'auth'：需登录云端
+   * - 'upstream'：云端 4xx/5xx
+   * - 'unknown'：未知
+   */
+  kind: 'suspended' | 'unreachable' | 'auth' | 'upstream' | 'unknown'
   upstreamStatus?: number
 
   constructor(kind: CloudSquareError['kind'], message: string, upstreamStatus?: number) {
@@ -184,6 +193,14 @@ async function cloudGet<T>(path: string, params?: Record<string, string | number
   const upstream = envelope.status_code
   if (upstream >= 500) {
     throw new CloudSquareError('upstream', `云端服务异常（${upstream}）`, upstream)
+  }
+  if (upstream === 403 && envelope.body?.detail === KERNEL_SQUARE_SUSPENDED_DETAIL) {
+    // 管理端斩断：整页显示「线上暂未提供服务，静待～」，不是登录问题
+    throw new CloudSquareError(
+      'suspended',
+      envelope.body?.message || '线上暂未提供服务，静待～',
+      upstream,
+    )
   }
   if (upstream === 401 || upstream === 403) {
     throw new CloudSquareError('auth', envelope.body?.detail || '需要登录云端', upstream)
