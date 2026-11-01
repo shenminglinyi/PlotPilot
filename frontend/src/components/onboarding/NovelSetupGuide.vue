@@ -919,9 +919,6 @@ function applyCharactersPartialPreview(content: string) {
     }
   }
   streamingCharacters.value = next
-  if (!phaseMessage.value.includes('正在生成人物')) {
-    phaseMessage.value = `正在生成人物（已出场 ${next.length} 个）...`
-  }
 }
 
 /** 地点部分输出 → 已闭合地点对象逐个呈现 */
@@ -941,9 +938,6 @@ function applyLocationsPartialPreview(content: string) {
     })
   }
   streamingLocations.value = next
-  if (!phaseMessage.value.includes('正在生成地图')) {
-    phaseMessage.value = `正在生成地图（已出现 ${next.length} 个地点）...`
-  }
 }
 
 function applyWorldbuildingChunk(chunk: string) {
