@@ -1,5 +1,10 @@
 <template>
-  <aside class="stats-sidebar" :class="{ 'is-collapsed': collapsed }">
+  <aside
+    class="stats-sidebar"
+    :class="{ 'is-collapsed': collapsed && !hoverExpanded, 'is-float-expanded': hoverExpanded }"
+    @mouseenter="onSidebarMouseEnter"
+    @mouseleave="onSidebarMouseLeave"
+  >
     <!-- Brand Header（紧凑：一行 logo + 名称，双行文案收成单行副题） -->
     <header class="sidebar-brand">
       <div class="brand-logo">
@@ -166,9 +171,23 @@ const emit = defineEmits<{
 
 const collapsed = ref(readStorageBoolean(storageKeys.statsSidebarCollapsed))
 
+// 收起态悬浮直接展开：以浮层盖在正文上（fixed 定位天然不推开内容），
+// 移出即收回；点击切换仍是「钉住/放开」的持久语义
+const hoverExpanded = ref(false)
+
+function onSidebarMouseEnter() {
+  if (collapsed.value) hoverExpanded.value = true
+}
+
+function onSidebarMouseLeave() {
+  hoverExpanded.value = false
+}
+
 function toggleCollapse() {
   collapsed.value = !collapsed.value
   writeStorageBoolean(storageKeys.statsSidebarCollapsed, collapsed.value)
+  // 点击收起时清掉悬浮态：指针还停在栏内也不会立刻又弹开
+  if (collapsed.value) hoverExpanded.value = false
   emit('collapsed-change', collapsed.value)
 }
 
@@ -264,6 +283,13 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 
 .stats-sidebar.is-collapsed {
   width: 52px;
+}
+
+/* 收起态悬浮展开：宽度还原（is-collapsed 类已摘除），此处只做浮层外观 */
+.stats-sidebar.is-float-expanded {
+  box-shadow: 0 8px 32px rgba(15, 23, 42, 0.18);
+  border-right: none;
+  border-radius: 0 14px 14px 0;
 }
 
 /* 中段可滚动，品牌与页脚钉住：高窗口不空、矮窗口不挤 */
