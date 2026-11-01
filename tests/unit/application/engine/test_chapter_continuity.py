@@ -9,6 +9,15 @@ from application.engine.services.chapter_bridge_service import (
 )
 
 
+def test_default_continuity_policy_is_warning_only():
+    policy = ChapterContinuityPolicy()
+
+    assert policy.needs_attention(0.39) is True
+    assert policy.should_auto_fix(0.39) is False
+    assert policy.should_auto_fix(0.0) is False
+    assert policy.should_auto_fix(-0.01) is False
+
+
 def test_continuity_policy_separates_warning_from_auto_fix():
     policy = ChapterContinuityPolicy(warn_threshold=0.6, auto_fix_threshold=0.4)
 
@@ -26,6 +35,28 @@ def test_bridge_service_uses_policy_for_opening_fix():
 
     assert service.should_auto_fix_opening(ContinuityCheckResult(score=0.46)) is False
     assert service.should_auto_fix_opening(ContinuityCheckResult(score=0.44)) is True
+
+
+@pytest.mark.asyncio
+async def test_default_bridge_service_does_not_auto_rewrite_opening(monkeypatch):
+    from application.engine.services.chapter_bridge_service import ChapterBridge, ChapterBridgeService
+
+    service = ChapterBridgeService(llm_service=object())
+
+    async def fail_if_called(*args, **kwargs):
+        raise AssertionError("default continuity policy should not rewrite openings")
+
+    monkeypatch.setattr(service, "_invoke_helper_text", fail_if_called)
+    content = "原始首段。" + "后续正文。" * 80
+    fixed = await service.auto_fix_opening(
+        "novel-1",
+        2,
+        content,
+        ChapterBridge(chapter_number=1, suspense_hook="前章悬念"),
+        ContinuityCheckResult(score=0.0, issues=["首段衔接不足"]),
+    )
+
+    assert fixed == content
 
 
 @pytest.mark.asyncio
