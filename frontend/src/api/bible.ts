@@ -2,6 +2,7 @@ import type { AxiosRequestConfig } from 'axios'
 
 import { WIZARD_STEP_TIMEOUT_MS } from '@/constants/wizard'
 import { runtimePerformance } from '@/config/performance'
+import { readableErrorMessage } from '@/utils/readableErrorMessage'
 import { apiClient, resolveHttpUrl } from './config'
 
 /** Bible 人物关系：字符串 或 LLM 结构化对象 */
@@ -369,8 +370,9 @@ export async function consumeBibleGenerateStream(
     signal: handlers.signal,
   })
   if (!res.ok || !res.body) {
+    // 把 {"detail":...} 或纯文本响应体读成可读报错（例：503 LLM 未配置）
     const t = await res.text().catch(() => '')
-    handlers.onError?.(t || `HTTP ${res.status}`)
+    handlers.onError?.(readableErrorMessage(t) || `HTTP ${res.status}`)
     return
   }
 

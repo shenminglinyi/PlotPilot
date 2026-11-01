@@ -43,6 +43,10 @@ pub fn run() {
                 let _ = win.set_focus();
             }
         }))
+        // 应用内自更新：前端通过 plugin-updater JS API 检查/下载/安装，
+        // 安装完成后调用 plugin-process 的 relaunch 重启进新版本
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 // 已经在关闭中，直接忽略后续点击
