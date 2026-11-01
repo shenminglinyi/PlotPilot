@@ -66,17 +66,6 @@
                   <n-icon><IconSearch /></n-icon>
                 </template>
               </n-input>
-              <n-button
-                v-if="selectedBooks.length > 0"
-                type="error"
-                secondary
-                @click="showBatchDeleteConfirm = true"
-              >
-                <template #icon>
-                  <n-icon><IconTrash /></n-icon>
-                </template>
-                删除选中 ({{ selectedBooks.length }})
-              </n-button>
             </div>
           </div>
 
@@ -108,94 +97,17 @@
             <n-button text type="primary" @click="searchQuery = ''">清除搜索</n-button>
           </div>
 
-          <!-- Books Grid -->
-          <template v-else>
-            <!-- Selection Bar (仅搜索模式下显示) -->
-            <div class="selection-bar" v-if="filteredBooks.length > 0 && searchQuery">
-              <n-checkbox
-                :checked="isAllSelected"
-                :indeterminate="isPartialSelected"
-                @update:checked="toggleSelectAll"
-              >
-                全选
-              </n-checkbox>
-              <span class="selection-hint" v-if="selectedBooks.length > 0">
-                已选择 {{ selectedBooks.length }} 本
-              </span>
-            </div>
-
-            <!-- 书目卡片：流式网格全量上页（不再截断/横滑/弹窗） -->
-            <div class="books-grid">
-              <div
-                v-for="(book, idx) in filteredBooks"
-                :key="book.slug"
-                class="book-card"
-                :class="{ 'is-selected': selectedBooks.includes(book.slug) }"
-                :style="{ animationDelay: `${Math.min(idx, 12) * 0.04}s` }"
-                @click="navigateToBook(book.slug)"
-              >
-                <!-- 1. 顶行：阶段灯 + 阶段名 | 右侧类型色指纹 -->
-                <div class="card-top">
-                  <div class="stage-line">
-                    <span class="book-dot" :class="`dot-${book.stage}`"></span>
-                    <span class="stage-label">{{ book.stage_label }}</span>
-                  </div>
-                  <span
-                    v-if="book.genre"
-                    class="genre-chip"
-                    :style="genreChipStyle(book.genre)"
-                  >{{ book.genre }}</span>
-                </div>
-                <!-- 2. 书名：宋体书脊感，两行截断 -->
-                <h3 class="book-card-title">{{ book.title }}</h3>
-                <!-- 3. 梗概摘要：两行淡出填中段 -->
-                <p class="card-premise" v-if="book.premise">{{ book.premise }}</p>
-                <!-- 4. 版权页式数据区：大数字 + 小标签沉底 -->
-                <div class="card-stats">
-                  <div class="stat-block">
-                    <span class="stat-value">{{ book.chapter_count ?? 0 }}</span>
-                    <span class="stat-label">章节</span>
-                  </div>
-                  <div class="stat-divider"></div>
-                  <div class="stat-block">
-                    <span class="stat-value">{{ formatWordCount(book.word_count ?? 0) }}</span>
-                    <span class="stat-label">字数</span>
-                  </div>
-                </div>
-                <!-- 5. 操作行：悬停浮现，选择 + 删除 -->
-                <div class="card-actions" @click.stop>
-                  <n-checkbox
-                    :checked="selectedBooks.includes(book.slug)"
-                    @update:checked="(val: boolean) => toggleBookSelection(book.slug, val)"
-                    size="small"
-                  >
-                    选择
-                  </n-checkbox>
-                  <n-popconfirm
-                    positive-text="删除"
-                    negative-text="取消"
-                    @positive-click="() => handleDeleteBook(book.slug)"
-                  >
-                    <template #trigger>
-                      <n-button
-                        quaternary
-                        circle
-                        size="tiny"
-                        type="error"
-                        :loading="deletingSlug === book.slug"
-                        aria-label="删除书目"
-                      >
-                        <template #icon>
-                          <n-icon><IconTrash /></n-icon>
-                        </template>
-                      </n-button>
-                    </template>
-                    将删除「{{ book.title }}」及本地全部章节与设定，且不可恢复。确定删除吗？
-                  </n-popconfirm>
-                </div>
-              </div>
-            </div>
-          </template>
+          <!-- 书架舞台：自 pw fe 移植的 3D 书架（书脊朝外，选中抽出翻面） -->
+          <ProjectDeck
+            v-else
+            :books="filteredBooks"
+            :loading="loading"
+            :busy="Boolean(deletingSlug)"
+            :title="searchQuery ? `搜索结果 · ${filteredBooks.length} 本` : '我的书目'"
+            @open="navigateToBook"
+            @delete="requestDeleteBook"
+            @new-book="openCreateModal"
+          />
         </section>
 
         <!-- 底部版权 -->
@@ -329,17 +241,20 @@
       </template>
     </n-modal>
 
-    <!-- Batch Delete Confirm Modal -->
-    <n-modal v-model:show="showBatchDeleteConfirm" preset="confirm" type="error" title="确认批量删除">
+    <!-- 删除确认（书架卡片删除按钮触发） -->
+    <n-modal
+      v-model:show="showDeleteConfirm"
+      preset="confirm"
+      type="error"
+      title="删除书目"
+    >
       <template #default>
-        确定要删除选中的 <strong>{{ selectedBooks.length }}</strong> 本书籍吗？此操作不可恢复。
+        将删除 <strong>《{{ pendingDeleteBook?.title }}》</strong> 及本地全部章节与设定，此操作不可恢复。
       </template>
       <template #action>
         <n-space>
-          <n-button @click="showBatchDeleteConfirm = false">取消</n-button>
-          <n-button type="error" :loading="batchDeleting" @click="handleBatchDelete">
-            确认删除
-          </n-button>
+          <n-button @click="showDeleteConfirm = false">取消</n-button>
+          <n-button type="error" :loading="Boolean(deletingSlug)" @click="confirmDeleteBook">确认删除</n-button>
         </n-space>
       </template>
     </n-modal>
@@ -367,6 +282,7 @@ import { novelApi, type NovelDTO } from '../api/novel'
 import { isWizardCompleted } from '@/utils/wizardStageCache'
 import StatsSidebar from '@/components/stats/StatsSidebar.vue'
 import BrandMark from '@/components/brand/BrandMark.vue'
+import ProjectDeck, { type DeckBookItem } from '@/components/home/ProjectDeck.vue'
 import { useAppSettingsShellStore } from '@/stores/appSettingsShellStore'
 import { parseGenreWorldFromPremise } from '@/utils/premisePresets'
 import { useStatsStore } from '@/stores/statsStore'
@@ -395,10 +311,6 @@ const IconSearch = () =>
   h('svg', { xmlns: 'http://www.w3.org/2000/svg', viewBox: '0 0 24 24', width: '1em', height: '1em' },
     h('path', { fill: 'currentColor', d: 'M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z' }))
 
-const IconTrash = () =>
-  h('svg', { xmlns: 'http://www.w3.org/2000/svg', viewBox: '0 0 24 24', width: '1em', height: '1em' },
-    h('path', { fill: 'currentColor', d: 'M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z' }))
-
 const IconChevronDown = () =>
   h('svg', { xmlns: 'http://www.w3.org/2000/svg', viewBox: '0 0 24 24', width: '1em', height: '1em' },
     h('path', { fill: 'currentColor', d: 'M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z' }))
@@ -415,16 +327,7 @@ const IconThemeSettings = () =>
       d: 'M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z',
     }))
 
-interface BookListItem {
-  slug: string
-  title: string
-  stage: string
-  stage_label: string
-  genre: string
-  premise: string
-  chapter_count?: number
-  word_count?: number
-}
+interface BookListItem extends DeckBookItem {}
 
 const router = useRouter()
 const message = useMessage()
@@ -444,15 +347,13 @@ function handleSidebarCollapsedChange(isCollapsed: boolean) {
 const books = ref<BookListItem[]>([])
 const searchQuery = ref('')
 const deletingSlug = ref<string | null>(null)
+/** 删除确认弹层（书架卡片删除按钮触发） */
+const showDeleteConfirm = ref(false)
+const pendingDeleteBook = ref<BookListItem | null>(null)
 /** 新建书目弹层开关：大表单已从主页搬进对话框，主页保持一屏 */
 const createModalOpen = ref(false)
 /** 有值时挂载向导；与 show 分离，挂载后始终 :show="true"，避免 Modal 先 false 再 true 闪烁 */
 const setupWizard = ref<{ novelId: string; targetChapters: number } | null>(null)
-
-// Batch delete
-const selectedBooks = ref<string[]>([])
-const showBatchDeleteConfirm = ref(false)
-const batchDeleting = ref(false)
 
 const PREMISE_MAX_LEN = 2000
 
@@ -485,16 +386,6 @@ const filteredBooks = computed(() => {
   )
 })
 
-/** 页面展示：全量上页（流式网格，不截断不折叠） */
-
-const isAllSelected = computed(() => {
-  return filteredBooks.value.length > 0 && selectedBooks.value.length === filteredBooks.value.length
-})
-
-const isPartialSelected = computed(() => {
-  return selectedBooks.value.length > 0 && selectedBooks.value.length < filteredBooks.value.length
-})
-
 const fetchBooks = async () => {
   loading.value = true
   try {
@@ -510,6 +401,7 @@ const fetchBooks = async () => {
         genre: g,
         premise: (novel.premise || '').trim(),
         chapter_count: novel.chapters?.length || 0,
+        target_chapters: novel.target_chapters || 0,
         word_count: novel.total_word_count,
       }
     })
@@ -517,29 +409,6 @@ const fetchBooks = async () => {
     message.error('加载失败')
   } finally {
     loading.value = false
-  }
-}
-
-const formatWordCount = (count: number): string => {
-  if (count >= 10000) {
-    return (count / 10000).toFixed(1) + '万字'
-  }
-  return count + '字'
-}
-
-/** 类型色指纹：类型字符串哈希→稳定色相，同一类型永远同色，扫一眼能区分 */
-const genreChipStyle = (genre: string) => {
-  let hash = 0
-  for (let i = 0; i < genre.length; i++) {
-    hash = (hash * 31 + genre.charCodeAt(i)) | 0
-  }
-  // 色相限定在 200-330（蓝→紫→红区间，避开橙黄与成功/警告色撞色）；
-  // 描边压到 68% 亮度，保证盖在宣纸封面上有足够对比
-  const hue = 200 + (Math.abs(hash) % 130)
-  return {
-    color: `hsl(${hue}, 45%, 30%)`,
-    background: `hsl(${hue}, 70%, 95%)`,
-    borderColor: `hsl(${hue}, 45%, 68%)`,
   }
 }
 
@@ -621,8 +490,6 @@ const handleSetupSkip = () => {
 const navigateToBook = (novelId: string) => {
   // 未完成向导的书重新打开向导
   if (!isWizardCompleted(novelId)) {
-    // 查找该书的 target_chapters
-    const novel = books.value.find(b => b.slug === novelId)
     setupWizard.value = {
       novelId,
       targetChapters: 100, // 默认值，向导内部会从 API 获取真实值
@@ -632,66 +499,28 @@ const navigateToBook = (novelId: string) => {
   router.push(`/book/${novelId}/workbench`)
 }
 
-const handleDeleteBook = async (slug: string) => {
-  deletingSlug.value = slug
+/** 书架卡片删除按钮：弹确认框 */
+const requestDeleteBook = (slug: string) => {
+  pendingDeleteBook.value = books.value.find(b => b.slug === slug) || null
+  if (!pendingDeleteBook.value) return
+  showDeleteConfirm.value = true
+}
+
+const confirmDeleteBook = async () => {
+  const book = pendingDeleteBook.value
+  if (!book) return
+  deletingSlug.value = book.slug
   try {
-    await novelApi.deleteNovel(slug)
+    await novelApi.deleteNovel(book.slug)
     message.success('书目已删除')
-    books.value = books.value.filter(b => b.slug !== slug)
-    selectedBooks.value = selectedBooks.value.filter(s => s !== slug)
+    books.value = books.value.filter(b => b.slug !== book.slug)
     await statsStore.loadGlobalStats(true)
+    showDeleteConfirm.value = false
+    pendingDeleteBook.value = null
   } catch (error: unknown) {
     message.error(formatApiError(error, '删除失败'))
   } finally {
     deletingSlug.value = null
-  }
-}
-
-const toggleBookSelection = (slug: string, selected: boolean) => {
-  if (selected) {
-    if (!selectedBooks.value.includes(slug)) {
-      selectedBooks.value.push(slug)
-    }
-  } else {
-    selectedBooks.value = selectedBooks.value.filter(s => s !== slug)
-  }
-}
-
-const toggleSelectAll = (checked: boolean) => {
-  if (checked) {
-    selectedBooks.value = filteredBooks.value.map(b => b.slug)
-  } else {
-    selectedBooks.value = []
-  }
-}
-
-const handleBatchDelete = async () => {
-  batchDeleting.value = true
-  try {
-    let successCount = 0
-    let failCount = 0
-    
-    for (const slug of selectedBooks.value) {
-      try {
-        await novelApi.deleteNovel(slug)
-        successCount++
-      } catch {
-        failCount++
-      }
-    }
-    
-    if (successCount > 0) {
-      message.success(`成功删除 ${successCount} 本书目`)
-      books.value = books.value.filter(b => !selectedBooks.value.includes(b.slug))
-      selectedBooks.value = []
-      await statsStore.loadGlobalStats(true)
-    }
-    if (failCount > 0) {
-      message.warning(`${failCount} 本删除失败`)
-    }
-    showBatchDeleteConfirm.value = false
-  } finally {
-    batchDeleting.value = false
   }
 }
 
@@ -1021,21 +850,6 @@ onMounted(() => {
   width: 240px;
 }
 
-.selection-bar {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 12px 16px;
-  background: var(--app-surface-subtle);
-  border-radius: 10px;
-  margin-bottom: 20px;
-}
-
-.selection-hint {
-  font-size: 13px;
-  color: var(--app-text-muted);
-}
-
 .loading-state,
 .empty-state,
 .no-results-state {
@@ -1096,214 +910,6 @@ onMounted(() => {
   font-size: 14px;
 }
 
-/* ── 书目：流式网格全量上页 ── */
-.books-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 16px;
-}
-
-/* ═══ 书籍封面：品牌资产，颜色固定（宣纸+墨），不随主题换肤 ═══
-   规则参照 pw home-cockpit 设计契约：封面材质属于品牌资产，
-   浅色/暗色/黑金主题下都是同一副「摆在桌上的实体书」面孔；
-   状态色（阶段灯）例外，允许固定语义色。 */
-.book-card {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  min-height: 232px;
-  padding: 18px 24px 14px 20px; /* 右侧让出页缘厚度带 */
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.5), transparent 30%, rgba(255, 255, 255, 0.14) 74%),
-    linear-gradient(148deg, #f6f8f5, #dfe6df 58%, #e7ede8);
-  border: 1px solid rgba(24, 36, 30, 0.16);
-  border-radius: 10px;
-  color: #1a221d;
-  cursor: pointer;
-  box-shadow:
-    inset 0 1px rgba(255, 255, 255, 0.6),
-    inset 1px 0 rgba(255, 255, 255, 0.28),
-    0 6px 14px -6px rgba(15, 23, 42, 0.18);
-  transition: transform 0.24s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.24s ease, border-color 0.2s ease;
-  animation: fade-up 0.35s ease both;
-  overflow: hidden;
-}
-
-/* 悬停：整册书离桌面浮起，投影接地加深 */
-.book-card:hover {
-  transform: translateY(-4px);
-  border-color: rgba(255, 255, 255, 0.85);
-  box-shadow:
-    inset 0 1px rgba(255, 255, 255, 0.7),
-    0 16px 26px -10px rgba(15, 23, 42, 0.3);
-}
-
-/* 选中：品牌色描环 */
-.book-card.is-selected {
-  border-color: var(--color-brand);
-  box-shadow:
-    0 0 0 2px color-mix(in srgb, var(--color-brand) 35%, transparent),
-    0 10px 20px -8px rgba(15, 23, 42, 0.22);
-}
-
-/* 右缘纸页厚度：页层线 + 暖纸渐变，材质属于封面 */
-.book-card::after {
-  content: '';
-  position: absolute;
-  top: 3px;
-  bottom: 3px;
-  right: 0;
-  width: 8px;
-  background:
-    repeating-linear-gradient(90deg, transparent 0 2px, rgba(88, 104, 94, 0.2) 2px 3px),
-    linear-gradient(90deg, #cfd8d1, #f2f6f3 26%, #d8e0da 78%, #b8c2bb);
-  border-left: 1px solid rgba(24, 36, 30, 0.12);
-  pointer-events: none;
-}
-
-/* 阶段状态小圆点 */
-.book-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  display: inline-block;
-}
-
-.book-dot.dot-planning { background: #3b82f6; }
-.book-dot.dot-writing { background: #f59e0b; }
-.book-dot.dot-reviewing { background: #8b5cf6; }
-.book-dot.dot-completed { background: #10b981; }
-
-/* 卡片顶行：阶段灯+阶段名 | 右侧类型色指纹 */
-.card-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 12px;
-  min-height: 22px;
-}
-
-.stage-line {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-}
-
-/* 悬停时类型指纹退场，让位给操作行（同位置淡入淡出） */
-.genre-chip {
-  transition: opacity 0.18s ease;
-}
-
-.book-card:hover .genre-chip {
-  opacity: 0;
-}
-
-.stage-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: rgba(30, 38, 33, 0.66);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.genre-chip {
-  flex-shrink: 0;
-  max-width: 45%;
-  padding: 2px 9px;
-  border: 1px solid;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* 书名：宋体书脊感，两行截断（墨色固定，封面资产） */
-.book-card-title {
-  margin: 0 0 6px;
-  font-family: 'Noto Serif SC', 'Songti SC', 'SimSun', serif;
-  font-size: 17px;
-  font-weight: 700;
-  line-height: 1.4;
-  color: #1c2621;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-/* 梗概摘要：两行淡出填中段（褪墨色） */
-.card-premise {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.65;
-  color: rgba(30, 38, 33, 0.62);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  flex: 1;
-}
-
-/* 版权页式数据区：大数字 + 小标签，虚线分隔，沉底（墨色固定） */
-.card-stats {
-  display: flex;
-  align-items: flex-end;
-  gap: 14px;
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px dashed rgba(24, 36, 30, 0.22);
-}
-
-.stat-block {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-
-.stat-value {
-  font-size: 21px;
-  font-weight: 700;
-  line-height: 1.15;
-  color: #1c2621;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.01em;
-}
-
-.stat-label {
-  font-size: 10px;
-  color: rgba(30, 38, 33, 0.55);
-  letter-spacing: 0.12em;
-}
-
-.stat-divider {
-  width: 1px;
-  height: 26px;
-  background: rgba(24, 36, 30, 0.22);
-  margin-bottom: 3px;
-}
-
-/* 卡片操作行：悬停浮现 */
-.card-actions {
-  position: absolute;
-  top: 12px;
-  right: 14px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  opacity: 0;
-  transition: opacity 0.18s ease;
-}
-
-.book-card:hover .card-actions {
-  opacity: 1;
-}
 
 @keyframes fade-up {
   from {
@@ -1330,8 +936,8 @@ onMounted(() => {
   position: relative;
   z-index: 1;
   text-align: center;
-  padding: 28px 20px 32px;
-  margin-top: 40px;
+  padding: 20px 20px 24px;
+  margin-top: 24px;
   border-top: 1px solid var(--app-border);
   display: flex;
   align-items: center;
@@ -1397,9 +1003,6 @@ onMounted(() => {
     width: 100%;
   }
 
-  .card-actions {
-    opacity: 1; /* 移动端始终显示操作按钮 */
-  }
 }
 
 </style>
