@@ -49,6 +49,12 @@
               <span class="book-count" v-if="!loading">{{ filteredBooks.length }} 本</span>
             </div>
             <div class="section-right">
+              <n-button tertiary round @click="showLibrary = true" class="library-btn">
+                <template #icon>
+                  <n-icon><IconLibrary /></n-icon>
+                </template>
+                全部书目
+              </n-button>
               <n-button type="primary" round @click="openCreateModal" class="new-book-btn">
                 <template #icon>
                   <n-icon><IconSpark /></n-icon>
@@ -108,7 +114,7 @@
               :loading="loading"
               :busy="Boolean(deletingSlug)"
               @open="navigateToBook"
-              @delete="requestDeleteBook"
+              @delete="requestDeleteBooks([$event])"
               @new-book="openCreateModal"
             />
           </template>
@@ -245,20 +251,37 @@
       </template>
     </n-modal>
 
-    <!-- 删除确认（书架卡片删除按钮触发） -->
+    <!-- 书目录弹层（自 pw fe HomeLibraryModal 移植）：搜索/批量管理/删除 -->
+    <LibraryModal
+      v-model:show="showLibrary"
+      :books="books"
+      :deleting-slug="deletingSlug"
+      @open="navigateToBook"
+      @request-delete="requestDeleteBooks"
+      @new-book="openCreateModal"
+    />
+
+    <!-- 删除确认（书架卡片/目录弹层触发，支持单本与批量） -->
     <n-modal
       v-model:show="showDeleteConfirm"
       preset="confirm"
       type="error"
-      title="删除书目"
+      :title="`删除书目${pendingDeleteBooks.length > 1 ? `（${pendingDeleteBooks.length} 本）` : ''}`"
     >
       <template #default>
-        将删除 <strong>《{{ pendingDeleteBook?.title }}》</strong> 及本地全部章节与设定，此操作不可恢复。
+        <template v-if="pendingDeleteBooks.length === 1">
+          将删除 <strong>《{{ pendingDeleteBooks[0].title }}》</strong> 及本地全部章节与设定，此操作不可恢复。
+        </template>
+        <template v-else>
+          将删除 <strong>{{ pendingDeleteBooks.length }}</strong> 本书（{{
+            pendingDeleteBooks.slice(0, 3).map(b => `《${b.title}》`).join('、')
+          }}<template v-if="pendingDeleteBooks.length > 3">等</template>）及各自全部章节与设定，此操作不可恢复。
+        </template>
       </template>
       <template #action>
         <n-space>
           <n-button @click="showDeleteConfirm = false">取消</n-button>
-          <n-button type="error" :loading="Boolean(deletingSlug)" @click="confirmDeleteBook">确认删除</n-button>
+          <n-button type="error" :loading="deleting" @click="confirmDeleteBooks">确认删除</n-button>
         </n-space>
       </template>
     </n-modal>
@@ -287,6 +310,7 @@ import { isWizardCompleted } from '@/utils/wizardStageCache'
 import StatsSidebar from '@/components/stats/StatsSidebar.vue'
 import BrandMark from '@/components/brand/BrandMark.vue'
 import ProjectDeck, { type DeckBookItem } from '@/components/home/ProjectDeck.vue'
+import LibraryModal from '@/components/home/LibraryModal.vue'
 import { useAppSettingsShellStore } from '@/stores/appSettingsShellStore'
 import { parseGenreWorldFromPremise } from '@/utils/premisePresets'
 import { useStatsStore } from '@/stores/statsStore'
@@ -310,6 +334,10 @@ const NovelSetupGuide = defineAsyncComponent(
 const IconSpark = () =>
   h('svg', { xmlns: 'http://www.w3.org/2000/svg', viewBox: '0 0 24 24', width: '1em', height: '1em' },
     h('path', { fill: 'currentColor', d: 'M13 2L3 14h8l-1 8 10-12h-8l1-8z' }))
+
+const IconLibrary = () =>
+  h('svg', { xmlns: 'http://www.w3.org/2000/svg', viewBox: '0 0 24 24', width: '1em', height: '1em' },
+    h('path', { fill: 'currentColor', d: 'M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-9 12V6h7v2h-5v2h5v2h-5v2h5v2h-7z' }))
 
 const IconSearch = () =>
   h('svg', { xmlns: 'http://www.w3.org/2000/svg', viewBox: '0 0 24 24', width: '1em', height: '1em' },
@@ -351,9 +379,13 @@ function handleSidebarCollapsedChange(isCollapsed: boolean) {
 const books = ref<BookListItem[]>([])
 const searchQuery = ref('')
 const deletingSlug = ref<string | null>(null)
-/** 删除确认弹层（书架卡片删除按钮触发） */
+/** 删除中（批量删除时确认按钮转圈） */
+const deleting = ref(false)
+/** 删除确认弹层（书架卡片/目录弹层触发） */
 const showDeleteConfirm = ref(false)
-const pendingDeleteBook = ref<BookListItem | null>(null)
+const pendingDeleteBooks = ref<BookListItem[]>([])
+/** 全部书目（书目录）弹层：书架管「当下在读」，这里管全部藏书 */
+const showLibrary = ref(false)
 /** 新建书目弹层开关：大表单已从主页搬进对话框，主页保持一屏 */
 const createModalOpen = ref(false)
 /** 有值时挂载向导；与 show 分离，挂载后始终 :show="true"，避免 Modal 先 false 再 true 闪烁 */
@@ -503,29 +535,46 @@ const navigateToBook = (novelId: string) => {
   router.push(`/book/${novelId}/workbench`)
 }
 
-/** 书架卡片删除按钮：弹确认框 */
-const requestDeleteBook = (slug: string) => {
-  pendingDeleteBook.value = books.value.find(b => b.slug === slug) || null
-  if (!pendingDeleteBook.value) return
+/** 删除入口（书架卡片单本 / 目录弹层单本或批量）：先弹确认框 */
+const requestDeleteBooks = (slugs: string[]) => {
+  const unique = Array.from(new Set(slugs.filter(Boolean)))
+  pendingDeleteBooks.value = books.value.filter(b => unique.includes(b.slug))
+  if (!pendingDeleteBooks.value.length) return
   showDeleteConfirm.value = true
 }
 
-const confirmDeleteBook = async () => {
-  const book = pendingDeleteBook.value
-  if (!book) return
-  deletingSlug.value = book.slug
-  try {
-    await novelApi.deleteNovel(book.slug)
-    message.success('书目已删除')
-    books.value = books.value.filter(b => b.slug !== book.slug)
-    await statsStore.loadGlobalStats(true)
-    showDeleteConfirm.value = false
-    pendingDeleteBook.value = null
-  } catch (error: unknown) {
-    message.error(formatApiError(error, '删除失败'))
-  } finally {
-    deletingSlug.value = null
+const confirmDeleteBooks = async () => {
+  if (!pendingDeleteBooks.value.length) return
+  const pendingSlugs = new Set(pendingDeleteBooks.value.map(b => b.slug))
+  deleting.value = true
+  // 1. 逐本串行删除：后端无批量接口；失败不中断，最后统一报数
+  let successCount = 0
+  let failCount = 0
+  const failed: BookListItem[] = []
+  for (const book of pendingDeleteBooks.value) {
+    deletingSlug.value = book.slug
+    try {
+      await novelApi.deleteNovel(book.slug)
+      successCount += 1
+    } catch {
+      failCount += 1
+      failed.push(book)
+    }
   }
+  // 2. 本地列表只移走删成功的；失败的留在架上（防止误清整个书架）
+  const failedSlugs = new Set(failed.map(b => b.slug))
+  if (successCount) {
+    books.value = books.value.filter(
+      b => failedSlugs.has(b.slug) || !pendingSlugs.has(b.slug)
+    )
+    await statsStore.loadGlobalStats(true)
+  }
+  deletingSlug.value = null
+  pendingDeleteBooks.value = []
+  showDeleteConfirm.value = false
+  if (successCount) message.success(`已删除 ${successCount} 本书`)
+  if (failCount) message.warning(`${failCount} 本书删除失败`)
+  deleting.value = false
 }
 
 /** 打开新建书目弹层（侧边栏/空态/区头按钮共用入口） */
