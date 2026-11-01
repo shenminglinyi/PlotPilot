@@ -472,7 +472,8 @@ onUnmounted(() => {
 
 .project-deck {
   position: relative;
-  min-height: 0;
+  /* 卡片 absolute 不撑高：舞台必须自带腔体，否则 3D 场景以 0 高容器塌陷 */
+  min-height: 400px;
   overflow: hidden;
   outline: none;
   perspective: 1180px;
