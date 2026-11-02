@@ -80,6 +80,7 @@ function naiveShapeOverrides(fz: FontSizePreset): GlobalThemeOverrides {
   const sb = scaledUiPx(NAIVE_DENSITY_BASE.scrollbarWidth, fz)
   return {
     common: {
+      fontFamily: 'var(--font-sans)',
       borderRadius: r,
       borderRadiusSmall: rs,
       fontSize: scaledUiPx(NAIVE_DENSITY_BASE.fontSize, fz),

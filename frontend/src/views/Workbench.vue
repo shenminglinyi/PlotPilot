@@ -32,8 +32,7 @@
                 direction="horizontal"
                 :min="WORKBENCH_SPLIT.mainMin"
                 :max="WORKBENCH_SPLIT.mainMax"
-                :size="mainSplitSize"
-                @update:size="onMainSplitSizeUpdate"
+                :default-size="WORKBENCH_SPLIT.mainDefault"
               >
                 <template #1>
                   <WorkArea
@@ -177,11 +176,6 @@ const handlePlanAct = (actId: string, actTitle: string) => {
 
 const rightCollapsed = ref(readStorageBoolean(storageKeys.workbenchRightPanelCollapsed))
 
-const WORKSPACE_RIGHT_PANELS = new Set(['knowledge', 'sandbox', 'story-evolution'])
-const standardMainSplitSize = ref<number>(WORKBENCH_SPLIT.mainDefault)
-const workspaceMainSplitSize = ref<number>(WORKBENCH_SPLIT.mainWorkspaceDefault)
-const mainSplitSize = ref<number>(WORKBENCH_SPLIT.mainDefault)
-
 function toggleRight() {
   rightCollapsed.value = !rightCollapsed.value
   writeStorageBoolean(storageKeys.workbenchRightPanelCollapsed, rightCollapsed.value)
@@ -213,17 +207,6 @@ const currentChapter = computed(() => {
 
 function onSettingsPanelChange(panel: string) {
   rightPanel.value = panel
-}
-
-const usesWorkspaceRightPanel = computed(() => WORKSPACE_RIGHT_PANELS.has(rightPanel.value))
-
-function onMainSplitSizeUpdate(size: number) {
-  mainSplitSize.value = size
-  if (usesWorkspaceRightPanel.value) {
-    workspaceMainSplitSize.value = size
-  } else {
-    standardMainSplitSize.value = size
-  }
 }
 
 function parseChapterQuery(q: unknown): number | null {
@@ -272,16 +255,6 @@ watch(
   () => {
     void syncChapterFromRoute()
   }
-)
-
-watch(
-  usesWorkspaceRightPanel,
-  expanded => {
-    mainSplitSize.value = expanded
-      ? workspaceMainSplitSize.value
-      : standardMainSplitSize.value
-  },
-  { immediate: true },
 )
 
 watch(

@@ -3,6 +3,7 @@ import axios, { type AxiosError, type AxiosRequestConfig } from 'axios'
 import { runtimePerformance } from '../config/performance'
 import { emitAxiosFeedbackIncident } from '../support/feedbackNotifier'
 import { apiRoutes } from './endpoints'
+import { isTauriRuntime } from '@/utils/tauriRuntime'
 
 // ---------------------------------------------------------------------------
 // 单一数据源：axiosInstance.defaults.baseURL
@@ -11,23 +12,6 @@ import { apiRoutes } from './endpoints'
 // fetch / EventSource 使用 resolveHttpUrl()，从同一 baseURL 推导 origin。
 // Legacy `/api`（非 v1）使用 legacyBookHttp / legacyStatsHttp，由 syncLegacyRootsFromV1 同步主机。
 // ---------------------------------------------------------------------------
-let _isTauri: boolean | null = null
-
-function isTauri(): boolean {
-  if (_isTauri === null) {
-    if (typeof window === 'undefined') {
-      _isTauri = false
-    } else {
-      const w = window as Window & {
-        __TAURI__?: unknown
-        __TAURI_INTERNALS__?: unknown
-      }
-      _isTauri = !!(w.__TAURI__ || w.__TAURI_INTERNALS__)
-    }
-  }
-  return _isTauri
-}
-
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1'
 
 const axiosInstance = axios.create({
@@ -101,7 +85,7 @@ export function resolveHttpUrl(absolutePathFromRoot: string): string {
 }
 
 async function initTauriConnection(): Promise<void> {
-  if (!isTauri()) {
+  if (!isTauriRuntime()) {
     return
   }
   console.log(`[Tauri] API baseURL: ${axiosInstance.defaults.baseURL}`)
@@ -173,7 +157,7 @@ async function waitForTauriBackendHealth(port: number, maxWaitMs: number, interv
 let tauriBackendReadyPromise: Promise<void> | null = null
 
 async function ensureTauriBackendReady(): Promise<void> {
-  if (!isTauri() || hasConcreteTauriBackendBaseUrl()) {
+  if (!isTauriRuntime() || hasConcreteTauriBackendBaseUrl()) {
     return
   }
   if (tauriBackendReadyPromise) {
@@ -220,7 +204,7 @@ export async function initApiClient(): Promise<void> {
     const first = await invoke<number>('get_backend_port')
     if (first > 0) {
       port = first
-    } else if (isTauri()) {
+    } else if (isTauriRuntime()) {
       console.log('[API] 等待后端就绪...')
       port = await waitForTauriBackendPort(
         cmd => invoke<number>(cmd),
@@ -246,7 +230,7 @@ export async function initApiClient(): Promise<void> {
       axiosInstance.defaults.baseURL = API_BASE_URL
       console.warn('[API] 后端健康检查未通过，等待请求门禁继续处理')
     }
-  } else if (isTauri()) {
+  } else if (isTauriRuntime()) {
     console.warn('[API] Tauri 下未能通过 IPC 取得端口，等待请求门禁继续处理')
   }
 

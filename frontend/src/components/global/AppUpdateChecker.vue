@@ -2,33 +2,38 @@
   <!-- 应用自更新（仅 Tauri 桌面模式；浏览器渲染 null）。
        启动即静默检查 + 每 4 小时复查；发现新版本右下角浮条推送，
        下载带进度，装完 relaunch。 -->
-  <teleport v-if="banner" to="body">
+  <teleport v-if="showBanner" to="body">
     <div class="app-update-tray" role="status" aria-live="polite">
       <div class="app-update-card">
         <div class="app-update-head">
-          <span class="app-update-dot" :class="{ 'is-downloading': state === 'downloading' }" />
+          <span class="app-update-dot" :class="{ 'is-downloading': status === 'downloading' }" />
           <div class="app-update-title">
-            <template v-if="state === 'downloading'">
-              正在下载 {{ banner.version }} · {{ progressText }}
+            <template v-if="status === 'downloading'">
+              正在下载 {{ availableVersion }} · {{ progressText }}
             </template>
-            <template v-else-if="state === 'installing'">正在安装，即将重启…</template>
-            <template v-else-if="state === 'error'">更新失败</template>
-            <template v-else>发现新版本 {{ banner.version }}</template>
+            <template v-else-if="status === 'ready'">{{ availableVersion }} 已准备好</template>
+            <template v-else-if="status === 'installing'">正在安全退出并安装…</template>
+            <template v-else-if="status === 'error'">更新失败</template>
+            <template v-else>发现新版本 {{ availableVersion }}</template>
           </div>
-          <button v-if="state === 'available'" type="button" class="app-update-close" aria-label="暂不更新" @click="dismiss">×</button>
+          <button v-if="status === 'available'" type="button" class="app-update-close" aria-label="暂不更新" @click="dismiss">×</button>
         </div>
-        <p v-if="state === 'error'" class="app-update-note error">{{ errorText }}</p>
-        <p v-else-if="state === 'downloading'" class="app-update-note">
+        <p v-if="status === 'error'" class="app-update-note error">{{ errorText }}</p>
+        <p v-else-if="status === 'downloading'" class="app-update-note">
           <span class="app-update-progress"><i :style="{ width: progressPct + '%' }" /></span>
         </p>
-        <p v-else-if="banner?.body" class="app-update-note">{{ banner.body }}</p>
-        <div v-if="state === 'available'" class="app-update-actions">
+        <p v-else-if="status === 'ready'" class="app-update-note">安装前会安全关闭写作后端并保存数据库，然后重启应用。</p>
+        <p v-else-if="releaseNotes" class="app-update-note">{{ releaseNotes }}</p>
+        <div v-if="status === 'available'" class="app-update-actions">
           <button type="button" class="app-update-btn ghost" @click="dismiss">稍后提醒</button>
-          <button type="button" class="app-update-btn primary" @click="downloadAndInstall">立即更新</button>
+          <button type="button" class="app-update-btn primary" @click="downloadUpdate">下载更新</button>
         </div>
-        <div v-else-if="state === 'error'" class="app-update-actions">
+        <div v-else-if="status === 'ready'" class="app-update-actions">
+          <button type="button" class="app-update-btn primary" @click="installAndRestart">安装并重启</button>
+        </div>
+        <div v-else-if="status === 'error'" class="app-update-actions">
           <button type="button" class="app-update-btn ghost" @click="dismiss">关闭</button>
-          <button type="button" class="app-update-btn primary" @click="downloadAndInstall">重试</button>
+          <button type="button" class="app-update-btn primary" @click="checkForUpdate({ manual: true })">重试</button>
         </div>
       </div>
     </div>
@@ -36,90 +41,35 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { check, type Update } from '@tauri-apps/plugin-updater'
-import { relaunch } from '@tauri-apps/plugin-process'
+import { computed, onBeforeUnmount, onMounted } from 'vue'
+import { storeToRefs } from 'pinia'
+import { useAppUpdateStore } from '@/stores/appUpdateStore'
 
-type UpdateState = 'available' | 'downloading' | 'installing' | 'error'
+const updater = useAppUpdateStore()
+const {
+  status,
+  availableVersion,
+  releaseNotes,
+  progressPct,
+  progressText,
+  errorText,
+} = storeToRefs(updater)
+const { checkForUpdate, dismiss, downloadUpdate, initialize, installAndRestart } = updater
 
-/** 桌面壳检测：与 api/config.ts 同款探测，避免循环依赖 */
-function isTauriRuntime(): boolean {
-  if (typeof window === 'undefined') return false
-  const w = window as Window & { __TAURI__?: unknown; __TAURI_INTERNALS__?: unknown }
-  return !!(w.__TAURI__ || w.__TAURI_INTERNALS__)
-}
-
-const banner = ref<Update | null>(null)
-const state = ref<UpdateState>('available')
-const errorText = ref('')
-const receivedBytes = ref(0)
-const totalBytes = ref(0)
-
-const progressPct = computed(() => {
-  if (totalBytes.value <= 0) return 0
-  return Math.min(100, Math.round((receivedBytes.value / totalBytes.value) * 100))
-})
-const progressText = computed(() => {
-  if (totalBytes.value > 0) {
-    return `${(receivedBytes.value / 1048576).toFixed(1)} / ${(totalBytes.value / 1048576).toFixed(1)} MB`
-  }
-  return `${(receivedBytes.value / 1048576).toFixed(1)} MB`
-})
+const showBanner = computed(() => (
+  status.value === 'available'
+  || status.value === 'downloading'
+  || status.value === 'ready'
+  || status.value === 'installing'
+  || (status.value === 'error' && Boolean(availableVersion.value))
+))
 
 let periodicTimer: ReturnType<typeof setInterval> | undefined
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000
 
-// 1. 启动静默检查 + 周期复查；失败静默（离线/无发布都正常，不打扰）
-async function checkForUpdate(): Promise<void> {
-  if (!isTauriRuntime() || state.value === 'downloading' || state.value === 'installing') return
-  try {
-    const update = await check()
-    if (update) {
-      banner.value = update
-      state.value = 'available'
-    }
-  } catch {
-    // 网络不可达 / 端点未发布：静默，下轮再查
-  }
-}
-
-// 2. 下载并安装：进度回调驱动进度条；完成后 relaunch 进新版本
-async function downloadAndInstall(): Promise<void> {
-  const update = banner.value
-  if (!update || state.value === 'downloading' || state.value === 'installing') return
-  state.value = 'downloading'
-  errorText.value = ''
-  try {
-    await update.downloadAndInstall((event) => {
-      switch (event.event) {
-        case 'Started':
-          totalBytes.value = event.data.contentLength ?? 0
-          break
-        case 'Progress':
-          receivedBytes.value += event.data.chunkLength
-          break
-        case 'Finished':
-          break
-      }
-    })
-    state.value = 'installing'
-    await relaunch()
-  } catch (e: unknown) {
-    state.value = 'error'
-    const msg = e instanceof Error ? e.message : String(e)
-    errorText.value = msg || '下载或安装失败，请检查网络后重试'
-  }
-}
-
-function dismiss(): void {
-  banner.value = null
-  state.value = 'available'
-  errorText.value = ''
-}
-
 onMounted(() => {
-  if (!isTauriRuntime()) return
-  void checkForUpdate()
+  if (!updater.desktopRuntime) return
+  void initialize().then(() => checkForUpdate())
   periodicTimer = setInterval(() => void checkForUpdate(), CHECK_INTERVAL_MS)
 })
 
@@ -178,8 +128,8 @@ onBeforeUnmount(() => {
 .app-update-title {
   flex: 1;
   min-width: 0;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
   color: var(--app-text-primary, #0f172a);
   white-space: nowrap;
   overflow: hidden;
@@ -190,7 +140,7 @@ onBeforeUnmount(() => {
   flex: none;
   border: none;
   background: transparent;
-  font-size: 18px;
+  font-size: var(--font-size-xl);
   line-height: 1;
   color: var(--app-text-muted, #64748b);
   cursor: pointer;
@@ -203,7 +153,7 @@ onBeforeUnmount(() => {
 
 .app-update-note {
   margin: 8px 0 0;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   line-height: 1.5;
   color: var(--app-text-muted, #64748b);
   display: -webkit-box;
@@ -243,8 +193,8 @@ onBeforeUnmount(() => {
   border: none;
   border-radius: 8px;
   padding: 6px 14px;
-  font-size: 12.5px;
-  font-weight: 600;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
   cursor: pointer;
   transition: filter 0.15s ease, opacity 0.15s ease;
 }
