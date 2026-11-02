@@ -311,52 +311,55 @@
       </section>
     </div>
 
-    <!-- 传统时间轴详情模式 -->
-    <n-split
-      v-else
-      direction="horizontal"
-      :default-size="0.24"
-      :min="0.17"
-      :max="0.34"
-    >
-      <!-- 左栏：故事导航 -->
-      <template #1>
+    <div v-else class="story-timeline-workspace">
+      <div class="story-timeline-toolbar">
+        <n-button-group size="small">
+          <n-button :type="timelineView === 'navigator' ? 'primary' : 'default'" @click="timelineView = 'navigator'">
+            故事线
+          </n-button>
+          <n-button :type="timelineView === 'timeline' ? 'primary' : 'default'" @click="timelineView = 'timeline'">
+            时间线
+          </n-button>
+          <n-button
+            :type="timelineView === 'detail' ? 'primary' : 'default'"
+            :disabled="!selectedItem"
+            @click="timelineView = 'detail'"
+          >
+            事件详情
+          </n-button>
+        </n-button-group>
+        <n-tag v-if="highlightRange" size="small" :bordered="false" type="info">
+          第 {{ highlightRange.start }}–{{ highlightRange.end }} 章
+        </n-tag>
+      </div>
+
+      <div class="story-timeline-stage">
         <StoryNavigator
+          v-if="timelineView === 'navigator'"
           :slug="slug"
           :current-chapter="currentChapter"
           :evolution-bundle="bundle"
           :evolution-loading="bundleLoading"
           @select-storyline="onSelectStoryline"
         />
-      </template>
-
-      <!-- 中栏 + 右栏 -->
-      <template #2>
-        <n-split direction="horizontal" :default-size="0.55" :min="0.40" :max="0.68">
-          <!-- 中栏：时间轴 -->
-          <template #1>
-            <StoryTimeline
-              :slug="slug"
-              :highlight-range="highlightRange"
-              :chronicles-from-bundled-parent="true"
-              :bundled-chronicle-rows="bundledChronicleRows"
-              @select-event="onSelectEvent"
-              @select-snapshot="onSelectSnapshot"
-              @request-bundle-refresh="loadBundle"
-            />
-          </template>
-
-          <!-- 右栏：详情面板 -->
-          <template #2>
-            <StoryDetailPanel
-              :slug="slug"
-              :selected-item="selectedItem"
-              @refresh="onCheckpointRestored"
-            />
-          </template>
-        </n-split>
-      </template>
-    </n-split>
+        <StoryTimeline
+          v-else-if="timelineView === 'timeline'"
+          :slug="slug"
+          :highlight-range="highlightRange"
+          :chronicles-from-bundled-parent="true"
+          :bundled-chronicle-rows="bundledChronicleRows"
+          @select-event="onSelectEvent"
+          @select-snapshot="onSelectSnapshot"
+          @request-bundle-refresh="loadBundle"
+        />
+        <StoryDetailPanel
+          v-else
+          :slug="slug"
+          :selected-item="selectedItem"
+          @refresh="onCheckpointRestored"
+        />
+      </div>
+    </div>
   </div>
 </template>
 
@@ -393,6 +396,7 @@ const bundleLoading = ref(false)
 
 // 活跃 tab
 const activeTab = ref<'command' | 'state' | 'timeline' | 'worldline'>('command')
+const timelineView = ref<'navigator' | 'timeline' | 'detail'>('timeline')
 
 // 高亮范围（选中故事线时高亮对应章节）
 const highlightRange = ref<{ start: number; end: number } | null>(null)
@@ -771,16 +775,19 @@ function onSelectStoryline(storyline: { startChapter: number; endChapter: number
     start: storyline.startChapter,
     end: storyline.endChapter,
   }
+  timelineView.value = 'timeline'
 }
 
 // 选中剧情事件
 function onSelectEvent(event: any) {
   selectedItem.value = { type: 'event', data: event }
+  timelineView.value = 'detail'
 }
 
 // 选中快照
 function onSelectSnapshot(snapshot: any) {
   selectedItem.value = { type: 'snapshot', data: snapshot }
+  timelineView.value = 'detail'
 }
 
 /** 快照回滚等：与 Workbench 整桌同步（章节树、正文、伏笔 tick 等） */
@@ -860,16 +867,37 @@ function openCharacterAnchor() {
   min-width: 76px;
 }
 
-.story-evolution-panel :deep(.n-split) {
+.story-timeline-workspace {
   flex: 1;
   min-height: 0;
-  height: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
-.story-evolution-panel :deep(.n-split-pane-1),
-.story-evolution-panel :deep(.n-split-pane-2) {
+.story-timeline-toolbar {
+  flex-shrink: 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--app-border);
+  background: var(--app-surface);
+}
+
+.story-timeline-stage {
+  flex: 1;
   min-height: 0;
   overflow: hidden;
+}
+
+.story-timeline-stage > * {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
 }
 
 .evolution-command {
