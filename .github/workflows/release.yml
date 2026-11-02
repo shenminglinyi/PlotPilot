@@ -15,6 +15,7 @@ concurrency:
 jobs:
   publish-windows:
     name: Build, sign and publish Windows
+    if: ${{ vars.ENABLE_SIGNED_UPDATES == 'true' }}
     runs-on: windows-latest
     timeout-minutes: 90
 
