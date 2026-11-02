@@ -4,8 +4,7 @@
       <div class="kp-hero-copy">
         <h3 class="kp-title">侧栏资料</h3>
         <p class="kp-lead">
-          可在「检索与编辑」「叙事知识」「关系图」间切换：检索与编辑含全书知识检索、三元组图谱与表格编辑；叙事含<strong>分章叙事</strong>与实体状态；<strong>梗概锁定已迁至右侧「剧本基建 → 作品设定」</strong>。<strong>关系图从知识库三元组自动生成</strong>（人物网 / 地点图全页与工作台均可打开「三元组表格」编辑）。书目级梗概以
-          <strong>manifest</strong> 为准。
+          检索全书事实、维护章节叙事，或进入全页关系图。复杂图谱不在侧栏内渲染。
         </p>
       </div>
       <n-space v-show="sideTab === 'narrative'" :size="8" align="center" style="flex-shrink:0">
@@ -229,10 +228,20 @@
         </div>
         <p class="kp-section-hint">章标题来自书目大纲；每章含节拍子段、章末总结与同步状态。</p>
 
-        <div class="kp-chapters">
+        <div class="kp-chapter-picker">
+          <n-select
+            v-model:value="selectedChapterId"
+            :options="chapterOptions"
+            size="small"
+            filterable
+            placeholder="选择要编辑的章节"
+          />
+          <span class="kp-chapter-count">共 {{ sortedChapters.length }} 章</span>
+        </div>
+
+        <div v-if="selectedChapter" class="kp-chapters">
           <n-card
-            v-for="ch in sortedChapters"
-            :key="ch.chapter_id"
+            :key="selectedChapter.chapter_id"
             size="small"
             class="kp-card kp-ch-card"
             :bordered="false"
@@ -240,11 +249,11 @@
             <template #header>
               <div class="kp-ch-head">
                 <div class="kp-ch-title">
-                  <span class="kp-ch-num">第 {{ ch.chapter_id }} 章</span>
-                  <span v-if="chapterTitle(ch.chapter_id)" class="kp-ch-outline">{{ chapterTitle(ch.chapter_id) }}</span>
+                  <span class="kp-ch-num">第 {{ selectedChapter.chapter_id }} 章</span>
+                  <span v-if="chapterTitle(selectedChapter.chapter_id)" class="kp-ch-outline">{{ chapterTitle(selectedChapter.chapter_id) }}</span>
                 </div>
                 <n-select
-                  v-model:value="ch.sync_status"
+                  v-model:value="selectedChapter.sync_status"
                   size="tiny"
                   class="kp-sync-select"
                   :options="syncOptions"
@@ -256,7 +265,7 @@
               <div class="kp-field">
                 <label class="kp-label">大纲下子段落 · 节拍</label>
                 <n-dynamic-input
-                  v-model:value="ch.beat_sections"
+                  v-model:value="selectedChapter.beat_sections"
                   :min="0"
                   :on-create="() => ''"
                   placeholder="每行一条：如「夜袭前奏 · 主角与 X 对峙」"
@@ -267,7 +276,7 @@
               <div class="kp-field">
                 <label class="kp-label">章末总结</label>
                 <n-input
-                  v-model:value="ch.summary"
+                  v-model:value="selectedChapter.summary"
                   type="textarea"
                   :autosize="{ minRows: 3, maxRows: 12 }"
                   placeholder="本章收束叙述，供上下文与工具对齐…"
@@ -279,7 +288,7 @@
                 <div class="kp-field">
                   <label class="kp-label">人物与关键事件</label>
                   <n-input
-                    v-model:value="ch.key_events"
+                    v-model:value="selectedChapter.key_events"
                     type="textarea"
                     :autosize="{ minRows: 2, maxRows: 8 }"
                     placeholder="与关系图人物名一致，便于图谱与叙事对齐…"
@@ -289,7 +298,7 @@
                 <div class="kp-field">
                   <label class="kp-label">埋线 / 未解</label>
                   <n-input
-                    v-model:value="ch.open_threads"
+                    v-model:value="selectedChapter.open_threads"
                     type="textarea"
                     :autosize="{ minRows: 2, maxRows: 8 }"
                     placeholder="伏笔、未解问题…"
@@ -301,7 +310,7 @@
               <div class="kp-field">
                 <label class="kp-label">一致性说明</label>
                 <n-input
-                  v-model:value="ch.consistency_note"
+                  v-model:value="selectedChapter.consistency_note"
                   type="textarea"
                   :autosize="{ minRows: 2, maxRows: 6 }"
                   placeholder="与前章 / 大纲 / 梗概锁定的对齐说明…"
@@ -310,10 +319,10 @@
               </div>
 
               <div class="kp-ch-foot">
-                <n-button size="tiny" quaternary type="error" @click="removeChapterById(ch.chapter_id)">
+                <n-button size="tiny" quaternary type="error" @click="removeChapterById(selectedChapter.chapter_id)">
                   移除此章条目
                 </n-button>
-                <n-button size="tiny" quaternary @click="goCastChapter(ch.chapter_id)">全页关系网 · 本章</n-button>
+                <n-button size="tiny" quaternary @click="goCastChapter(selectedChapter.chapter_id)">全页关系网 · 本章</n-button>
               </div>
             </div>
           </n-card>
@@ -379,32 +388,21 @@
     </div>
 
     <div v-if="sideTab === 'graph'" class="kp-graph-container">
-      <div class="kp-graph-nav">
-        <n-space :size="8">
-          <n-button
-            size="small"
-            :type="graphFilter === 'character' ? 'primary' : 'default'"
-            @click="graphFilter = 'character'"
-          >
-            <template #icon>
-              <n-icon><PeopleOutline /></n-icon>
-            </template>
-            人物关系图
-          </n-button>
-          <n-button
-            size="small"
-            :type="graphFilter === 'location' ? 'primary' : 'default'"
-            @click="graphFilter = 'location'"
-          >
-            <template #icon>
-              <n-icon><LocationOutline /></n-icon>
-            </template>
-            地点关系图
-          </n-button>
-        </n-space>
+      <div class="kp-graph-launch-grid">
+        <button class="kp-graph-launch" type="button" @click="openFullGraph('character')">
+          <n-icon size="24"><PeopleOutline /></n-icon>
+          <span class="kp-graph-launch__title">人物关系图</span>
+          <span class="kp-graph-launch__copy">在全宽页面查看人物节点、关系与章节过滤。</span>
+          <span class="kp-graph-launch__action">打开人物关系图 →</span>
+        </button>
+        <button class="kp-graph-launch" type="button" @click="openFullGraph('location')">
+          <n-icon size="24"><LocationOutline /></n-icon>
+          <span class="kp-graph-launch__title">地点关系图</span>
+          <span class="kp-graph-launch__copy">在全宽页面查看地点层级、路径与关联事件。</span>
+          <span class="kp-graph-launch__action">打开地点关系图 →</span>
+        </button>
       </div>
-      <CastGraphCompact v-if="graphFilter === 'character'" :slug="slug" class="kp-graph-embed" />
-      <LocationGraphCompact v-if="graphFilter === 'location'" :slug="slug" class="kp-graph-embed" />
+      <p class="kp-graph-note">关系数据仍由知识库三元组驱动；编辑请使用“三元组表格”。</p>
     </div>
   </div>
 </template>
@@ -423,8 +421,6 @@ import type { EntityState } from '../../api/tools'
 import { knowledgeGraphApi } from '../../api/knowledgeGraph'
 import type { TripleDTO, KGStatistics } from '../../api/knowledgeGraph'
 import { formatApiError, getHttpStatus } from '../../utils/apiError'
-import CastGraphCompact from '../graphs/CastGraphCompact.vue'
-import LocationGraphCompact from '../graphs/LocationGraphCompact.vue'
 import KnowledgeGraphView from './KnowledgeGraphView.vue'
 import KnowledgeJsonView from './KnowledgeJsonView.vue'
 import KnowledgeTriplesTableEditor from './KnowledgeTriplesTableEditor.vue'
@@ -434,9 +430,6 @@ import { runtimePerformance } from '../../config/performance'
 const props = defineProps<{ slug: string }>()
 const router = useRouter()
 const message = useMessage()
-
-// 关系图过滤器：切换人物/地点
-const graphFilter = ref<'character' | 'location'>('character')
 
 // 知识库编辑相关
 const knowledgeTableOpen = ref(false)
@@ -640,6 +633,14 @@ const syncOptions = [
 const sortedChapters = computed(() =>
   [...data.value.chapters].sort((a, b) => a.chapter_id - b.chapter_id)
 )
+const selectedChapterId = ref<number | null>(null)
+const selectedChapter = computed(() =>
+  data.value.chapters.find(ch => ch.chapter_id === selectedChapterId.value) ?? null
+)
+const chapterOptions = computed(() => sortedChapters.value.map(ch => ({
+  label: `第 ${ch.chapter_id} 章${chapterTitle(ch.chapter_id) ? ` · ${chapterTitle(ch.chapter_id)}` : ''}`,
+  value: ch.chapter_id,
+})))
 
 const chapterTitle = (cid: number) => outlineTitles.value[cid] || ''
 
@@ -687,6 +688,9 @@ const load = async () => {
       })),
     }
     await loadOutlineTitles()
+    if (!data.value.chapters.some(ch => ch.chapter_id === selectedChapterId.value)) {
+      selectedChapterId.value = sortedChapters.value.at(-1)?.chapter_id ?? null
+    }
   } catch (e: unknown) {
     if (seq !== knowledgeLoadSeq || props.slug !== slug) return
     console.error('加载叙事知识失败:', e)
@@ -744,14 +748,22 @@ const addChapter = () => {
     beat_sections: [],
     sync_status: 'draft',
   })
+  selectedChapterId.value = next
 }
 
 const removeChapterById = (cid: number) => {
   data.value.chapters = data.value.chapters.filter(c => c.chapter_id !== cid)
+  selectedChapterId.value = sortedChapters.value.at(-1)?.chapter_id ?? null
 }
 
 const goCastChapter = (cid: number) => {
   router.push({ path: `/book/${props.slug}/cast`, query: { chapter: String(cid) } })
+}
+
+const openFullGraph = (kind: 'character' | 'location') => {
+  router.push(kind === 'character'
+    ? `/book/${props.slug}/cast`
+    : `/book/${props.slug}/location-graph`)
 }
 
 const reloadKnowledge = () => {
@@ -989,6 +1001,20 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.kp-chapter-picker {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.kp-chapter-count {
+  font-size: 11px;
+  color: var(--app-text-muted);
+  white-space: nowrap;
 }
 
 .kp-ch-card {
@@ -1305,23 +1331,71 @@ onUnmounted(() => {
   padding: 40px 20px;
 }
 
-.kp-graph-embed {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
 .kp-graph-container {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
+  padding: 10px 0;
 }
 
-.kp-graph-nav {
-  padding: 12px;
-  border-bottom: 1px solid var(--app-border);
-  background: var(--app-surface-subtle);
+.kp-graph-launch-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.kp-graph-launch {
+  min-height: 164px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  text-align: left;
+  color: var(--app-text-primary);
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.kp-graph-launch:hover {
+  border-color: var(--color-brand-border);
+  background: color-mix(in srgb, var(--color-brand-light) 36%, var(--app-surface));
+}
+
+.kp-graph-launch__title {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.kp-graph-launch__copy,
+.kp-graph-note {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--app-text-muted);
+}
+
+.kp-graph-launch__action {
+  margin-top: auto;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--color-brand);
+}
+
+.kp-graph-note {
+  margin: 12px 2px 0;
+}
+
+@media (max-width: 620px) {
+  .kp-hero {
+    flex-direction: column;
+  }
+
+  .kp-graph-launch-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
