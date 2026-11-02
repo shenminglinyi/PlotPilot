@@ -166,13 +166,16 @@ const stats = computed(() => {
   const s = bookStats.value
 
   const totalWords = Number(s.total_words ?? 0)
-  const rate = Number(s.completion_rate ?? 0)
   const avgWords = Number(s.avg_chapter_words ?? 0)
   const done = Number(s.completed_chapters ?? 0)
   const total = Number(s.total_chapters ?? 0)
+  const apiRate = Number(s.completion_rate ?? 0)
+  const plannedCompletionRate = total > 0
+    ? Math.min(100, Math.max(0, done / total * 100))
+    : Math.min(100, Math.max(0, apiRate <= 1 ? apiRate * 100 : apiRate))
 
   const formattedWords = totalWords.toLocaleString()
-  const formattedCompletionRate = rate.toFixed(DECIMAL_PRECISION)
+  const formattedCompletionRate = plannedCompletionRate.toFixed(DECIMAL_PRECISION)
   const formattedAvgWords = avgWords.toLocaleString()
 
   return [
@@ -184,15 +187,15 @@ const stats = computed(() => {
     },
     {
       key: 'chapters',
-      label: '完成章节',
+      label: '已收稿 / 规划',
       value: `${done}/${total}`,
-      tooltip: `已完成 ${done} 章，共 ${total} 章`
+      tooltip: `当前规划 ${total} 章，其中 ${done} 章已收稿`
     },
     {
       key: 'completion',
-      label: '完成率',
+      label: '规划收稿率',
       value: `${formattedCompletionRate}%`,
-      tooltip: `项目完成度：${formattedCompletionRate}%`
+      tooltip: `已收稿章节 ÷ 当前规划章节：${done}/${total}`
     },
     {
       key: 'avg',
