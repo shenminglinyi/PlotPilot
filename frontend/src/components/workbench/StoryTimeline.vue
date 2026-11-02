@@ -14,8 +14,16 @@
 
     <n-spin :show="loading" class="timeline-spin">
       <div v-if="rows.length > 0" class="timeline-list">
+        <div class="timeline-window-status">
+          <n-text depth="3">
+            {{ highlightRange ? `仅显示第 ${highlightRange.start}–${highlightRange.end} 章` : `显示最近 ${visibleRows.length} / ${rows.length} 章` }}
+          </n-text>
+          <n-button v-if="hasEarlierRows" size="tiny" quaternary @click="showEarlierRows">
+            加载更早章节
+          </n-button>
+        </div>
         <div
-          v-for="row in rows"
+          v-for="row in visibleRows"
           :key="row.chapter_index"
           class="timeline-chapter"
           :class="{
@@ -76,7 +84,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
 import { chroniclesApi, type ChronicleRow, type ChronicleStoryEvent, type ChronicleSnapshot } from '@/api/chronicles'
 import { snapshotApi } from '@/api/snapshot'
@@ -109,6 +117,25 @@ const loading = ref(false)
 const creating = ref(false)
 const rows = ref<ChronicleRow[]>([])
 const loadError = ref('')
+const visibleRowLimit = ref(30)
+
+const visibleRows = computed(() => {
+  if (props.highlightRange) {
+    return rows.value.filter(row => (
+      row.chapter_index >= props.highlightRange!.start
+      && row.chapter_index <= props.highlightRange!.end
+    ))
+  }
+  return rows.value.slice(-visibleRowLimit.value)
+})
+
+const hasEarlierRows = computed(() => (
+  !props.highlightRange && visibleRows.value.length < rows.value.length
+))
+
+function showEarlierRows() {
+  visibleRowLimit.value = Math.min(rows.value.length, visibleRowLimit.value + 30)
+}
 
 function isHighlighted(chapterIndex: number): boolean {
   if (!props.highlightRange) return false
@@ -165,6 +192,7 @@ function onHeaderRefresh() {
 watch(
   () => props.slug,
   () => {
+    visibleRowLimit.value = 30
     if (!props.chroniclesFromBundledParent) void load()
   },
   { immediate: true },
@@ -269,6 +297,21 @@ async function handleCreateSnapshot() {
   overflow-y: auto;
   padding: 16px;
   -webkit-overflow-scrolling: touch;
+}
+
+.timeline-window-status {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: -16px -16px 14px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--plotpilot-split-border);
+  background: color-mix(in srgb, var(--app-surface) 92%, transparent);
+  backdrop-filter: blur(8px);
 }
 
 .timeline-chapter {
