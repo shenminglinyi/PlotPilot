@@ -37,6 +37,8 @@ frontend/dist/
 
 # ── 本地 Agent / MCP 缓存 ──
 .playwright-mcp/
+.playwright-cli/
+output/playwright/
 .claude/
 .trae/
 
@@ -136,15 +138,10 @@ scripts/plotpilot.lock
 # ── Tauri 桌面壳 ──
 # 提交源码，忽略构建产物
 frontend/src-tauri/target/
-frontend/src-tauri/Cargo.lock
 frontend/src-tauri/scripts/
 frontend/src-tauri/tools/
 
 # ── 仅本机 Windows 打包链路（协作者只需 npm run dev + 后端） ──
-scripts/build_installer.py
-scripts/build_backend_pyinstaller.py
-scripts/tauri_backend_launcher.py
-requirements-nsis.txt
 
 # ── 桌面分发物（勿拷进仓库根再提交） ──
 PlotPilot_*-setup.exe

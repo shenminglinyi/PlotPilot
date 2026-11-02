@@ -13,8 +13,6 @@ export const WORKBENCH_SPLIT = {
   sidebarMax: 0.28,
   /** 中栏：主编辑区所占「中+右」区域的比例 */
   mainDefault: 0.615,
-  /** 复杂资料视图（关系图 / 角色档案 / 故事演进）为右侧工作区预留更多空间 */
-  mainWorkspaceDefault: 0.48,
   mainMin: 0.42,
   mainMax: 0.78,
 } as const

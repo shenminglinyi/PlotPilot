@@ -19,18 +19,9 @@ html {
 }
 
 body {
-  font-family:
-    'Microsoft YaHei',
-    'PingFang SC',
-    'Hiragino Sans GB',
-    'Noto Sans SC',
-    'Inter',
-    'Source Han Sans CN',
-    system-ui,
-    -apple-system,
-    BlinkMacFont,
-    sans-serif;
-  font-weight: 500;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-body);
   -webkit-font-smoothing: subpixel-antialiased;
   -moz-osx-font-smoothing: auto;
   background: var(--app-page-bg);
@@ -123,16 +114,27 @@ body {
   --plotpilot-panel-muted: #f8fafc;
 
   /* ── 字体 ── */
-  --font-sans: 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans SC', 'Inter', system-ui, sans-serif;
+  --font-sans: 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans SC', 'Source Han Sans CN', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Consolas', 'Liberation Mono', monospace;
   --font-serif: 'Noto Serif SC', 'Source Han Serif CN', 'Songti SC', Georgia, serif;
 
   /* ── 字号阶梯：使用 rem，随 html font-size（即 --app-font-scale）自动缩放 ── */
+  --font-size-2xs:  0.6875rem;  /* 11px @ scale=1 */
   --font-size-xs:   0.75rem;    /* 12px @ scale=1 */
   --font-size-sm:   0.8125rem;  /* 13px @ scale=1 */
   --font-size-base: 0.875rem;   /* 14px @ scale=1 */
   --font-size-lg:   1rem;       /* 16px @ scale=1 */
   --font-size-xl:   1.125rem;   /* 18px @ scale=1 */
+  --font-size-2xl:  1.25rem;    /* 20px @ scale=1 */
+  --font-size-3xl:  1.5rem;     /* 24px @ scale=1 */
+  --font-size-display: 2rem;    /* 32px @ scale=1 */
+  --font-weight-body: 500;
+  --font-weight-medium: 600;
+  --font-weight-strong: 700;
+  --font-weight-display: 800;
+  --line-height-tight: 1.25;
+  --line-height-ui: 1.5;
+  --line-height-reading: 1.75;
 
   /* ── DAG 画布专用 ── */
   --dag-canvas-bg: #eef1f6;

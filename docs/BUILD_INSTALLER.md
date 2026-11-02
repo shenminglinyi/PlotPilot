@@ -80,10 +80,10 @@ updater 强制签名校验，公钥已写入 `frontend/src-tauri/tauri.conf.json
 
 ### 发一次更新的流程
 
-1. `tauri.conf.json` 顶层 `version` 升版本号（updater 比对的是这个，不是 Cargo.toml）
-2. 带签名环境变量执行 `npm run tauri build`（Windows: NSIS 产物 `*-setup.exe`）
-3. 构建产物目录里同时生成 `latest.json`（含各平台签名 `signature` 字段）
-4. GitHub 建 Release：tag 与版本号一致，上传 `*-setup.exe` 与 `latest.json`
-5. 老客户端自动发现 → 推送 → 下载校验签名 → passive 模式静默安装 → 自动重启
+1. 只修改根目录 `VERSION`，然后执行 `python scripts/sync_release_version.py`。脚本会同步前端、Tauri、Cargo 和后端版本。
+2. 首次配置 GitHub Actions 时，将与现有公钥匹配的私钥存为仓库 Secret `TAURI_SIGNING_PRIVATE_KEY`。
+3. 提交版本变更，创建与 `VERSION` 一致的 tag，例如 `git tag v4.7.2 && git push origin v4.7.2`。
+4. `.github/workflows/release.yml` 在干净的 Windows 环境构建冻结后端和 NSIS 安装包，签名更新产物，并由 Tauri Action 生成、上传 `latest.json`。
+5. 老客户端自动发现 → 下载并校验签名 → 安全停止后端 → passive 模式安装 → 自动重启。
 
-注意：`latest.json` 里的下载 URL 指向本次 Release 的 asset 地址，由 `tauri build` 自动生成；如果手动改动（如改名），需要同步修正其中的 `url` 字段。
+本地的 `tauri build` 只会生成安装包和签名侧车文件；`latest.json` 由 Tauri Action 结合 GitHub Release 的真实下载 URL 生成，不要手工拼接。
