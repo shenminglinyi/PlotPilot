@@ -17,58 +17,51 @@
       </div>
     </header>
 
-    <n-split direction="horizontal" :default-size="0.20" :min="0.14" :max="0.32">
-      <!-- 左栏：角色导航 -->
-      <template #1>
-        <CharacterNavigator
-          :slug="slug"
-          :selected-character-id="selectedCharacterId"
-          @select-character="onSelectCharacter"
-        />
-      </template>
+    <CharacterNavigator
+      layout="rail"
+      :slug="slug"
+      :selected-character-id="selectedCharacterId"
+      @select-character="onSelectCharacter"
+    />
 
-      <!-- 右栏：本章角色锁 / 角色档案 -->
-      <template #2>
-        <n-tabs
-          v-model:value="activeDetailTab"
-          type="line"
-          size="small"
-          class="character-detail-tabs"
-          :tabs-padding="8"
-        >
-          <n-tab-pane name="chapter-cast" display-directive="show">
-            <template #tab>
-              <span class="tab-label">
-                <n-icon size="13" class="tab-icon"><LockClosedOutline /></n-icon>本章角色锁
-              </span>
-            </template>
-            <div class="cast-manager-slot">
-              <ChapterCastManager
-                :slug="slug"
-                :chapter-number="currentChapterNumber"
-                @select-character="onSelectCharacter"
-              />
-            </div>
-          </n-tab-pane>
+    <n-tabs
+      v-model:value="activeDetailTab"
+      type="line"
+      size="small"
+      class="character-detail-tabs"
+      :tabs-padding="8"
+    >
+      <n-tab-pane name="chapter-cast" display-directive="if">
+        <template #tab>
+          <span class="tab-label">
+            <n-icon size="13" class="tab-icon"><LockClosedOutline /></n-icon>本章角色锁
+          </span>
+        </template>
+        <div class="cast-manager-slot">
+          <ChapterCastManager
+            :slug="slug"
+            :chapter-number="currentChapterNumber"
+            @select-character="onSelectCharacter"
+          />
+        </div>
+      </n-tab-pane>
 
-          <n-tab-pane name="profile" display-directive="show">
-            <template #tab>
-              <span class="tab-label">
-                <n-icon size="13" class="tab-icon"><PeopleOutline /></n-icon>角色档案
-              </span>
-            </template>
-            <div class="character-profile-slot">
-              <CharacterProfile
-                :slug="slug"
-                :selected-character-id="selectedCharacterId"
-                :current-chapter-number="currentChapterNumber"
-                :desk-chapter-number="currentChapterNumber"
-              />
-            </div>
-          </n-tab-pane>
-        </n-tabs>
-      </template>
-    </n-split>
+      <n-tab-pane name="profile" display-directive="if">
+        <template #tab>
+          <span class="tab-label">
+            <n-icon size="13" class="tab-icon"><PeopleOutline /></n-icon>角色档案
+          </span>
+        </template>
+        <div class="character-profile-slot">
+          <CharacterProfile
+            :slug="slug"
+            :selected-character-id="selectedCharacterId"
+            :current-chapter-number="currentChapterNumber"
+            :desk-chapter-number="currentChapterNumber"
+          />
+        </div>
+      </n-tab-pane>
+    </n-tabs>
   </div>
 </template>
 
@@ -151,23 +144,8 @@ function onSelectCharacter(characterId: string | null) {
   flex-shrink: 0;
 }
 
-.character-dialogue-panel :deep(.n-split) {
-  flex: 1;
-  min-height: 0;
-  height: auto;
-}
-
-.character-dialogue-panel :deep(.n-split-pane-1),
-.character-dialogue-panel :deep(.n-split-pane-2) {
-  min-height: 0;
-  overflow: hidden;
-}
-
-.character-dialogue-panel :deep(.n-split-pane-2 > .n-split) {
-  height: 100%;
-}
-
 .character-detail-tabs {
+  flex: 1;
   height: 100%;
   min-height: 0;
   display: flex;
