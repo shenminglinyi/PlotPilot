@@ -81,7 +81,7 @@ updater 强制签名校验，公钥已写入 `frontend/src-tauri/tauri.conf.json
 ### 发一次更新的流程
 
 1. 只修改根目录 `VERSION`，然后执行 `python scripts/sync_release_version.py`。脚本会同步前端、Tauri、Cargo 和后端版本。
-2. 首次配置 GitHub Actions 时，将与现有公钥匹配的私钥存为仓库 Secret `TAURI_SIGNING_PRIVATE_KEY`。
+2. 首次配置 GitHub Actions 时，将与现有公钥匹配的私钥存为仓库 Secret `TAURI_SIGNING_PRIVATE_KEY`，并将仓库 Variable `ENABLE_SIGNED_UPDATES` 设为 `true`。未开启时，tag 只用于手动 Release，签名工作流会安全跳过。
 3. 提交版本变更，创建与 `VERSION` 一致的 tag，例如 `git tag v4.7.2 && git push origin v4.7.2`。
 4. `.github/workflows/release.yml` 在干净的 Windows 环境构建冻结后端和 NSIS 安装包，签名更新产物，并由 Tauri Action 生成、上传 `latest.json`。
 5. 老客户端自动发现 → 下载并校验签名 → 安全停止后端 → passive 模式安装 → 自动重启。
