@@ -41,6 +41,14 @@
         <span class="section-title">故事线</span>
         <n-button size="tiny" quaternary @click="openAddModal(null)">+</n-button>
       </div>
+      <n-input
+        v-if="allStorylines.length > 12"
+        v-model:value="storylineQuery"
+        size="small"
+        clearable
+        placeholder="搜索故事线"
+        class="storyline-search"
+      />
 
       <n-spin :show="storylinesLoading">
         <div v-if="allStorylines.length === 0" class="empty-state">
@@ -52,7 +60,7 @@
 
         <div v-else class="storylines-tree">
           <!-- 主线节点 + 其子故事线 -->
-          <template v-for="node in storylineTree" :key="node.sl.id">
+          <template v-for="node in visibleStorylineTree" :key="node.sl.id">
             <div
               class="storyline-item storyline-item--main"
               :class="{ 'storyline-item--active': selectedStorylineId === node.sl.id }"
@@ -103,7 +111,7 @@
 
           <!-- 无父级的非主线（孤立故事线） -->
           <div
-            v-for="sl in orphanLines"
+            v-for="sl in visibleOrphanLines"
             :key="sl.id"
             class="storyline-item"
             :class="{ 'storyline-item--active': selectedStorylineId === sl.id }"
@@ -116,6 +124,13 @@
             <n-text depth="3" style="font-size: 11px; margin-left: 4px">
               第 {{ sl.estimated_chapter_start }}–{{ sl.estimated_chapter_end }} 章
             </n-text>
+          </div>
+
+          <div class="storyline-window-status">
+            <n-text depth="3">显示 {{ visibleStorylineCount }} / {{ filteredStorylineCount }} 组</n-text>
+            <n-button v-if="hasMoreStorylines" size="tiny" quaternary @click="storylineVisibleLimit += 30">
+              加载更多
+            </n-button>
           </div>
         </div>
       </n-spin>
@@ -297,6 +312,8 @@ const phase = ref<StoryPhaseDTO | null>(null)
 const allStorylines = ref<StorylineDTO[]>([])
 const confluenceList = ref<ConfluencePointDTO[]>([])
 const selectedStorylineId = ref<string | null>(null)
+const storylineQuery = ref('')
+const storylineVisibleLimit = ref(30)
 const showAddModal = ref(false)
 const addSubmitting = ref(false)
 
@@ -364,21 +381,36 @@ const confluenceMap = computed(() => {
   return map
 })
 
+const filteredStorylines = computed(() => {
+  const query = storylineQuery.value.trim().toLocaleLowerCase()
+  if (!query) return allStorylines.value
+  return allStorylines.value.filter(storyline => (
+    `${storyline.name ?? ''} ${storyline.description ?? ''}`.toLocaleLowerCase().includes(query)
+  ))
+})
+
 // Build tree: main storylines with their children
 const storylineTree = computed(() => {
-  const mains = allStorylines.value.filter(isMainStoryline)
+  const mains = filteredStorylines.value.filter(isMainStoryline)
   return mains.map(main => ({
     sl: main,
-    children: allStorylines.value.filter(s => s.parent_id === main.id),
+    children: filteredStorylines.value.filter(s => s.parent_id === main.id),
   }))
 })
 
 // Storylines without a parent that are not main
 const orphanLines = computed(() =>
-  allStorylines.value.filter(s => {
+  filteredStorylines.value.filter(s => {
     return !isMainStoryline(s) && !s.parent_id
   })
 )
+
+const visibleStorylineTree = computed(() => storylineTree.value.slice(0, storylineVisibleLimit.value))
+const remainingStorylineSlots = computed(() => Math.max(0, storylineVisibleLimit.value - visibleStorylineTree.value.length))
+const visibleOrphanLines = computed(() => orphanLines.value.slice(0, remainingStorylineSlots.value))
+const filteredStorylineCount = computed(() => storylineTree.value.length + orphanLines.value.length)
+const visibleStorylineCount = computed(() => visibleStorylineTree.value.length + visibleOrphanLines.value.length)
+const hasMoreStorylines = computed(() => visibleStorylineCount.value < filteredStorylineCount.value)
 
 async function submitAddStoryline() {
   const f = addForm.value
@@ -426,6 +458,7 @@ async function submitAddStoryline() {
 }
 
 async function loadData() {
+  if (props.evolutionLoading && !props.evolutionBundle) return
   phaseLoading.value = true
   storylinesLoading.value = true
   try {
@@ -457,6 +490,11 @@ watch(
   () => [props.slug, props.evolutionBundle, props.evolutionLoading] as const,
   () => { void loadData() },
   { immediate: true },
+)
+
+watch(
+  () => [props.slug, storylineQuery.value],
+  () => { storylineVisibleLimit.value = 30 },
 )
 
 function selectStoryline(sl: StorylineDTO) {
@@ -546,6 +584,22 @@ const isPhasePast = isStoryPhasePast
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+.storyline-search {
+  margin-bottom: 10px;
+}
+.storyline-window-status {
+  position: sticky;
+  bottom: -12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 6px -12px -12px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--plotpilot-split-border);
+  background: color-mix(in srgb, var(--app-surface) 92%, transparent);
+  backdrop-filter: blur(8px);
 }
 .storyline-item {
   padding: 8px 10px;
