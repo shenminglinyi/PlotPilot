@@ -3,6 +3,7 @@
    ═══════════════════════════════════════════════════ */
 
 @import './workbench-panels.css';
+@import './internal-workbench-polish.css';
 
 * {
   margin: 0;
