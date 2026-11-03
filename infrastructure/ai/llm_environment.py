@@ -6,6 +6,8 @@ from dataclasses import dataclass
 
 
 ARK_DEFAULT_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
+ATLAS_CLOUD_DEFAULT_BASE_URL = "https://api.atlascloud.ai/v1"
+ATLAS_CLOUD_DEFAULT_MODEL = "deepseek-ai/deepseek-v4-pro"
 
 
 def _env_text(name: str, default: str = "") -> str:
@@ -29,6 +31,9 @@ class LLMEnvironmentSettings:
     gemini_api_key: str = ""
     gemini_base_url: str = ""
     gemini_model: str = ""
+    atlascloud_api_key: str = ""
+    atlascloud_base_url: str = ""
+    atlascloud_model: str = ""
     ark_api_key: str = ""
     ark_base_url: str = ""
     ark_model: str = ""
@@ -49,6 +54,9 @@ class LLMEnvironmentSettings:
             gemini_api_key=_env_text("GEMINI_API_KEY"),
             gemini_base_url=_env_text("GEMINI_BASE_URL"),
             gemini_model=_env_text("GEMINI_MODEL"),
+            atlascloud_api_key=_env_text("ATLASCLOUD_API_KEY"),
+            atlascloud_base_url=_env_text("ATLASCLOUD_BASE_URL"),
+            atlascloud_model=_env_text("ATLASCLOUD_MODEL"),
             ark_api_key=_env_text("ARK_API_KEY"),
             ark_base_url=_env_text("ARK_BASE_URL"),
             ark_model=_env_text("ARK_MODEL"),
@@ -63,6 +71,14 @@ class LLMEnvironmentSettings:
         if self.openai_base_url:
             return "custom-openai-compatible"
         return "openai-official"
+
+    @property
+    def atlascloud_base_url_or_default(self) -> str:
+        return self.atlascloud_base_url or ATLAS_CLOUD_DEFAULT_BASE_URL
+
+    @property
+    def atlascloud_model_or_default(self) -> str:
+        return self.atlascloud_model or ATLAS_CLOUD_DEFAULT_MODEL
 
     @property
     def ark_base_url_or_default(self) -> str:

@@ -8,7 +8,11 @@ from typing import Any, Callable, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 
 from domain.ai.services.llm_service import DEFAULT_MAX_OUTPUT_TOKENS
-from infrastructure.ai.llm_environment import LLMEnvironmentSettings
+from infrastructure.ai.llm_environment import (
+    ATLAS_CLOUD_DEFAULT_BASE_URL,
+    ATLAS_CLOUD_DEFAULT_MODEL,
+    LLMEnvironmentSettings,
+)
 from infrastructure.persistence.database.connection import get_database
 from infrastructure.ai.url_utils import (
     normalize_anthropic_base_url,
@@ -208,6 +212,15 @@ class LLMControlService:
                 tags=['official'],
             ),
             LLMPreset(
+                key='atlascloud',
+                label='Atlas Cloud',
+                protocol='openai',
+                default_base_url=ATLAS_CLOUD_DEFAULT_BASE_URL,
+                default_model=ATLAS_CLOUD_DEFAULT_MODEL,
+                description='Atlas Cloud OpenAI-compatible 接口, 支持统一访问多种文本模型。',
+                tags=['cloud', 'openai-compatible', 'preset'],
+            ),
+            LLMPreset(
                 key='claude-official',
                 label='Claude / Anthropic 官方',
                 protocol='anthropic',
@@ -388,12 +401,16 @@ class LLMControlService:
             profile.base_url.strip() or (preset.default_base_url if preset else ''),
         )
         model = profile.model.strip() or (preset.default_model if preset else '')
+        use_legacy_chat_completions = (
+            profile.use_legacy_chat_completions or profile.preset_key == 'atlascloud'
+        )
         return LLMProfile(
             **{
                 **profile.model_dump(),
                 'protocol': protocol,
                 'base_url': base_url,
                 'model': model,
+                'use_legacy_chat_completions': use_legacy_chat_completions,
             }
         )
 
@@ -574,8 +591,24 @@ class LLMControlService:
         openai_key = env.openai_api_key
         gemini_key = env.gemini_api_key
         ark_key = env.ark_api_key
+        atlascloud_key = env.atlascloud_api_key
 
-        if anthropic_key and (env.provider == 'anthropic' or not env.provider):
+        if atlascloud_key and (
+            env.provider == 'atlascloud'
+            or (
+                not env.provider
+                and not any((anthropic_key, openai_key, gemini_key, ark_key))
+            )
+        ):
+            profiles[0] = profiles[0].model_copy(update={
+                'name': 'Atlas Cloud',
+                'preset_key': 'atlascloud',
+                'api_key': atlascloud_key,
+                'base_url': env.atlascloud_base_url_or_default,
+                'model': env.atlascloud_model_or_default,
+            })
+            active_profile_id = profiles[0].id
+        elif anthropic_key and (env.provider == 'anthropic' or not env.provider):
             profiles[1] = profiles[1].model_copy(update={
                 'api_key': anthropic_key,
                 'base_url': env.anthropic_base_url or profiles[1].base_url,
