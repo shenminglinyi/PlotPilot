@@ -31,6 +31,8 @@ from application.ai_invocation.autopilot.review_gate import (
 
 logger = logging.getLogger(__name__)
 
+_WORKBENCH_CONTEXT_BACKFILL_ATTEMPTED_KEY = "_workbench_context_backfill_v2_attempted"
+
 # 守护进程经 _update_shared_state 写入、/status 需透出的运行时字段（不在 NovelState 模型内）
 _RUNTIME_STATUS_KEYS: tuple[str, ...] = (
     "writing_substep",
@@ -314,6 +316,7 @@ class QueryService:
 
     def __init__(self, shared_state: Optional[SharedStateRepository] = None):
         self._shared = shared_state or get_shared_state_repository()
+        self._workbench_context_backfill_attempted: set[str] = set()
 
     # ==================== 小说状态 ====================
 
@@ -559,6 +562,7 @@ class QueryService:
         plot_arc = self._shared.get_plot_arc(novel_id)
         knowledge = self._shared.get_knowledge(novel_id)
         foreshadows = self._shared.get_foreshadows(novel_id)
+        triples = self._shared.get_triples(novel_id)
         chapters = self._shared.get_chapters(novel_id)
 
         # 如果共享内存中没有数据，降级到数据库查询
@@ -566,8 +570,52 @@ class QueryService:
             logger.debug(f"共享内存中没有小说 {novel_id} 的工作台数据，从数据库加载")
             return self._fallback_workbench_from_db(novel_id)
 
-        # 计算最大章节号
+        # Backfill optional workbench panels once when an older bootstrap path only warmed
+        # chapters/storylines. Empty lists/None may also be a legitimate result for early
+        # novels, so cache the attempt and avoid hitting SQLite on every workbench request.
+        raw_state = self._shared.get_raw_state(novel_id) or {}
+        backfill_attempted = (
+            novel_id in self._workbench_context_backfill_attempted
+            or bool(raw_state.get(_WORKBENCH_CONTEXT_BACKFILL_ATTEMPTED_KEY))
+        )
+        needs_backfill = (
+            not chronicles
+            or plot_arc is None
+            or knowledge is None
+            or not foreshadows
+            or not triples
+        )
+        if needs_backfill and not backfill_attempted:
+            try:
+                from application.engine.services.state_bootstrap import StateBootstrap
+
+                bootstrap = StateBootstrap()
+                if not triples:
+                    triples = bootstrap._load_triples(novel_id)
+                if not foreshadows:
+                    foreshadows = bootstrap._load_foreshadows(novel_id)
+                if plot_arc is None:
+                    plot_arc = bootstrap._load_plot_arc(novel_id)
+                if knowledge is None:
+                    knowledge = bootstrap._load_knowledge(novel_id)
+                if not chronicles:
+                    # Chronicles depend on Bible / snapshots / chapters, so hydrate them first.
+                    bootstrap._load_bible(novel_id)
+                    bootstrap._load_snapshots(novel_id)
+                    chapters = self._shared.get_chapters(novel_id) or chapters
+                    chronicles = bootstrap._load_chronicles(novel_id)
+            except Exception as e:
+                logger.debug("Workbench context backfill failed: novel=%s err=%s", novel_id, e)
+            else:
+                self._workbench_context_backfill_attempted.add(novel_id)
+                self._shared.merge_raw_state(
+                    novel_id,
+                    **{_WORKBENCH_CONTEXT_BACKFILL_ATTEMPTED_KEY: True},
+                )
+
+        # Calculate max chapter number
         max_ch = max((c.number for c in chapters), default=1)
+        knowledge_graph = self.get_knowledge_graph(novel_id)
 
         return WorkbenchContextResponse(
             novel_id=novel_id,
@@ -581,7 +629,7 @@ class QueryService:
             plot_arc=plot_arc,
             knowledge=knowledge,
             foreshadow_ledger=foreshadows,
-            knowledge_graph={"total_triples": 0, "by_source": {}},  # 需要单独处理
+            knowledge_graph=knowledge_graph,
             macro={"narrative_event_count": 0},  # 需要单独处理
             sandbox={"bible_character_count": 0},  # 需要单独处理
             chapters_digest=[c.to_dict() for c in chapters],
@@ -601,8 +649,18 @@ class QueryService:
             chapters_data = bootstrap._load_chapters(novel_id)
             foreshadows_data = bootstrap._load_foreshadows(novel_id)
             plot_arc_data = bootstrap._load_plot_arc(novel_id)
+            bootstrap._load_bible(novel_id)
+            triples_data = bootstrap._load_triples(novel_id)
+            bootstrap._load_snapshots(novel_id)
             knowledge_data = bootstrap._load_knowledge(novel_id)
             chronicles_data = bootstrap._load_chronicles(novel_id)
+            knowledge_graph = {
+                "total_triples": len(triples_data),
+                "by_source": {},
+            }
+            for t in triples_data:
+                src = t.get("source_type", "unknown")
+                knowledge_graph["by_source"][src] = knowledge_graph["by_source"].get(src, 0) + 1
 
             max_ch = max((c.number for c in chapters_data), default=1) if chapters_data else 1
 
@@ -618,7 +676,7 @@ class QueryService:
                 plot_arc=plot_arc_data,
                 knowledge=knowledge_data,
                 foreshadow_ledger=foreshadows_data,
-                knowledge_graph={"total_triples": 0, "by_source": {}},
+                knowledge_graph=knowledge_graph,
                 macro={"narrative_event_count": 0},
                 sandbox={"bible_character_count": 0},
                 chapters_digest=[c.to_dict() for c in chapters_data],

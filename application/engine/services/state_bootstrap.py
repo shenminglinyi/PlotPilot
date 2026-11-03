@@ -84,6 +84,9 @@ class StateBootstrap:
                     # 加载 Bible
                     self._load_bible(novel_id)
 
+                    # 加载叙事知识（premise lock / 章后摘要 / facts）
+                    self._load_knowledge(novel_id)
+
                     # 加载三元组
                     self._load_triples(novel_id)
 
@@ -134,6 +137,21 @@ class StateBootstrap:
 
             # 加载剧情弧光
             self._load_plot_arc(novel_id)
+
+            # 加载 Bible
+            self._load_bible(novel_id)
+
+            # 加载叙事知识
+            self._load_knowledge(novel_id)
+
+            # 加载三元组
+            self._load_triples(novel_id)
+
+            # 加载快照
+            self._load_snapshots(novel_id)
+
+            # 加载编年史
+            self._load_chronicles(novel_id)
 
             return True
 
@@ -293,6 +311,31 @@ class StateBootstrap:
                 self._shared.set_foreshadows(novel_id, entries)
                 return entries
 
+            rows = db.fetch_all(
+                """SELECT id, description, planted_chapter, due_chapter,
+                          resolved_chapter, status, importance, subtext_type
+                   FROM foreshadows
+                   WHERE novel_id = ?
+                   ORDER BY planted_chapter, importance DESC, id""",
+                (novel_id,),
+            )
+            entries = [
+                {
+                    "id": r["id"],
+                    "description": r["description"],
+                    "planted_chapter": r["planted_chapter"],
+                    "due_chapter": r["due_chapter"],
+                    "resolved_chapter": r["resolved_chapter"],
+                    "status": r["status"],
+                    "importance": r["importance"],
+                    "subtext_type": r["subtext_type"],
+                }
+                for r in rows
+            ]
+            if entries:
+                self._shared.set_foreshadows(novel_id, entries)
+                return entries
+
             return []
 
         except Exception as e:
@@ -423,6 +466,77 @@ class StateBootstrap:
 
         except Exception as e:
             logger.debug(f"加载 Bible 失败（可能不存在）: {novel_id}, {e}")
+            return None
+
+    def _load_knowledge(self, novel_id: str) -> Optional[Dict[str, Any]]:
+        """加载叙事知识到共享内存。
+
+        workbench-context 的 DB fallback 已经依赖该方法；缺失时会导致
+        “作品基础/知识库/章后摘要”在共享状态或降级读取中全部为空。
+        """
+        try:
+            from domain.novel.value_objects.novel_id import NovelId
+            from infrastructure.persistence.database.connection import get_database
+            from infrastructure.persistence.database.sqlite_knowledge_repository import (
+                SqliteKnowledgeRepository,
+            )
+
+            repo = SqliteKnowledgeRepository(get_database())
+            knowledge = repo.get_by_novel_id(NovelId(novel_id))
+
+            if not knowledge:
+                return None
+
+            chapters = [
+                {
+                    "chapter_id": ch.chapter_id,
+                    "summary": ch.summary,
+                    "key_events": ch.key_events,
+                    "open_threads": ch.open_threads,
+                    "consistency_note": ch.consistency_note,
+                    "beat_sections": list(ch.beat_sections or []),
+                    "micro_beats": list(ch.micro_beats or []),
+                    "sync_status": ch.sync_status,
+                }
+                for ch in (knowledge.chapters or [])
+            ]
+
+            facts = [
+                {
+                    "id": fact.id,
+                    "subject": fact.subject,
+                    "predicate": fact.predicate,
+                    "object": fact.object,
+                    "chapter_id": fact.chapter_id,
+                    "note": fact.note,
+                    "entity_type": fact.entity_type,
+                    "importance": fact.importance,
+                    "location_type": fact.location_type,
+                    "description": fact.description,
+                    "first_appearance": fact.first_appearance,
+                    "related_chapters": list(fact.related_chapters or []),
+                    "tags": list(fact.tags or []),
+                    "attributes": dict(fact.attributes or {}),
+                    "confidence": fact.confidence,
+                    "source_type": fact.source_type,
+                    "subject_entity_id": fact.subject_entity_id,
+                    "object_entity_id": fact.object_entity_id,
+                    "provenance": list(getattr(fact, "provenance", []) or []),
+                }
+                for fact in (knowledge.facts or [])
+            ]
+
+            knowledge_dict = {
+                "version": knowledge.version,
+                "premise_lock": knowledge.premise_lock,
+                "chapters": chapters,
+                "facts": facts,
+            }
+            self._shared.set_knowledge(novel_id, knowledge_dict)
+            return knowledge_dict
+
+        except Exception as e:
+            logger.debug(f"加载叙事知识失败（可能不存在）: {novel_id}, {e}")
             return None
 
     def _load_triples(self, novel_id: str) -> List[Dict[str, Any]]:
@@ -567,6 +681,13 @@ def refresh_narrative_contract_in_shared_state(novel_id: str) -> None:
     try:
         bootstrap = StateBootstrap()
         bootstrap._load_bible(novel_id)
+        bootstrap._load_chapters(novel_id)
+        bootstrap._load_foreshadows(novel_id)
         bootstrap._load_storylines(novel_id)
+        bootstrap._load_plot_arc(novel_id)
+        bootstrap._load_knowledge(novel_id)
+        bootstrap._load_triples(novel_id)
+        bootstrap._load_snapshots(novel_id)
+        bootstrap._load_chronicles(novel_id)
     except Exception as e:
         logger.debug("叙事契约共享状态刷新失败 novel=%s err=%s", novel_id, e)
