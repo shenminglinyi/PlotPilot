@@ -1,0 +1,9 @@
+{
+  "id": "official-character-candidate",
+  "name": "人物设定候选（实验）",
+  "version": "0.1.0",
+  "host_api": "0.1",
+  "artifact_type": "character_card_patch@1",
+  "template": "prompt.txt",
+  "steps": ["read_snapshot", "render_template", "invoke_model", "validate_artifact", "submit_artifact"]
+}

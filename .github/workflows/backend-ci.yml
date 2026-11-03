@@ -7,6 +7,9 @@ on:
       - "requirements*.txt"
       - "pyproject.toml"
       - "pytest.ini"
+      - "official-plugins/**"
+      - "infrastructure/persistence/database/migrations/*.sql"
+      - ".github/workflows/backend-ci.yml"
 
 jobs:
   test:
@@ -21,6 +24,13 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r requirements.txt
+
+      # Run the bounded pilot slice even when unrelated unit tests are failing.
+      # Do not opt the entire integration suite into CI.
+      - name: Run official plugin pilot integration tests
+        run: python -m pytest tests/integration/test_plugin_pilot.py -q --tb=short
+        env:
+          DISABLE_AUTO_DAEMON: "1"
 
       - name: Run unit tests
         run: pytest tests/unit -q --tb=short

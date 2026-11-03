@@ -57,6 +57,9 @@
 
     <!-- 右侧：操作按钮 -->
     <div class="top-bar-actions">
+      <router-link :to="{ path: '/plugins/character-candidates', query: { project: slug } }">
+        <n-button size="small" secondary>人物候选（实验）</n-button>
+      </router-link>
       <!-- 导出按钮 -->
       <n-dropdown 
         trigger="click" 
