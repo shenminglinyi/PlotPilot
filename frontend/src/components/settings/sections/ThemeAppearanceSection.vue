@@ -60,7 +60,7 @@
             @mouseleave="hoverPreset = null"
             @click="handleFontSizeChange(opt.value)"
           >
-            <span class="size-aa" :style="{ fontSize: opt.aaPx }">Aa</span>
+            <span class="size-aa" :style="{ fontSize: opt.previewRem }">Aa</span>
             <span class="size-name">{{ opt.label }}</span>
             <span class="size-pct">{{ opt.hint }}</span>
           </button>
@@ -90,7 +90,12 @@
 import { computed, ref } from 'vue'
 import { useMessage } from 'naive-ui'
 import { useThemeStore, type ThemeMode } from '@/stores/themeStore'
-import { useFontSizeStore, type FontSizePreset } from '@/stores/fontSizeStore'
+import {
+  FONT_SIZE_PRESETS,
+  FONT_SIZE_SCALES,
+  useFontSizeStore,
+  type FontSizePreset,
+} from '@/stores/fontSizeStore'
 
 const message = useMessage()
 const themeStore = useThemeStore()
@@ -98,33 +103,21 @@ const fontSizeStore = useFontSizeStore()
 
 const hoverPreset = ref<FontSizePreset | null>(null)
 
-const SCALE_MAP: Record<FontSizePreset, number> = {
-  small: 0.875,
-  medium: 1,
-  large: 1.125,
-  xlarge: 1.25,
-}
-
-const fontSizeOptions: { value: FontSizePreset; label: string; hint: string; aaPx: string }[] = [
-  { value: 'small',  label: '较小', hint: '87.5%', aaPx: '18px' },
-  { value: 'medium', label: '默认', hint: '100%',  aaPx: '22px' },
-  { value: 'large',  label: '较大', hint: '112.5%',aaPx: '26px' },
-  { value: 'xlarge', label: '特大', hint: '125%',  aaPx: '30px' },
-]
+const fontSizeOptions = FONT_SIZE_PRESETS
 
 const effectivePreset = computed<FontSizePreset>(() => hoverPreset.value ?? fontSizeStore.preset)
 
 const previewBoxStyle = computed(() => {
-  const scale = SCALE_MAP[effectivePreset.value]
+  const scale = FONT_SIZE_SCALES[effectivePreset.value]
   return { fontSize: `${scale * 14}px` }
 })
 
 const previewWordCount = computed(() => {
-  const scale = SCALE_MAP[effectivePreset.value]
+  const scale = FONT_SIZE_SCALES[effectivePreset.value]
   return scale >= 1.2 ? '1,500' : scale >= 1.1 ? '1,800' : '2,000'
 })
 const previewWordCountDone = computed(() => {
-  const scale = SCALE_MAP[effectivePreset.value]
+  const scale = FONT_SIZE_SCALES[effectivePreset.value]
   return scale >= 1.2 ? '1,020' : scale >= 1.1 ? '1,224' : '1,360'
 })
 

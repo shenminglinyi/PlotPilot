@@ -1,0 +1,84 @@
+name: Release desktop updater
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish-windows:
+    name: Build, sign and publish Windows
+    if: ${{ vars.ENABLE_SIGNED_UPDATES == 'true' }}
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate tag and synchronized version
+        shell: pwsh
+        run: |
+          python scripts/sync_release_version.py --check
+          $version = (Get-Content VERSION -Raw).Trim()
+          if ("v$version" -ne "${{ github.ref_name }}") {
+            throw "Tag ${{ github.ref_name }} does not match VERSION=$version"
+          }
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: requirements-nsis.txt
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: frontend/src-tauri
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frozen backend
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller
+          python -m pip install -r requirements-nsis.txt
+          python scripts/build_backend_pyinstaller.py --force
+
+      - name: Build signed installer and publish updater manifest
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        with:
+          projectPath: frontend
+          tauriScript: npm run tauri
+          tagName: ${{ github.ref_name }}
+          releaseName: PlotPilot ${{ github.ref_name }}
+          releaseBody: |
+            PlotPilot desktop release ${{ github.ref_name }}.
+
+            The application can download this signed update from Settings > About.
+          releaseDraft: false
+          prerelease: false
+          uploadUpdaterJson: true
+          updaterJsonPreferNsis: true
+          uploadUpdaterSignatures: true
+          releaseAssetNamePattern: PlotPilot_[version]_[arch][setup].[ext]
+          retryAttempts: 2

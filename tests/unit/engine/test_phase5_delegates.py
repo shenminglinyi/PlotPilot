@@ -53,6 +53,58 @@ async def test_process_novel_treats_legacy_planning_as_macro_planning():
 
 
 @pytest.mark.asyncio
+async def test_auto_approve_waits_for_active_invocation_instead_of_skipping_stage(monkeypatch):
+    from domain.novel.entities.novel import AutopilotStatus, NovelStage
+
+    host = MagicMock()
+    host._is_still_running.return_value = True
+    host.circuit_breaker = None
+    host.story_node_repo.get_by_novel = AsyncMock()
+    novel = MagicMock()
+    novel.novel_id.value = "n-1"
+    novel.current_stage = NovelStage.PAUSED_FOR_REVIEW
+    novel.autopilot_status = AutopilotStatus.RUNNING
+    novel.auto_approve_mode = True
+    monkeypatch.setattr(
+        "engine.runtime.novel_lifecycle._active_invocation_state",
+        lambda _novel_id: {
+            "has_active_invocation": True,
+            "active_invocation_status": "failed",
+            "active_invocation_session_id": "session-1",
+        },
+    )
+
+    await process_novel(host, novel)
+
+    assert novel.current_stage == NovelStage.PAUSED_FOR_REVIEW
+    host.story_node_repo.get_by_novel.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_auto_approve_requires_persisted_volume_before_act_planning(monkeypatch):
+    from domain.novel.entities.novel import AutopilotStatus, NovelStage
+
+    host = MagicMock()
+    host._is_still_running.return_value = True
+    host.circuit_breaker = None
+    host.story_node_repo.get_by_novel = AsyncMock(return_value=[])
+    novel = MagicMock()
+    novel.novel_id.value = "n-1"
+    novel.current_stage = NovelStage.PAUSED_FOR_REVIEW
+    novel.autopilot_status = AutopilotStatus.RUNNING
+    novel.auto_approve_mode = True
+    monkeypatch.setattr(
+        "engine.runtime.novel_lifecycle._active_invocation_state",
+        lambda _novel_id: {"has_active_invocation": False},
+    )
+
+    await process_novel(host, novel)
+
+    assert novel.current_stage == NovelStage.MACRO_PLANNING
+    host._save_novel_state.assert_called_with(novel)
+
+
+@pytest.mark.asyncio
 async def test_run_macro_planning_stops_when_not_running():
     host = MagicMock()
     host._is_still_running.return_value = False

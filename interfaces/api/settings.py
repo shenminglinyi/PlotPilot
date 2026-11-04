@@ -13,7 +13,7 @@ from infrastructure.ai.process_environment import (
 from infrastructure.ai.vector_store_environment import VectorStoreEnvironmentSettings
 
 
-APP_RELEASE_VERSION = "1.0.2"
+APP_RELEASE_VERSION = "4.7.2"
 BACKEND_BUILD_ID = "build-20260209-1200-c4d2"
 API_V1_PREFIX = "/api/v1"
 NOVELS_API_PREFIX = f"{API_V1_PREFIX}/novels"

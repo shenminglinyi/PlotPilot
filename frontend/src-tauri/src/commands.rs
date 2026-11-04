@@ -9,6 +9,7 @@
 
 use crate::backend::BackendManager;
 use std::sync::Mutex;
+use std::time::Duration;
 use tauri::{Manager, State};
 
 /// 获取后端端口号（前端需要这个来构造 API 请求地址）
@@ -48,6 +49,14 @@ pub async fn restart_backend(manager: State<'_, Mutex<BackendManager>>) -> Resul
     // 再启动新的
     let mut mgr = manager.lock().map_err(|e| e.to_string())?;
     mgr.start_and_wait(120)
+}
+
+/// 安装更新前先让数据库完成 checkpoint，并优雅关闭冻结后端。
+#[tauri::command]
+pub fn prepare_for_update(manager: State<'_, Mutex<BackendManager>>) -> Result<(), String> {
+    let mgr = manager.lock().map_err(|e| e.to_string())?;
+    mgr.graceful_shutdown(Duration::from_secs(5));
+    Ok(())
 }
 
 /// 在系统浏览器中打开 URL

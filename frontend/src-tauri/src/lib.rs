@@ -110,6 +110,7 @@ pub fn run() {
             commands::get_backend_port,
             commands::get_backend_status,
             commands::restart_backend,
+            commands::prepare_for_update,
             commands::open_in_browser,
             commands::toggle_devtools,
             commands::run_installation,

@@ -1,0 +1,425 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   PlotPilot 内部工作区精修层
+
+   设计原则：
+   1. 仅作用于 .workbench，不改变主页与独立页面；
+   2. 不改组件布局和内容，只统一材质、边界、层级与交互反馈；
+   3. 全部颜色由现有主题令牌派生，亮色 / 暗色 / 黑金自动适配。
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.workbench {
+  --wb-canvas: color-mix(in srgb, var(--app-page-bg) 84%, var(--app-surface) 16%);
+  --wb-paper: color-mix(in srgb, var(--app-surface) 97%, var(--color-gold) 3%);
+  --wb-paper-muted: color-mix(in srgb, var(--app-surface-subtle) 96%, var(--color-gold) 4%);
+  --wb-paper-raised: color-mix(in srgb, var(--app-surface-raised) 96%, white 4%);
+  --wb-line: color-mix(in srgb, var(--app-border-strong) 68%, var(--color-gold) 32%);
+  --wb-line-soft: color-mix(in srgb, var(--app-border) 82%, var(--color-gold) 18%);
+  --wb-line-focus: color-mix(in srgb, var(--color-brand) 72%, var(--color-gold) 28%);
+  --wb-accent-soft: color-mix(in srgb, var(--color-gold-dim) 58%, var(--app-surface) 42%);
+  --wb-shadow-inset: inset 0 1px 0 color-mix(in srgb, white 52%, transparent);
+  --wb-shadow-card: 0 1px 2px rgba(15, 23, 42, 0.045), 0 8px 22px rgba(15, 23, 42, 0.035);
+  --wb-shadow-float: 0 10px 28px rgba(15, 23, 42, 0.075), 0 2px 7px rgba(15, 23, 42, 0.045);
+  --wb-focus-ring: 0 0 0 3px color-mix(in srgb, var(--color-brand) 13%, transparent);
+
+  background-color: var(--wb-canvas);
+  background-image:
+    radial-gradient(circle at 8% 0%, color-mix(in srgb, var(--color-brand-light) 38%, transparent), transparent 29%),
+    radial-gradient(circle at 90% 8%, color-mix(in srgb, var(--color-gold-dim) 42%, transparent), transparent 27%);
+}
+
+[data-theme='dark'] .workbench,
+[data-theme='anchor'] .workbench {
+  --wb-shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  --wb-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.22), 0 10px 24px rgba(0, 0, 0, 0.16);
+  --wb-shadow-float: 0 12px 30px rgba(0, 0, 0, 0.28), 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* ── 工作区骨架：面板边界与分隔器 ─────────────────────────────────────── */
+
+.workbench .workbench-inner,
+.workbench .work-area,
+.workbench .ap-workspace,
+.workbench .pp-panel,
+.workbench .right-panel {
+  background: color-mix(in srgb, var(--wb-canvas) 94%, transparent);
+}
+
+.workbench .sidebar,
+.workbench .work-header,
+.workbench .pp-panel-header,
+.workbench .pp-panel-footer,
+.workbench .tab-group-bar,
+.workbench .settings-tabs .n-tabs-nav {
+  background: var(--wb-paper);
+  border-color: var(--wb-line-soft);
+}
+
+.workbench .sidebar,
+.workbench .right-panel {
+  box-shadow: var(--wb-shadow-inset);
+}
+
+.workbench .n-split__resize-trigger {
+  background: color-mix(in srgb, var(--wb-line-soft) 72%, transparent);
+  transition: background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.workbench .n-split__resize-trigger:hover,
+.workbench .n-split__resize-trigger:active {
+  background: color-mix(in srgb, var(--color-brand) 34%, var(--wb-line-soft));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-brand) 8%, transparent);
+}
+
+/* ── 共享卡片与区块：纸感、层级和清晰边界 ─────────────────────────────── */
+
+.workbench .pp-section,
+.workbench .kp-card,
+.workbench .kp-search-card,
+.workbench .kp-edit-section,
+.workbench .work-empty-card,
+.workbench .gen-stream-meta-card {
+  background: var(--wb-paper);
+  border-color: var(--wb-line-soft) !important;
+  box-shadow: var(--wb-shadow-inset), var(--wb-shadow-card);
+}
+
+.workbench .pp-section,
+.workbench .kp-card,
+.workbench .kp-search-card,
+.workbench .kp-edit-section {
+  border-radius: 12px !important;
+}
+
+.workbench .pp-section-header,
+.workbench .kp-edit-header,
+.workbench .kp-edit-toolbar,
+.workbench .kp-graph-nav {
+  background: var(--wb-paper-muted);
+  border-color: var(--wb-line-soft);
+}
+
+.workbench .pp-section-label,
+.workbench .kp-section-title,
+.workbench .kp-label {
+  color: color-mix(in srgb, var(--app-text-muted) 86%, var(--color-gold) 14%);
+}
+
+.workbench .pp-info-bar,
+.workbench .kp-banner {
+  background: color-mix(in srgb, var(--color-brand-light) 74%, var(--wb-paper) 26%);
+  border-color: color-mix(in srgb, var(--color-brand-border) 78%, var(--wb-line-soft) 22%);
+  box-shadow: var(--wb-shadow-inset);
+}
+
+.workbench .pp-chip,
+.workbench .ng-tags span,
+.workbench .ng-severity,
+.workbench .tab-badge {
+  border: 1px solid color-mix(in srgb, currentColor 17%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 22%, transparent);
+}
+
+/* ── 表单系统：不改变控件尺寸，只提升可辨识性与焦点反馈 ─────────────── */
+
+.workbench .n-input,
+.workbench .n-input-number,
+.workbench .n-base-selection,
+.workbench .n-auto-complete,
+.workbench .n-date-picker,
+.workbench .ng-cockpit input,
+.workbench .ng-cockpit textarea {
+  background: color-mix(in srgb, var(--wb-paper-raised) 96%, var(--wb-canvas) 4%);
+  border-color: var(--wb-line-soft);
+  box-shadow: var(--wb-shadow-inset), 0 1px 2px rgba(15, 23, 42, 0.025);
+  transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+}
+
+.workbench .n-input:hover,
+.workbench .n-input-number:hover,
+.workbench .n-base-selection:hover,
+.workbench .ng-cockpit input:hover,
+.workbench .ng-cockpit textarea:hover {
+  border-color: var(--app-border-strong);
+}
+
+.workbench .n-input.n-input--focus,
+.workbench .n-input-number.n-input-number--focus,
+.workbench .n-base-selection.n-base-selection--active,
+.workbench .ng-cockpit input:focus-visible,
+.workbench .ng-cockpit textarea:focus-visible {
+  border-color: var(--wb-line-focus);
+  box-shadow: var(--wb-focus-ring), var(--wb-shadow-inset);
+  outline: none;
+}
+
+.workbench .n-button,
+.workbench .ng-icon-btn,
+.workbench .ng-text-btn,
+.workbench .tab-group-btn,
+.workbench .tab-collapse-btn,
+.workbench .rail-icon-btn {
+  box-shadow: var(--wb-shadow-inset);
+  transition: transform 140ms ease, border-color 140ms ease, background-color 140ms ease, box-shadow 140ms ease;
+}
+
+.workbench .n-button:not(.n-button--disabled):hover,
+.workbench .ng-icon-btn:hover,
+.workbench .ng-text-btn:hover,
+.workbench .rail-icon-btn:hover {
+  border-color: var(--app-border-strong);
+  box-shadow: var(--wb-shadow-inset), 0 3px 9px rgba(15, 23, 42, 0.07);
+}
+
+.workbench .n-button:not(.n-button--disabled):active,
+.workbench .ng-icon-btn:active,
+.workbench .ng-text-btn:active {
+  transform: translateY(1px);
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.workbench :is(button, [role='button'], a, input, textarea, select):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--wb-line-focus) 82%, transparent);
+  outline-offset: 2px;
+}
+
+/* ── 导航、标签与列表状态 ─────────────────────────────────────────────── */
+
+.workbench .view-mode-row,
+.workbench .work-mode-switch,
+.workbench .tab-group-bar {
+  border-color: var(--wb-line-soft);
+  box-shadow: var(--wb-shadow-inset);
+}
+
+.workbench .tab-group-btn {
+  border: 1px solid transparent;
+}
+
+.workbench .tab-group-btn:hover {
+  background: var(--wb-paper-muted);
+  border-color: color-mix(in srgb, var(--wb-line-soft) 70%, transparent);
+}
+
+.workbench .tab-group-btn--active {
+  background: var(--wb-paper-raised);
+  border-color: var(--wb-line-soft);
+  color: var(--app-text-primary);
+  box-shadow: var(--wb-shadow-inset), 0 2px 6px rgba(15, 23, 42, 0.055);
+}
+
+.workbench .n-tabs-tab {
+  transition: color 150ms ease, background-color 150ms ease;
+}
+
+.workbench .n-tabs-bar {
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-brand) 13%, transparent);
+}
+
+.workbench .sidebar .n-list-item {
+  border: 1px solid transparent;
+  box-shadow: inset 0 1px 0 transparent;
+}
+
+.workbench .sidebar .n-list-item:hover {
+  border-color: color-mix(in srgb, var(--color-brand-border) 58%, transparent);
+  box-shadow: var(--wb-shadow-inset);
+}
+
+.workbench .sidebar .n-list-item.is-active {
+  background: color-mix(in srgb, var(--color-brand-light) 78%, var(--wb-paper) 22%);
+  border-color: var(--color-brand-border);
+  box-shadow: inset 3px 0 0 var(--color-brand), var(--wb-shadow-inset), 0 2px 7px rgba(15, 23, 42, 0.04);
+}
+
+.workbench .kp-hit,
+.workbench .triple-row,
+.workbench .ng-line,
+.workbench .ng-debt,
+.workbench .ng-issue {
+  border-color: var(--wb-line-soft);
+  background: var(--wb-paper-muted);
+  box-shadow: var(--wb-shadow-inset);
+}
+
+.workbench .kp-hit:hover,
+.workbench .triple-row:hover,
+.workbench .ng-line:hover,
+.workbench .ng-debt:hover,
+.workbench .ng-issue:hover {
+  background: var(--wb-paper-raised);
+  border-color: var(--app-border-strong);
+  box-shadow: var(--wb-shadow-inset), 0 4px 12px rgba(15, 23, 42, 0.055);
+}
+
+/* ── 叙事治理：强化“总览 → 指标 → 工作列”的阅读顺序 ─────────────────── */
+
+.workbench .ng-cockpit {
+  background: var(--wb-paper);
+  border-color: var(--wb-line-soft);
+  border-radius: 14px;
+  box-shadow: var(--wb-shadow-inset), var(--wb-shadow-float);
+}
+
+.workbench .ng-topbar {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--wb-line-soft);
+}
+
+.workbench .ng-eyebrow {
+  color: color-mix(in srgb, var(--app-text-muted) 78%, var(--color-gold) 22%);
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.workbench .ng-metric {
+  position: relative;
+  overflow: hidden;
+  background: var(--wb-paper-muted);
+  border-color: var(--wb-line-soft);
+  border-radius: 10px;
+  box-shadow: var(--wb-shadow-inset), var(--wb-shadow-card);
+}
+
+.workbench .ng-metric::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: color-mix(in srgb, var(--color-gold) 72%, var(--color-brand) 28%);
+}
+
+.workbench .ng-metric strong {
+  color: var(--app-text-primary);
+  letter-spacing: -0.025em;
+}
+
+.workbench .ng-panel {
+  background: var(--wb-paper);
+  border-color: var(--wb-line-soft);
+  border-radius: 11px;
+  box-shadow: var(--wb-shadow-inset), var(--wb-shadow-card);
+}
+
+.workbench .ng-panel--report {
+  background: color-mix(in srgb, var(--wb-paper) 96%, var(--color-gold-dim) 4%);
+}
+
+.workbench .ng-panel__head {
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--wb-line-soft);
+}
+
+.workbench .ng-panel label {
+  color: var(--app-text-secondary);
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+.workbench .ng-icon-btn,
+.workbench .ng-text-btn {
+  background: var(--wb-paper-raised);
+  border-color: var(--wb-line-soft);
+  border-radius: 8px;
+  color: var(--app-text-secondary);
+}
+
+/* ── 侧栏资料与编辑区：让高密度信息更易扫读 ───────────────────────────── */
+
+.workbench .kp-root {
+  background: var(--wb-canvas);
+}
+
+.workbench .kp-hero {
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--wb-line-soft);
+}
+
+.workbench .kp-title,
+.workbench .pp-panel-title,
+.workbench .sidebar-title,
+.workbench .work-title {
+  letter-spacing: 0.015em;
+  text-wrap: balance;
+}
+
+.workbench .kp-card .n-card-header,
+.workbench .kp-ch-card .n-card-header {
+  background: color-mix(in srgb, var(--color-brand-light) 40%, var(--wb-paper) 60%);
+  border-color: var(--wb-line-soft);
+}
+
+.workbench .kp-search-empty,
+.workbench .pp-empty,
+.workbench .work-empty {
+  color: var(--app-text-muted);
+}
+
+.workbench .kp-search-empty,
+.workbench .work-empty-card {
+  border: 1px dashed color-mix(in srgb, var(--wb-line) 70%, transparent);
+  background: color-mix(in srgb, var(--wb-paper-muted) 82%, transparent);
+}
+
+/* ── 编辑器与操作区 ─────────────────────────────────────────────────── */
+
+.workbench .chapter-editor,
+.workbench .editor-header,
+.workbench .editor-footer,
+.workbench .desk-toolbar,
+.workbench .rail-head {
+  background: var(--wb-paper);
+  border-color: var(--wb-line-soft);
+}
+
+.workbench .editor-input-wrapper {
+  background: var(--wb-paper-raised);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--wb-line-soft) 68%, transparent);
+}
+
+.workbench .assisted-readonly-banner,
+.workbench .wa-inline-stream,
+.workbench .streaming-indicator {
+  border-color: color-mix(in srgb, var(--color-brand-border) 76%, var(--wb-line-soft) 24%);
+  box-shadow: var(--wb-shadow-inset);
+}
+
+/* ── 滚动条：细而可见，减少深色大块噪点 ─────────────────────────────── */
+
+.workbench * {
+  scrollbar-color: color-mix(in srgb, var(--app-text-muted) 24%, transparent) transparent;
+  scrollbar-width: thin;
+}
+
+.workbench *::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.workbench *::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.workbench *::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--app-text-muted) 23%, transparent);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+
+.workbench *::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--app-text-muted) 38%, transparent);
+  background-clip: padding-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workbench *,
+  .workbench *::before,
+  .workbench *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
