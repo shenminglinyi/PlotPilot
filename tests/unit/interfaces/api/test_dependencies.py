@@ -3,6 +3,7 @@ import os
 import pytest
 from unittest.mock import patch, MagicMock
 import interfaces.api.dependencies as dependencies
+from application.paths import resolve_runtime_data_path
 
 
 class TestGetVectorStore:
@@ -21,7 +22,10 @@ class TestGetVectorStore:
                 result = dependencies.get_vector_store()
 
                 assert result is mock_instance
-                mock_chromadb.assert_called_once_with(persist_directory="./data/chromadb")
+                # persist_directory 会经 resolve_runtime_data_path 解析为运行时绝对路径
+                mock_chromadb.assert_called_once_with(
+                    persist_directory=str(resolve_runtime_data_path("./data/chromadb"))
+                )
 
     def test_get_vector_store_returns_none_when_disabled(self):
         """VECTOR_STORE_ENABLED 为 false 时返回 None。"""
@@ -139,4 +143,7 @@ class TestGetVectorStore:
                 result = dependencies.get_vector_store()
 
                 assert result is mock_instance
-                mock_chromadb.assert_called_once_with(persist_directory="./data/chromadb")
+                # persist_directory 会经 resolve_runtime_data_path 解析为运行时绝对路径
+                mock_chromadb.assert_called_once_with(
+                    persist_directory=str(resolve_runtime_data_path("./data/chromadb"))
+                )

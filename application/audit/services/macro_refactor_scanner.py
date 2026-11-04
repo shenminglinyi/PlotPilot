@@ -37,13 +37,14 @@ class MacroRefactorScanner:
     def __init__(
         self,
         event_repository: NarrativeEventRepository,
-        character_state_repository: Optional[CharacterStateRepository] = None,
+        character_state_repository: CharacterStateRepository,
     ):
         """初始化扫描器
 
         Args:
             event_repository: 叙事事件仓储
-            character_state_repository: 人物状态仓储（V2 新增，用于 Scar 感知判定）
+            character_state_repository: 人物状态仓储（Scar 感知判定所必需，
+                装配期必须提供；缺失直接构造报错，不做静默降级）
         """
         self.event_repository = event_repository
         self.character_state_repo = character_state_repository
@@ -128,10 +129,6 @@ class MacroRefactorScanner:
         Returns:
             (breakpoint_type, related_scar_id, breakout_reason, character_id)
         """
-        if not self.character_state_repo:
-            # 无人物状态仓储时，降级为纯 OOC 判定（V1 兼容）
-            return (BreakpointType.OOC, None, None, None)
-
         # 尝试从事件中提取涉及的角色
         character_id = self._extract_character_from_event(event)
         if not character_id:

@@ -496,7 +496,8 @@ class StateUpdater:
                 if not char_name:
                     continue
 
-                # 查询角色ID及 role — 优先 unified_characters，回退 bible_characters
+                # 查询角色ID及 role — 单一数据源：unified_characters。
+                # 查不到视为数据缺失（不回退旧表、不伪造 ID），记录 warning 后跳过该角色的出场写入。
                 char_id: str | None = None
                 role: str = char_data.get("role", "")
 
@@ -514,16 +515,13 @@ class StateUpdater:
                     if not role:
                         role = unified_row[1] or ""
                 else:
-                    cursor.execute(
-                        """
-                        SELECT id FROM bible_characters
-                        WHERE novel_id = ? AND name = ?
-                        LIMIT 1
-                        """,
-                        (novel_id, char_name)
+                    logger.warning(
+                        "unified_characters 中未找到角色 '%s' (novel=%s)，"
+                        "跳过其出场记录写入（请先完成角色统一）",
+                        char_name,
+                        novel_id,
                     )
-                    char_row = cursor.fetchone()
-                    char_id = char_row[0] if char_row else str(uuid.uuid4())
+                    continue
 
                 importance = _role_to_chapter_importance(role)
 

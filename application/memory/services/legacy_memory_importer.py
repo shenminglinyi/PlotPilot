@@ -6,7 +6,10 @@ from application.memory.services.narrative_memory_service import NarrativeMemory
 
 
 class LegacyMemoryImporter:
-    """Idempotently mirrors selected legacy state into MemoryAtom rows."""
+    """LEGACY(迁移工具，完成后删除)：将旧版角色状态幂等镜像为 MemoryAtom 行。
+
+    仅限显式迁移调用（如 chapter_narrative_sync 的旧数据导入），非运行路径回退。
+    """
 
     def __init__(self, memory_service: NarrativeMemoryService):
         self.memory = memory_service

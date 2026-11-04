@@ -99,6 +99,10 @@ class AppContainer:
             )
             return None
 
+    def is_vector_store_init_failed(self) -> bool:
+        """向量存储是否因初始化失败而处于降级禁用状态（供依赖方显式上报）。"""
+        return self._vector_store_init_failed
+
     def reset_vector_store(self) -> None:
         self._vector_store = None
         self._vector_store_init_failed = False

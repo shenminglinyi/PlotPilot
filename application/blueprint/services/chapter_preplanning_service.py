@@ -175,6 +175,11 @@ class ChapterPreplanningService:
         }
 
     def _extract_legacy_chapter_plan(self, node: Any) -> Any:
+        """输入兼容（冻结）：读取旧版持久化在 metadata.chapter_plan 中的计划。
+
+        属旧数据格式读取，非路径回退；仅当新渲染计划不存在时使用。
+        删除条件：存量小说 metadata 迁移完成后移除本方法及调用分支。
+        """
         metadata = getattr(node, "metadata", {}) if node is not None else {}
         if isinstance(metadata, dict):
             legacy = metadata.get("chapter_plan")

@@ -253,12 +253,14 @@ function buildProfilePayload(
   maxTokens: number,
   timeoutSeconds: number,
 ): LLMProfile {
+  // 表单留空时保留已保存的 API Key（issue #206：避免空表单覆盖导致“提示没有 api”）
+  const apiKey = key.trim() || existing?.api_key || ''
   return {
     id: existing?.id || idFallback,
     name,
     protocol: provider as LLMProtocol,
     base_url: url,
-    api_key: key,
+    api_key: apiKey,
     model,
     temperature,
     max_tokens: maxTokens,
@@ -385,8 +387,9 @@ async function handleSave() {
     await llmControlApi.saveConfig(newConfig)
     message.success('配置已保存，系统已切换路由通道')
     await loadData()
-  } catch {
-    message.error('保存失败')
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : ''
+    message.error(detail ? `保存失败：${detail}` : '保存失败')
   } finally {
     saving.value = false
   }

@@ -206,7 +206,30 @@ def test_app_factory_registers_legacy_and_api_routes(tmp_path):
     from interfaces.main import create_app
 
     app = create_app(BackendSettings(frontend_dir=tmp_path / "dist"))
-    routes = {route.path for route in app.routes}
+
+    def _collect_paths(routes):
+        """兼容新旧 FastAPI/Starlette：新版把 include 的路由包成 _IncludedRouter，
+        需经 effective_route_contexts() 取带前缀的最终路径；旧版直接读 .path；
+        其余容器类型（Mount 等）递归 .routes 兜底。"""
+        paths = set()
+        for route in routes:
+            path = getattr(route, "path", None)
+            if isinstance(path, str):
+                paths.add(path)
+                continue
+            contexts = getattr(route, "effective_route_contexts", None)
+            if callable(contexts):
+                for item in contexts():
+                    item_path = getattr(item, "path", None)
+                    if isinstance(item_path, str):
+                        paths.add(item_path)
+                continue
+            nested = getattr(route, "routes", None)
+            if nested:
+                paths |= _collect_paths(nested)
+        return paths
+
+    routes = _collect_paths(app.routes)
 
     assert "/" in routes
     assert "/health" in routes

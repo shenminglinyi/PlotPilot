@@ -1,4 +1,4 @@
-﻿from types import SimpleNamespace
+from types import SimpleNamespace
 
 import pytest
 
@@ -141,7 +141,8 @@ def test_variable_resolver_uses_explicit_then_hub_then_default():
     assert plan.aliases["role"] == "专业小说家"
     assert plan.lineage["outline"] == "explicit"
     assert plan.snapshot_hash
-    assert [item["key"] for item in plan.snapshot_items] == ["bible"]
+    # 变量中心重构后：hub 解析命中的别名会连同其公共别名（variable_key 及其短名）一并进入快照
+    assert [item["key"] for item in plan.snapshot_items] == ["bible", "novel.bible", "novel_bible"]
     assert plan.snapshot_items[0]["source"] == "variable_hub"
 
 
@@ -188,7 +189,13 @@ def test_variable_resolver_snapshots_prompt_input_when_hub_fact_exists():
     )
 
     assert plan.aliases["core_rules"] == "【核心法则】异能体系"
-    assert [item["key"] for item in plan.snapshot_items] == ["core_rules"]
+    # hub 命中别名与其公共别名（variable_key / 短名变体）一并进入快照
+    assert [item["key"] for item in plan.snapshot_items] == [
+        "core_rules",
+        "novel.worldbuilding.core_rules",
+        "novel_worldbuilding.core_rules",
+        "worldbuilding.core_rules",
+    ]
     assert plan.snapshot_items[0]["source"] == "variable_hub"
 
 
@@ -520,12 +527,13 @@ def test_variable_resolver_autopilot_macro_reads_setup_variable_hub():
     assert plan.aliases["genre_opening_profile"]["opening_mechanism"] == "即时压迫"
     assert plan.lineage["premise"] == "variable:novel.setup.premise"
     assert plan.lineage["planning_depth"] == "variable:novel.planning.macro.depth"
+    # hub 命中别名与其公共别名（variable_key / 短名变体）一并进入快照
     assert {item["key"] for item in plan.snapshot_items} == {
-        "premise",
-        "target_chapters",
-        "characters",
-        "planning_depth",
-        "rec_parts",
+        "premise", "setup.premise", "novel.setup.premise", "novel_setup.premise",
+        "target_chapters", "setup.target_chapters", "novel.setup.target_chapters", "novel_setup.target_chapters",
+        "characters", "characters.list", "novel.characters.list", "novel_characters.list",
+        "planning_depth", "planning.macro.depth", "novel.planning.macro.depth", "novel_planning.macro.depth",
+        "rec_parts", "planning.macro.rec_parts", "novel.planning.macro.rec_parts", "novel_planning.macro.rec_parts",
     }
 
 

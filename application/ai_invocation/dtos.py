@@ -1,4 +1,4 @@
-﻿"""AI Invocation 子域公共 DTO。"""
+"""AI Invocation 子域公共 DTO。"""
 from __future__ import annotations
 
 import hashlib
@@ -108,8 +108,11 @@ class VariableBinding:
     source: str = ""
     enabled: bool = True
     value_type: str = "string"
-    scope: str = "runtime"
-    stage: str = "runtime"
+    # 默认空串：未显式指定时由 VariableResolver 按键名前缀推断 scope/stage
+    # （novel./worldbuilding./characters. 等 → novel / 对应阶段）；
+    # "runtime" 仅作为显式取值使用，不再作为默认值。
+    scope: str = ""
+    stage: str = ""
     display_name: str = ""
     source_path: str = ""
     projection_key: str = ""

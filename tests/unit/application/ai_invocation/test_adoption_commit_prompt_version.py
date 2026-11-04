@@ -418,7 +418,7 @@ def test_autopilot_act_plan_continuation_repairs_llm_json_text():
         node_key="planning-act",
         policy=InvocationPolicy.DIRECT,
         status=InvocationSessionStatus.AWAITING_COMMIT,
-        context={"novel_id": "novel-1", "act_id": "act-1"},
+        context={"novel_id": "novel-1", "act_id": "act-1", "chapter_count": 1},
         continuation=ContinuationRef(handler_key="autopilot_act_plan"),
     )
     decision = AdoptionDecision(
@@ -432,6 +432,9 @@ def test_autopilot_act_plan_continuation_repairs_llm_json_text():
       "number": 1,
       "title": "废铁区深处的冷焰",
       "outline": "林渊完成第一次猎杀。",
+      "main_event": "林渊在废铁区完成第一次猎杀。",
+      "handoff_from_previous": "承接上幕的觉醒伏笔。",
+      "handoff_to_next": "猎杀引来巡逻队注意。"
     },
   ],
 }

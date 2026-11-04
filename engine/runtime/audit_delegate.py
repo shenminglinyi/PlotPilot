@@ -379,32 +379,29 @@ async def run_chapter_audit(host: Any, novel: Novel) -> None:
             chapter_num,
         )
     elif host.aftermath_pipeline:
-        try:
-            _mb = host._pending_chapter_micro_beats.pop(
-                (novel.novel_id.value, chapter_num), None
-            )
-            voice_result = drift_result if drift_result.get("similarity_score") is not None else None
-            drift_result = await host._call_with_timeout(
-                host.aftermath_pipeline.run_after_chapter_saved(
-                    novel.novel_id.value,
-                    chapter_num,
-                    content,
-                    chapter_micro_beats=_mb,
-                    voice_result=voice_result,
-                ),
-                timeout=300.0,  # 章后管线最多 5 分钟（含多次 LLM）
-                novel_id=novel.novel_id.value,
-                label="aftermath_pipeline",
-                timeout_default={"drift_alert": False, "similarity_score": None, "narrative_sync_ok": False, "vector_stored": False, "foreshadow_stored": False, "triples_extracted": False},
-            )
-            logger.info(
-                f"[{novel.novel_id}] 章后管线完成: 相似度={drift_result.get('similarity_score')}, "
-                f"drift_alert={drift_result.get('drift_alert')}"
-            )
-        except Exception as e:
-            logger.warning(f"[{novel.novel_id}] 章后管线失败（降级旧逻辑）：{e}")
-            drift_result = host._legacy_auditing_tasks_and_voice(
-                novel, chapter_num, content, chapter_id
+        # 章后管线失败时异常直接向上抛出，由 novel_lifecycle 的统一恢复机制处理；
+        # 不回退到 legacy 审计路径（避免双路径产出不可定位）。
+        _mb = host._pending_chapter_micro_beats.pop(
+            (novel.novel_id.value, chapter_num), None
+        )
+        voice_result = drift_result if drift_result.get("similarity_score") is not None else None
+        drift_result = await host._call_with_timeout(
+            host.aftermath_pipeline.run_after_chapter_saved(
+                novel.novel_id.value,
+                chapter_num,
+                content,
+                chapter_micro_beats=_mb,
+                voice_result=voice_result,
+            ),
+            timeout=300.0,  # 章后管线最多 5 分钟（含多次 LLM）
+            novel_id=novel.novel_id.value,
+            label="aftermath_pipeline",
+            timeout_default={"drift_alert": False, "similarity_score": None, "narrative_sync_ok": False, "vector_stored": False, "foreshadow_stored": False, "triples_extracted": False},
+            propagate_errors=True,  # 管线真实失败必须上抛（仅用户停止走默认值）
+        )
+        logger.info(
+            f"[{novel.novel_id}] 章后管线完成: 相似度={drift_result.get('similarity_score')}, "
+            f"drift_alert={drift_result.get('drift_alert')}"
         )
     else:
         drift_result = host._legacy_auditing_tasks_and_voice(

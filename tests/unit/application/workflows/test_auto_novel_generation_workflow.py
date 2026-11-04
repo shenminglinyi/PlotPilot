@@ -319,19 +319,8 @@ class TestBuildPrompt:
         assert "HIGH" in prompt.system
         assert "CTX" in prompt.system
 
-    def test_build_prompt_includes_genre_profile_contract(self, workflow):
-        """类型画像应进入正文生成 system，避免分类只停留在前置向导。"""
-        prompt = workflow._build_prompt(
-            context="CTX",
-            outline="OL",
-            genre_opening_profile={"genre_major": "都市", "source_level": "secondary"},
-            genre_reader_contract={"reader_promise": ["现实压迫快速建立"]},
-            genre_rhythm_constraints={"payoff_interval": "短"},
-        )
-
-        assert "类型开篇画像" in prompt.system
-        assert "现实压迫快速建立" in prompt.system
-        assert "payoff_interval" in prompt.system
+    # 类型画像注入已迁移至 engine/pipeline/generation_prompt_builder.py（ctx.bundle），
+    # 对应覆盖见 tests/unit/engine/test_generation_prompt_builder.py::test_build_generation_prompt_includes_bundle_genre_profile
 
     def test_build_prompt_blocks_when_cpms_template_missing(self, workflow, monkeypatch):
         """章节生成 CPMS 缺失时必须阻塞，不能降级到硬编码提示词。"""
