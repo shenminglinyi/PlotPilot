@@ -1,131 +1,91 @@
 <template>
   <div class="plaza-entry">
-    <!-- 入口按钮 —— 仿 AI 控制台样式 -->
     <button
       type="button"
       class="plaza-main"
       :class="appearance === 'sidebar' ? 'variant-sidebar' : 'variant-topbar'"
-      aria-label="提示词广场"
+      aria-label="打开墨枢模组中心"
       @mouseenter="prefetchPromptPlaza"
       @click="openModal"
     >
-      <span class="plaza-glow"></span>
-
       <span class="plaza-main-content">
         <template v-if="appearance === 'sidebar'">
           <span class="plaza-plain-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none">
-              <path d="M6 19h12M6 5h12M7 9h10M7 13h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+            <svg viewBox="0 0 20 20" fill="none">
+              <path
+                d="M6.5 3v3M13.5 3v3M4.5 6h11v3.5a5.5 5.5 0 0 1-11 0V6ZM10 15v2"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
             </svg>
           </span>
-          <span class="plaza-title">提示词广场</span>
+          <span class="plaza-title">模组中心</span>
+          <span v-if="modHubStore.installedCount > 0" class="sidebar-badge numeric">
+            已装 {{ modHubStore.installedCount }}
+          </span>
         </template>
         <template v-else>
-          <span class="plaza-icon-core">
-            <span class="plaza-icon-grid"></span>
-            <span class="plaza-icon-chip">P</span>
-            <span class="plaza-icon-spark"></span>
-          </span>
-
+          <span class="plaza-icon-core" aria-hidden="true">模</span>
           <span class="plaza-copy">
             <span class="plaza-title-row">
-              <span class="plaza-title">提示词广场</span>
-              <span v-if="promptCount > 0" class="plaza-count">{{ promptCount }}</span>
+              <span class="plaza-title">模组中心</span>
+              <span v-if="promptCount > 0" class="plaza-count numeric">{{ promptCount }}</span>
             </span>
-            <span class="plaza-subtitle">
-              浏览 · 编辑 · 版本管理
-            </span>
+            <span class="plaza-subtitle">发现 · 安装 · 内核管理</span>
           </span>
         </template>
       </span>
     </button>
 
-    <!-- 弹窗 -->
     <teleport to="body">
       <n-modal
         v-model:show="showModal"
         preset="card"
         title=""
-        :style="{ width: '92vw', maxWidth: '1100px', height: '85vh', marginTop: '5vh' }"
+        :style="{ width: '94vw', maxWidth: '1140px', height: '86vh', marginTop: '4vh' }"
         :bordered="true"
-        :segmented="{ content: true, footer: 'soft' }"
+        :content-style="{ padding: '0', display: 'flex', flexDirection: 'column', overflow: 'hidden' }"
         :mask-closable="true"
         :close-on-esc="true"
         @after-leave="onModalClose"
       >
-        <!-- 弹窗头部 -->
         <template #header>
           <div class="modal-header">
             <div class="modal-header-left">
-              <span class="modal-header-icon">P</span>
-              <span class="modal-header-title">提示词广场</span>
-              <n-tag size="small" type="info" :bordered="false" v-if="stats">
-                {{ stats.total_nodes }} 个 · {{ stats.total_versions }} 版本
-              </n-tag>
+              <span class="modal-header-icon" aria-hidden="true">模</span>
+              <span class="modal-header-title">墨枢模组中心</span>
+              <span class="modal-header-sub">
+                安装文风与审稿模组 · 同步云端书元 · 管理 {{ promptCount || 78 }} 个内核节点
+              </span>
             </div>
-            <div class="modal-header-actions">
-              <n-button size="small" secondary @click="handleExport">
-                导出
-              </n-button>
-              <n-button size="small" secondary @click="triggerImport">
-                导入
-              </n-button>
-            </div>
+            <button type="button" class="open-fullpage-btn" @click="goFullScreenSquare">
+              全屏打开 ↗
+            </button>
           </div>
         </template>
 
-        <!-- 弹窗内容 -->
         <div class="modal-body">
           <PromptPlaza
             v-if="showModal"
-            :seed-stats="stats"
             ref="plazaRef"
+            :seed-stats="stats"
             @refresh-stats="onPlazaRefreshStats"
+            @request-cloud-login="goFullScreenSquare"
           />
         </div>
-
-        <!-- 弹窗底部 -->
-        <template #footer>
-          <div class="modal-footer-hint">
-            内置提示词支持版本管理，自定义修改会自动创建新版本快照
-          </div>
-        </template>
       </n-modal>
     </teleport>
-
-    <!-- 导入弹窗 -->
-    <n-modal
-      v-model:show="showImportModal"
-      preset="dialog"
-      title="导入提示词"
-      positive-text="导入"
-      negative-text="取消"
-      @positive-click="handleImport"
-      style="max-width: 520px"
-    >
-      <div class="import-body">
-        <p class="import-hint">选择一个 JSON 文件，将覆盖或新增提示词节点。</p>
-        <n-upload
-          accept=".json"
-          :max="1"
-          :show-file-list="true"
-          @change="handleFileSelect"
-        >
-          <n-button>选择文件</n-button>
-        </n-upload>
-      </div>
-    </n-modal>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, defineAsyncComponent, h } from 'vue'
-import {
-  NModal, NTag, NButton,
-  NUpload, useMessage, NSpin,
-} from 'naive-ui'
+import { useRouter } from 'vue-router'
+import { NModal, NSpin } from 'naive-ui'
 import { promptPlazaApi, type PromptStats } from '../../api/llmControl'
-import { formatApiError } from '../../utils/apiError'
+import { useModHubStore } from '@/stores/modHubStore'
 
 const PromptPlaza = defineAsyncComponent({
   loader: () => import('../workbench/PromptPlaza.vue'),
@@ -137,7 +97,7 @@ const PromptPlaza = defineAsyncComponent({
         h(
           'div',
           { class: 'plaza-chunk-loading' },
-          h(NSpin, { size: 'large', description: '加载提示词广场…' }),
+          h(NSpin, { size: 'large', description: '加载模组中心…' }),
         )
     },
   },
@@ -145,31 +105,37 @@ const PromptPlaza = defineAsyncComponent({
 
 type Appearance = 'sidebar' | 'topbar'
 
-const props = withDefaults(defineProps<{
-  appearance?: Appearance
-}>(), {
-  appearance: 'sidebar',
-})
+withDefaults(
+  defineProps<{
+    appearance?: Appearance
+  }>(),
+  {
+    appearance: 'sidebar',
+  },
+)
 
-const message = useMessage()
+const router = useRouter()
+const modHubStore = useModHubStore()
+
 const showModal = ref(false)
 const promptCount = ref(0)
 const stats = ref<PromptStats | null>(null)
 const plazaRef = ref<{ loadData: () => Promise<void> } | null>(null)
 
-// 导入相关
-const showImportModal = ref(false)
-const importFileContent = ref('')
-
-function openModal() {
+function openModal(): void {
   showModal.value = true
 }
 
-function onModalClose() {
-  loadStats()
+function onModalClose(): void {
+  void loadStats()
 }
 
-async function loadStats() {
+function goFullScreenSquare(): void {
+  showModal.value = false
+  void router.push('/square')
+}
+
+async function loadStats(): Promise<void> {
   try {
     const res = await promptPlazaApi.getStats()
     const data = res as unknown as PromptStats
@@ -180,66 +146,7 @@ async function loadStats() {
   }
 }
 
-// ---- 导出 ----
-async function handleExport() {
-  try {
-    const res = await promptPlazaApi.exportAll()
-    const blob = new Blob([JSON.stringify(res, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `prompts-backup-${new Date().toISOString().slice(0, 10)}.json`
-    a.click()
-    URL.revokeObjectURL(url)
-    message.success('导出成功')
-  } catch (e: unknown) {
-    const err = e as { message?: string }
-    message.error(err?.message || '导出失败')
-  }
-}
-
-// ---- 导入 ----
-function triggerImport() {
-  importFileContent.value = ''
-  showImportModal.value = true
-}
-
-function handleFileSelect(data: { file: { file?: File | null }; fileList: Array<{ file?: File | null }>; event?: Event | ProgressEvent<EventTarget> }) {
-  const f = data.file?.file
-  if (!f) return
-  const reader = new FileReader()
-  reader.onload = (e) => {
-    importFileContent.value = e.target?.result as string || ''
-  }
-  reader.readAsText(f)
-}
-
-async function handleImport() {
-  if (!importFileContent.value) {
-    message.warning('请先选择文件')
-    return false
-  }
-  try {
-    const data = JSON.parse(importFileContent.value) as Parameters<typeof promptPlazaApi.importData>[0]
-    if (!data.prompts || !Array.isArray(data.prompts)) {
-      message.error('JSON 中需包含 prompts 数组')
-      return false
-    }
-    const result = await promptPlazaApi.importData(data)
-    message.success(result.message || '导入成功')
-    if (result.errors?.length) {
-      message.warning(`部分条目未导入：${result.errors.slice(0, 3).join('；')}`)
-    }
-    showImportModal.value = false
-    await plazaRef.value?.loadData?.()
-    return true
-  } catch (e: unknown) {
-    message.error(formatApiError(e, '导入失败，请检查 JSON 格式'))
-    return false
-  }
-}
-
-function onPlazaRefreshStats(payload: PromptStats | null) {
+function onPlazaRefreshStats(payload: PromptStats | null): void {
   if (payload != null) {
     stats.value = payload
     promptCount.value = payload.total_nodes || 0
@@ -249,143 +156,63 @@ function onPlazaRefreshStats(payload: PromptStats | null) {
 }
 
 let plazaChunkPrefetchStarted = false
-function prefetchPromptPlaza() {
+function prefetchPromptPlaza(): void {
   if (plazaChunkPrefetchStarted) return
   plazaChunkPrefetchStarted = true
   void import('../workbench/PromptPlaza.vue')
 }
 
 onMounted(() => {
-  loadStats()
+  void loadStats()
 })
 </script>
 
 <style scoped>
-/* ════════════════════════════════════
-   提示词广场入口按钮 —— 完全仿 AI 控制台
-   ════════════════════════════════════ */
 .plaza-entry {
   display: inline-flex;
   align-items: center;
   width: 100%;
 }
 
-/* ── 主按钮 ──────────────────────────────── */
+.numeric {
+  font-variant-numeric: tabular-nums;
+}
+
 .plaza-main {
   position: relative;
   display: block;
-  overflow: hidden;
+  width: 100%;
+  box-sizing: border-box;
   border: 1px solid var(--app-border);
-  background:
-    radial-gradient(circle at 18% 18%, var(--color-plaza-light, rgba(16, 185, 129, 0.28)), transparent 28%),
-    linear-gradient(135deg, var(--color-plaza, #059669), var(--color-plaza-hover, #047857));
-  color: var(--app-text-inverse);
-  box-shadow: var(--app-shadow-md), 0 10px 26px var(--color-plaza-border, rgba(5, 150, 105, 0.22));
-  backdrop-filter: blur(12px);
+  background: var(--app-surface);
+  color: var(--app-text-primary);
   cursor: pointer;
-  transition:
-    transform 0.18s ease,
-    box-shadow 0.18s ease,
-    opacity 0.18s ease,
-    border-color 0.18s ease;
-}
-
-.plaza-main.variant-topbar {
-  width: 248px;
-  min-height: 68px;
-  padding: 12px 14px;
-  border-radius: var(--app-radius-xl);
-  color: var(--nav-hero-text);
-  border-color: rgba(255, 255, 255, 0.28);
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.08));
-  box-shadow:
-    var(--app-shadow-md),
-    0 12px 32px rgba(0, 0, 0, 0.18);
-}
-
-.plaza-main.variant-topbar .plaza-title {
-  color: var(--nav-hero-text);
-}
-
-.plaza-main.variant-topbar .plaza-subtitle {
-  color: var(--nav-hero-text-muted, rgba(255, 255, 255, 0.86));
-}
-
-.plaza-main.variant-topbar .plaza-icon-core {
-  background: linear-gradient(
-    180deg,
-    var(--nav-hero-pill-bg-top, rgba(255, 255, 255, 0.22)),
-    var(--nav-hero-pill-bg-bottom, rgba(255, 255, 255, 0.08))
-  );
-  border: 1px solid var(--nav-hero-pill-border, rgba(255, 255, 255, 0.28));
-  box-shadow: var(--nav-hero-shadow, inset 0 1px 0 rgba(255, 255, 255, 0.12));
-}
-
-.plaza-main.variant-topbar .plaza-icon-grid {
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.1) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.1) 1px, transparent 1px);
-}
-
-.plaza-main.variant-topbar .plaza-count {
-  background: rgba(255, 255, 255, 0.22);
-  color: var(--nav-hero-text, #ffffff);
+  transition: border-color 0.16s ease, background-color 0.16s ease, color 0.16s ease;
 }
 
 .plaza-main.variant-sidebar {
-  /* 紧凑导航行（配 StatsSidebar 重设计后的 38px 入口行，不再是大渐变砖） */
-  width: 100%;
-  box-sizing: border-box;
   min-height: 38px;
   padding: 0 12px;
-  border-radius: 10px;
-  background: var(--app-surface);
-  color: var(--app-text-primary);
-  border: 1px solid var(--app-border);
-  box-shadow: none;
-}
-
-.plaza-main:hover {
-  transform: translateY(-1px);
-  border-color: var(--color-plaza-border);
-  box-shadow: var(--app-shadow-lg), 0 14px 32px var(--color-plaza-border, rgba(5, 150, 105, 0.28));
+  border-radius: 9px;
 }
 
 .plaza-main.variant-sidebar:hover {
-  filter: none;
-  transform: translateY(-1px);
-  background: var(--app-surface);
-  border-color: var(--color-plaza, #059669);
-  box-shadow: none;
+  border-color: var(--color-brand);
+  color: var(--color-brand);
 }
 
-/* ── 光晕层 ─────────────────────────────── */
-.plaza-glow {
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(circle at 80% 20%, var(--app-text-inverse, rgba(255, 255, 255, 0.18)), transparent 24%),
-    linear-gradient(180deg, var(--app-text-inverse, rgba(255, 255, 255, 0.06)), transparent 45%);
-  pointer-events: none;
+.plaza-main.variant-topbar {
+  width: 220px;
+  min-height: 46px;
+  padding: 8px 12px;
+  border-radius: 10px;
 }
 
-/* ── 内容区 ─────────────────────────────── */
 .plaza-main-content {
-  position: relative;
-  z-index: 1;
   display: flex;
   align-items: center;
-  gap: 12px;
-}
-.plaza-main.variant-sidebar .plaza-main-content { 
-  flex-direction: row;
-  justify-content: flex-start;
   gap: 9px;
   width: 100%;
-}
-
-.plaza-main.variant-sidebar .plaza-glow {
-  display: none;
 }
 
 .plaza-plain-icon {
@@ -394,7 +221,7 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--color-plaza, #059669);
+  color: var(--color-brand);
   flex: none;
 }
 
@@ -403,106 +230,7 @@ onMounted(() => {
   height: 16px;
 }
 
-[data-theme='anchor'] .plaza-main.variant-sidebar {
-  background: var(--app-surface);
-  border: 1px solid var(--app-border);
-  color: var(--app-text-primary);
-  box-shadow: none;
-}
-
-[data-theme='anchor'] .plaza-main.variant-sidebar:hover {
-  transform: translateY(-1px);
-  filter: none;
-  border-color: var(--color-brand, #c9a227);
-  box-shadow: none;
-}
-
-/* ── 图标核心 ───────────────────────────── */
-.plaza-icon-core {
-  position: relative;
-  flex: 0 0 auto;
-  width: 40px;
-  height: 40px;
-  border-radius: 14px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(180deg, var(--app-text-inverse, rgba(15, 23, 42, 0.5)), var(--app-text-inverse, rgba(15, 23, 42, 0.16)));
-  border: 1px solid var(--app-text-inverse, rgba(255, 255, 255, 0.12));
-  box-shadow: inset 0 1px 0 var(--app-text-inverse, rgba(255, 255, 255, 0.08));
-}
-.plaza-main.variant-sidebar .plaza-icon-core { 
-  width: 24px; 
-  height: 24px; 
-  border-radius: 8px; 
-}
-
-.plaza-icon-grid {
-  position: absolute;
-  inset: 8px;
-  border-radius: inherit;
-  opacity: 0.35;
-  background-image:
-    linear-gradient(var(--color-plaza-suppl, rgba(167, 243, 208, 0.16)) 1px, transparent 1px),
-    linear-gradient(90deg, var(--color-plaza-suppl, rgba(167, 243, 208, 0.16)) 1px, transparent 1px);
-  background-size: 7px 7px;
-}
-.plaza-main.variant-sidebar .plaza-icon-grid { 
-  inset: 4px; 
-  background-size: 4px 4px; 
-}
-
-.plaza-icon-chip {
-  position: relative;
-  z-index: 1;
-  font-size: 15px;
-  font-weight: 800;
-  line-height: 1;
-  letter-spacing: -0.02em;
-}
-.plaza-main.variant-sidebar .plaza-icon-chip { font-size: 10px; }
-
-.plaza-icon-spark {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--color-gold, #f59e0b);
-  box-shadow: 0 0 6px var(--color-gold-glow, rgba(245, 158, 11, 0.6));
-}
-.plaza-main.variant-sidebar .plaza-icon-spark { 
-  top: 1px; 
-  right: 1px; 
-  width: 4px; 
-  height: 4px; 
-}
-
-/* ── 文字区 ─────────────────────────────── */
-.plaza-copy {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-.plaza-main.variant-sidebar .plaza-copy { 
-  gap: 0; 
-  align-items: center; 
-}
-
-.plaza-title-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .plaza-title {
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-}
-.plaza-main.variant-sidebar .plaza-title { 
   font-size: 13px;
   font-weight: 600;
   line-height: 1;
@@ -511,92 +239,130 @@ onMounted(() => {
   text-align: left;
 }
 
-.plaza-count {
-  font-size: 10.5px;
+.sidebar-badge {
+  font-size: 11px;
   font-weight: 600;
-  background: var(--app-text-inverse);
-  color: var(--app-text-primary);
   padding: 1px 7px;
   border-radius: 999px;
-  letter-spacing: 0.3px;
+  background: var(--color-brand-light);
+  color: var(--color-brand);
 }
-.plaza-main.variant-sidebar .plaza-count { 
-  font-size: 9px; 
-  padding: 0px 5px; 
+
+.plaza-icon-core {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--app-surface-subtle);
+  border: 1px solid var(--app-border);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.plaza-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.plaza-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.plaza-count {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--app-surface-subtle);
+  color: var(--app-text-secondary);
 }
 
 .plaza-subtitle {
-  max-width: 170px;
-  color: var(--app-text-secondary, rgba(226, 232, 240, 0.82));
-  font-size: 11px;
-  line-height: 1.35;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-size: 11.5px;
+  color: var(--app-text-muted);
 }
 
-/* ── Modal 头部 ──────────────────────────── */
 .modal-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   width: 100%;
+  padding-right: 12px;
 }
+
 .modal-header-left {
   display: flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 10px;
 }
+
 .modal-header-icon {
   width: 28px;
   height: 28px;
-  border-radius: 9px;
+  border-radius: 8px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, var(--color-plaza, #059669), var(--color-plaza-hover, #047857));
+  background: var(--color-brand);
   color: var(--app-text-inverse);
   font-size: 13px;
-  font-weight: 800;
-  letter-spacing: -0.01em;
+  font-weight: 700;
 }
+
 .modal-header-title {
   font-size: 16px;
   font-weight: 700;
   color: var(--app-text-primary);
 }
-.modal-header-actions {
-  display: flex;
-  gap: 6px;
+
+.modal-header-sub {
+  font-size: 12.5px;
+  color: var(--app-text-muted);
 }
 
-/* ── Modal Body ──────────────────────────── */
+.open-fullpage-btn {
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 7px;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  color: var(--app-text-secondary);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.open-fullpage-btn:hover {
+  border-color: var(--color-brand);
+  color: var(--color-brand);
+}
+
 .modal-body {
-  height: calc(85vh - 120px);
+  height: calc(86vh - 62px);
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
-  border-radius: var(--app-radius-md, 8px);
 }
 
 .plaza-chunk-loading {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: min(360px, 50vh);
+  min-height: 320px;
 }
 
-/* ── Modal Footer ────────────────────────── */
-.modal-footer-hint {
-  font-size: 12px;
-  color: var(--app-text-muted);
-}
-
-/* ── 导入区域 ────────────────────────────── */
-.import-body {
-  margin-top: 8px;
-}
-.import-hint {
-  font-size: 13px;
-  color: var(--app-text-muted);
-  margin-bottom: 12px;
+@media (max-width: 640px) {
+  .modal-header-sub {
+    display: none;
+  }
 }
 </style>

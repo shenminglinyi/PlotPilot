@@ -24,15 +24,13 @@
             </template>
           </n-button>
           <div class="header-content">
-            <!-- 1. 眉标：定位语，小字距零缀留白 -->
-            <div class="brand-eyebrow">长篇叙事工作台 · NARRATIVE WORKBENCH</div>
-            <!-- 2. 水平 lockup：[印章][PlotPilot 字标][墨枢胶囊]，与启动屏/登录页同构 -->
+            <!-- 水平 lockup：[印章][PlotPilot 字标][墨枢胶囊]，与启动屏/登录页同构 -->
             <div class="brand-lockup">
-              <BrandMark :size="56" class="brand-seal" />
-              <div class="brand-title">PlotPilot</div>
+              <BrandMark :size="38" class="brand-seal" />
+              <h1 class="brand-title">PlotPilot</h1>
               <span class="brand-alias">墨枢</span>
             </div>
-            <!-- 3. 副标题：价值主张，独立收在 lockup 下方 -->
+            <!-- 副标题：价值主张，独立收在 lockup 下方 -->
             <p class="subtitle">
               以梗概与类型开局，选定目标篇幅；宏观结构、幕次与节拍由后台自动编排，你专注把故事写下去即可。
             </p>
@@ -84,7 +82,7 @@
           <!-- Empty State -->
           <div v-else-if="books.length === 0" class="empty-state">
             <div class="empty-illustration">
-              <span class="empty-icon">📚</span>
+              <n-icon :size="36"><IconLibrary /></n-icon>
             </div>
             <h3 class="empty-title">还没有书目</h3>
             <p class="empty-desc">点「新建书目」，用一段梗概开启创作之旅</p>
@@ -98,7 +96,7 @@
 
           <!-- No Results State -->
           <div v-else-if="filteredBooks.length === 0" class="no-results-state">
-            <span class="no-results-icon">🔍</span>
+            <n-icon :size="32" class="no-results-icon"><IconSearch /></n-icon>
             <p>未找到匹配「{{ searchQuery }}」的书目</p>
             <n-button text type="primary" @click="searchQuery = ''">清除搜索</n-button>
           </div>
@@ -611,7 +609,7 @@ onMounted(() => {
 .home-content {
   flex: 1;
   min-height: 0;
-  margin-left: 300px;
+  margin-left: 284px;
   padding: 32px;
   position: relative;
   overflow-x: hidden;
@@ -621,19 +619,13 @@ onMounted(() => {
 }
 
 .home-content.sidebar-collapsed {
-  margin-left: 52px;
+  margin-left: 56px;
 }
-
-/* 顶栏：与 StatsTopBar 同款渐变，AI 控制台 / 提示词广场 / 设置 */
 
 .home-bg {
   position: absolute;
   inset: 0;
-  background:
-    radial-gradient(ellipse 110% 80% at 50% -30%, var(--color-brand-light), transparent 55%),
-    radial-gradient(ellipse 60% 50% at 100% 20%, rgba(14, 165, 233, 0.12), transparent 45%),
-    radial-gradient(ellipse 50% 40% at 0% 60%, var(--color-gold-dim), transparent 50%),
-    linear-gradient(180deg, var(--app-page-bg) 0%, var(--app-surface-subtle) 45%, var(--app-page-bg) 100%);
+  background: var(--app-page-bg);
   z-index: 0;
 }
 
@@ -648,7 +640,7 @@ onMounted(() => {
   position: relative;
   text-align: center;
   margin-bottom: 24px;
-  animation: fade-up 0.55s ease both;
+  animation: fade-up 0.45s ease both;
 }
 
 .header-theme-btn {
@@ -660,29 +652,20 @@ onMounted(() => {
 }
 
 .header-theme-btn:hover {
-  color: var(--color-brand, #2563eb);
+  color: var(--color-brand);
 }
 
 .header-content {
-  padding: 0 44px;
+  padding: 4px 44px 0;
 }
 
-/* 1. 眉标：定位语小字，字距拉宽 */
-.brand-eyebrow {
-  color: var(--app-text-secondary);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.24em;
-  margin-bottom: 14px;
-}
-
-/* 2. 水平 lockup：[印章][PlotPilot 字标][墨枢胶囊]同行垂直居中，与启动屏/登录页同构 */
+/* 水平 lockup：[印章][PlotPilot 字标][墨枢胶囊]同行垂直居中，与启动屏/登录页同构 */
 .brand-lockup {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 14px;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 .brand-seal {
@@ -690,38 +673,37 @@ onMounted(() => {
 }
 
 .brand-title {
-  /* 品牌字标：Anton 紧凑超粗几何美术字（本地字体 /fonts/brand.css） */
-  font-family: 'Anton', 'Arial Narrow', 'Inter', system-ui, sans-serif;
-  font-size: clamp(40px, 4.2vw, 56px);
-  font-weight: 400;
-  letter-spacing: 0.01em;
-  line-height: 0.96;
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: clamp(24px, 2.4vw, 30px);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
   color: var(--app-text-primary);
 }
 
 .brand-alias {
-  /* 与启动屏同款胶囊：细描边 + 微透底 */
   display: inline-flex;
   align-items: center;
   justify-content: center;
   min-height: 26px;
   padding: 0 12px;
-  border: 1px solid var(--app-border, rgba(148, 163, 184, 0.35));
+  border: 1px solid var(--app-border);
   border-radius: 999px;
   background: var(--app-surface-subtle);
   color: var(--app-text-secondary);
   font-size: 13px;
   font-weight: 600;
-  letter-spacing: 0.16em;
-  text-indent: 0.16em;
+  letter-spacing: 0.14em;
+  text-indent: 0.14em;
   line-height: 1;
 }
 
 .subtitle {
-  font-size: 1.05rem;
+  font-size: 15px;
   color: var(--app-text-secondary);
   margin: 0 auto;
-  max-width: 560px;
+  max-width: 54ch;
   font-weight: 400;
   line-height: 1.7;
 }
@@ -745,8 +727,8 @@ onMounted(() => {
 
 /* 新建书目弹层（表单从主页搬入，主页保持一屏） */
 .create-modal {
-  border-radius: 16px;
-  box-shadow: 0 8px 32px rgba(15, 23, 42, 0.12);
+  border-radius: 14px;
+  border: 1px solid var(--app-border);
 }
 
 .create-modal-body {
@@ -780,7 +762,7 @@ onMounted(() => {
   margin-top: 4px;
   padding: 14px 16px;
   border-radius: 12px;
-  background: rgba(15, 23, 42, 0.02);
+  background: var(--app-surface-subtle);
   border: 1px solid var(--app-border);
 }
 .taxonomy-block-head {
@@ -846,9 +828,9 @@ onMounted(() => {
 
 .advanced-settings {
   padding: 16px;
-  background: rgba(37, 99, 235, 0.04);
+  background: var(--app-surface-subtle);
   border-radius: 12px;
-  border: 1px solid rgba(37, 99, 235, 0.1);
+  border: 1px solid var(--app-border);
 }
 
 .w-full {
@@ -857,10 +839,10 @@ onMounted(() => {
 
 .books-section {
   background: var(--app-surface);
-  border-radius: 16px;
+  border-radius: 14px;
   padding: 24px 28px 28px;
-  box-shadow: 0 4px 20px rgba(15, 23, 42, 0.04);
-  animation: fade-up 0.55s ease 0.14s both;
+  border: 1px solid var(--app-border);
+  animation: fade-up 0.45s ease 0.08s both;
 }
 
 .section-header {
@@ -887,15 +869,16 @@ onMounted(() => {
 
 .book-count {
   font-size: 13px;
-  color: var(--app-text-muted);
+  font-variant-numeric: tabular-nums;
+  color: var(--app-text-secondary);
   background: var(--app-surface-subtle);
-  padding: 4px 10px;
-  border-radius: 12px;
+  padding: 3px 10px;
+  border-radius: 999px;
 }
 
 .search-result-hint {
   margin: 0 0 12px;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--app-text-muted);
 }
 
@@ -916,7 +899,7 @@ onMounted(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 72px 20px;
+  padding: 68px 20px;
   color: var(--app-text-muted);
 }
 
@@ -926,21 +909,19 @@ onMounted(() => {
 }
 
 .empty-state {
-  gap: 16px;
+  gap: 14px;
 }
 
 .empty-illustration {
-  width: 100px;
-  height: 100px;
-  background: linear-gradient(135deg, var(--app-surface-subtle) 0%, var(--app-border) 100%);
-  border-radius: 50%;
+  width: 80px;
+  height: 80px;
+  background: var(--app-surface-subtle);
+  border: 1px solid var(--app-border);
+  border-radius: 18px;
+  color: var(--color-brand);
   display: flex;
   align-items: center;
   justify-content: center;
-}
-
-.empty-icon {
-  font-size: 48px;
 }
 
 .empty-title {
@@ -953,7 +934,7 @@ onMounted(() => {
 .empty-desc {
   margin: 0;
   font-size: 14px;
-  color: var(--app-text-muted);
+  color: var(--app-text-secondary);
 }
 
 .no-results-state {
@@ -961,7 +942,7 @@ onMounted(() => {
 }
 
 .no-results-icon {
-  font-size: 40px;
+  color: var(--app-text-muted);
 }
 
 .no-results-state p {
@@ -1020,8 +1001,7 @@ onMounted(() => {
 
 .footer-sub {
   font-weight: 600;
-  color: var(--color-gold-light);
-  opacity: 0.8;
+  color: var(--app-text-secondary);
 }
 
 .footer-text {
@@ -1033,20 +1013,32 @@ onMounted(() => {
   text-decoration: none;
   font-weight: 600;
   border-bottom: 1px dashed var(--color-gold-border);
-  transition: all 0.2s ease;
+  transition: color 0.2s ease, border-color 0.2s ease;
   white-space: nowrap;
 }
 
 .footer-link:hover {
-  color: var(--color-gold-light);
+  color: var(--color-brand);
   border-bottom-style: solid;
-  box-shadow: 0 0 8px var(--color-glow-gold);
 }
 
 @media (max-width: 768px) {
   .home-content {
     margin-left: 0;
-    padding: 16px;
+    padding: 58px 16px 20px;
+  }
+
+  .header-theme-btn {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    z-index: 32;
+    background: var(--app-surface);
+    border: 1px solid var(--app-border);
+  }
+
+  .header-content {
+    padding: 0 12px;
   }
 
   .section-header {

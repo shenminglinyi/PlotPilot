@@ -1,6 +1,11 @@
 <template>
-  <div class="workbench">
-    <StatsTopBar :slug="slug" @open-settings="appSettingsShell.open()" />
+  <div class="workbench" :class="{ 'is-zen-mode': zenMode }">
+    <StatsTopBar
+      :slug="slug"
+      :zen-mode="zenMode"
+      @open-settings="appSettingsShell.open()"
+      @toggle-zen="toggleZenMode"
+    />
 
     <n-spin :show="pageLoading" class="workbench-spin" description="加载工作台…">
       <div class="workbench-inner">
@@ -175,10 +180,23 @@ const handlePlanAct = (actId: string, actTitle: string) => {
 }
 
 const rightCollapsed = ref(readStorageBoolean(storageKeys.workbenchRightPanelCollapsed))
+const zenMode = ref(readStorageBoolean(storageKeys.workbenchZenMode))
 
 function toggleRight() {
   rightCollapsed.value = !rightCollapsed.value
   writeStorageBoolean(storageKeys.workbenchRightPanelCollapsed, rightCollapsed.value)
+}
+
+function toggleZenMode() {
+  zenMode.value = !zenMode.value
+  writeStorageBoolean(storageKeys.workbenchZenMode, zenMode.value)
+}
+
+function onWorkbenchKeydown(e: KeyboardEvent) {
+  if (e.altKey && (e.key === 'z' || e.key === 'Z')) {
+    e.preventDefault()
+    toggleZenMode()
+  }
 }
 
 const {
@@ -232,6 +250,7 @@ onMounted(async () => {
   window.addEventListener(WORKBENCH_CHAPTER_DESK_CHANGE_EVENT, onDeskChangeSignalFromPanels)
   window.addEventListener(WORKBENCH_OPEN_SETTINGS_PANEL_EVENT, onOpenSettingsPanelFromChild)
   window.addEventListener(WORKBENCH_GENERATION_PREFS_UPDATED_EVENT, onGenerationPrefsUpdated)
+  window.addEventListener('keydown', onWorkbenchKeydown)
   try {
     await loadDesk()
     await syncChapterFromRoute()
@@ -247,6 +266,7 @@ onUnmounted(() => {
   window.removeEventListener(WORKBENCH_CHAPTER_DESK_CHANGE_EVENT, onDeskChangeSignalFromPanels)
   window.removeEventListener(WORKBENCH_OPEN_SETTINGS_PANEL_EVENT, onOpenSettingsPanelFromChild)
   window.removeEventListener(WORKBENCH_GENERATION_PREFS_UPDATED_EVENT, onGenerationPrefsUpdated)
+  window.removeEventListener('keydown', onWorkbenchKeydown)
   chapterDeskReload.cancel()
 })
 
@@ -368,5 +388,43 @@ watch(
 .wb-right-strip:hover {
   background: var(--plotpilot-panel-muted);
   color: var(--app-text-primary);
+}
+
+/* ── Zen Focus Mode (Alt+Z) ─────────────────────────── */
+.workbench.is-zen-mode .workbench-inner > :deep(.n-split > .n-split-pane-1),
+.workbench.is-zen-mode .workbench-inner > :deep(.n-split > .n-split__gutter) {
+  display: none !important;
+}
+
+.workbench.is-zen-mode .workbench-inner > :deep(.n-split > .n-split-pane-2) {
+  flex: 1 1 100% !important;
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+.workbench.is-zen-mode .wb-main-split :deep(.n-split > .n-split-pane-2),
+.workbench.is-zen-mode .wb-main-split :deep(.n-split > .n-split__gutter) {
+  display: none !important;
+}
+
+.workbench.is-zen-mode .wb-main-split :deep(.n-split > .n-split-pane-1) {
+  flex: 1 1 100% !important;
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+.workbench.is-zen-mode :deep(.work-area) {
+  max-width: 820px;
+  width: 100%;
+  margin: 0 auto;
+  border-left: 1px solid var(--app-border);
+  border-right: 1px solid var(--app-border);
+}
+
+.workbench.is-zen-mode :deep(.editor-input-wrapper textarea) {
+  max-width: 58ch;
+  margin: 0 auto;
+  font-size: 16px;
+  line-height: 1.85;
 }
 </style>

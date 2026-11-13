@@ -1,211 +1,528 @@
 <template>
-  <div class="prompt-plaza">
-    <!-- 顶部统计栏 -->
-    <div class="plaza-header">
-      <div class="header-left">
-        <h3 class="plaza-title">提示词广场</h3>
-        <n-tag v-if="stats" type="info" size="small" :bordered="false">
-          {{ stats.total_nodes }} 个提示词 · {{ stats.total_versions }} 个版本
-        </n-tag>
-      </div>
-      <div class="header-right">
-        <n-button
-          size="small"
-          quaternary
-          @click="handleExportJson"
+  <div class="mod-hub" :class="{ 'is-fullpage': fullPage }">
+    <!-- 顶栏：主视图切换 + 模组打包工坊 + 搜索框 -->
+    <div class="hub-topbar">
+      <nav class="hub-nav-pills" role="tablist" aria-label="模组中心视图">
+        <button
+          type="button"
+          role="tab"
+          class="hub-pill"
+          :class="{ 'is-active': mainTab === 'discover' }"
+          :aria-selected="mainTab === 'discover'"
+          @click="switchMainTab('discover')"
         >
-          导出 JSON
-        </n-button>
-        <n-button
-          size="small"
-          quaternary
-          @click="showImportModal = true"
+          发现
+        </button>
+        <button
+          type="button"
+          role="tab"
+          class="hub-pill"
+          :class="{ 'is-active': mainTab === 'installed' }"
+          :aria-selected="mainTab === 'installed'"
+          @click="switchMainTab('installed')"
         >
-          导入 JSON
-        </n-button>
-        <n-input
-          v-model:value="searchQuery"
-          placeholder="搜索名称 / 键 / 描述 / 标签..."
-          clearable
-          size="small"
-          class="plaza-search-input"
-        />
-        <n-button
-          size="small"
-          type="primary"
-          secondary
-          @click="showCreateModal = true"
+          已安装
+          <span class="pill-count numeric">{{ modHubStore.installedCount }}</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          class="hub-pill"
+          :class="{ 'is-active': mainTab === 'nodes' }"
+          :aria-selected="mainTab === 'nodes'"
+          @click="switchMainTab('nodes')"
         >
-          新建提示词
-        </n-button>
-      </div>
-    </div>
+          内置内核
+          <span class="pill-count numeric">{{ stats?.total_nodes || allNodes.length || 0 }}</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          class="hub-pill"
+          :class="{ 'is-active': mainTab === 'anti-ai' }"
+          :aria-selected="mainTab === 'anti-ai'"
+          @click="switchMainTab('anti-ai')"
+        >
+          反 AI 质检
+        </button>
+      </nav>
 
-    <!-- 主标签切换 -->
-    <div class="main-tabs">
-      <div
-        class="main-tab"
-        :class="{ 'is-active': mainTab === 'plaza' }"
-        @click="mainTab = 'plaza'"
-      >
-        提示词广场
-      </div>
-      <div
-        class="main-tab"
-        :class="{ 'is-active': mainTab === 'anti-ai' }"
-        @click="mainTab = 'anti-ai'"
-      >
-        Anti-AI 防御
-      </div>
-    </div>
+      <div class="hub-topbar-right">
+        <button
+          type="button"
+          class="hub-ghost-btn"
+          @click="showBuilderModal = true"
+        >
+          打包制作模组
+        </button>
 
-    <!-- Anti-AI 仪表板 -->
-    <Suspense v-if="mainTab === 'anti-ai'">
-      <template #default>
-        <AntiAIDashboard />
-      </template>
-      <template #fallback>
-        <div class="loading-wrap">
-          <n-spin size="medium">加载防御面板…</n-spin>
-        </div>
-      </template>
-    </Suspense>
+        <template v-if="mainTab === 'nodes'">
+          <button type="button" class="hub-ghost-btn" @click="handleExportJson">
+            导出备份
+          </button>
+          <button type="button" class="hub-ghost-btn" @click="showImportModal = true">
+            导入备份
+          </button>
+          <button type="button" class="hub-ghost-btn is-accent" @click="showCreateModal = true">
+            新建节点
+          </button>
+        </template>
 
-    <!-- 分类标签栏（仅提示词广场模式显示） -->
-    <div class="category-tabs" v-if="categories.length && mainTab === 'plaza'">
-      <div
-        class="category-tab"
-        :class="{ 'is-active': activeCategory === null }"
-        @click="activeCategory = null"
-      >
-        全部 ({{ stats?.total_nodes || 0 }})
-      </div>
-      <div
-        v-for="cat in categories"
-        :key="cat.key"
-        class="category-tab"
-        :class="{ 'is-active': activeCategory === cat.key }"
-        @click="activeCategory = cat.key"
-        :style="{ '--cat-color': cat.color }"
-      >
-        {{ cat.name.split(' ').slice(1).join(' ') }} ({{ cat.count }})
-      </div>
-    </div>
-
-    <!-- 主内容区（仅提示词广场模式显示） -->
-    <div class="plaza-content" v-if="!loading && mainTab === 'plaza'">
-      <!-- 搜索结果模式 -->
-      <template v-if="searchQuery.trim()">
-        <div class="search-results-header" v-if="filteredNodes.length">
-          找到 {{ filteredNodes.length }} 个匹配「{{ searchQuery }}」的提示词
-        </div>
-        <n-empty v-else description="没有找到匹配的提示词" />
-        <div class="node-grid" v-if="filteredNodes.length">
-          <NodeCard
-            v-for="node in filteredNodes"
-            :key="node.id"
-            :node="node"
-            @click="openDetail(node)"
+        <div v-if="mainTab !== 'anti-ai'" class="hub-search">
+          <svg viewBox="0 0 20 20" fill="none" class="search-svg" aria-hidden="true">
+            <circle cx="9" cy="9" r="5.6" stroke="currentColor" stroke-width="1.6" />
+            <path d="M13.4 13.4 17 17" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+          </svg>
+          <input
+            v-model="searchQuery"
+            type="text"
+            class="search-field"
+            :placeholder="searchPlaceholder"
           />
+          <button
+            v-if="searchQuery"
+            type="button"
+            class="search-clear"
+            aria-label="清空搜索"
+            @click="searchQuery = ''"
+          >
+            ×
+          </button>
         </div>
-      </template>
+      </div>
+    </div>
 
-      <!-- 分类分组模式 -->
-      <template v-else>
-        <div v-for="(nodes, catKey) in groupedNodes" :key="catKey" class="category-section">
-          <div class="section-header">
-            <span class="section-name">{{ getCategoryName(catKey) }}</span>
-            <n-tag size="tiny" :bordered="false" type="default">
-              {{ nodes.length }}
-            </n-tag>
+    <!-- ══════════════════════════════════════════════
+         1. 发现（Discover）：墨枢精选 + 云端书元 + 社区共享 + 热榜
+         ══════════════════════════════════════════════ -->
+    <template v-if="mainTab === 'discover'">
+      <div class="discover-filter-bar">
+        <div v-if="discoverSource !== 'hot'" class="role-chips" role="list">
+          <button
+            v-for="cat in MOD_ROLE_CATEGORIES"
+            :key="cat.key"
+            type="button"
+            class="role-chip"
+            :class="{ 'is-active': activeRole === cat.key }"
+            :title="cat.shortHint"
+            @click="activeRole = cat.key"
+          >
+            {{ cat.label }}
+            <span class="chip-num numeric">{{ roleCounts[cat.key] ?? 0 }}</span>
+          </button>
+        </div>
+        <div v-else class="hot-hint-text">
+          实时追踪主流阅读平台在读风向与高频题材热词
+        </div>
+
+        <div class="source-segmented" role="group" aria-label="数据来源筛选">
+          <button
+            v-for="src in DISCOVER_SOURCES"
+            :key="src.key"
+            type="button"
+            class="source-btn"
+            :class="{ 'is-active': discoverSource === src.key }"
+            @click="selectDiscoverSource(src.key)"
+          >
+            {{ src.label }}
+          </button>
+        </div>
+      </div>
+
+      <!-- 云端书元专属题材细分条 -->
+      <div
+        v-if="discoverSource === 'cloud-official' && cloudGenres.length"
+        class="genre-subbar"
+      >
+        <button
+          type="button"
+          class="sub-chip"
+          :class="{ 'is-active': !selectedCloudGenre }"
+          @click="selectCloudGenre('')"
+        >
+          全部题材
+        </button>
+        <button
+          v-for="g in cloudGenres"
+          :key="g.slug"
+          type="button"
+          class="sub-chip"
+          :class="{ 'is-active': selectedCloudGenre === g.slug }"
+          @click="selectCloudGenre(g.slug)"
+        >
+          {{ g.label }}
+        </button>
+      </div>
+
+      <div class="hub-scroll-body">
+        <!-- 非阻断式云端状态提示（仿 Magpie 离线缓存提示，不遮挡本地可用模组） -->
+        <div v-if="cloudInlineNotice && discoverSource !== 'curated' && discoverSource !== 'hot'" class="cloud-inline-notice">
+          <span>{{ cloudInlineNotice }}</span>
+          <button type="button" class="inline-retry-btn" @click="refreshCloudFeeds(true)">
+            重试同步
+          </button>
+        </div>
+
+        <!-- 热榜子视图 -->
+        <template v-if="discoverSource === 'hot'">
+          <StateBlock
+            v-if="hotState.error"
+            :error="hotState.error"
+            :show-login="true"
+            @retry="loadHotFeed(true)"
+            @login="$emit('request-cloud-login')"
+          />
+          <div v-else-if="hotState.loading" class="loading-wrap">
+            <n-spin size="medium">正在同步热榜风向…</n-spin>
           </div>
-          <div class="node-grid">
-            <NodeCard
-              v-for="node in nodes"
-              :key="node.id"
-              :node="node"
-              @click="openDetail(node)"
+          <div v-else class="hot-panel">
+            <div v-if="hotState.terms.length" class="hot-terms-bar">
+              <span class="terms-title">近期热词</span>
+              <span v-for="t in hotState.terms.slice(0, 12)" :key="t.term" class="term-pill">
+                {{ t.term }}
+              </span>
+            </div>
+            <ol v-if="filteredHotItems.length" class="hot-rank-list">
+              <li
+                v-for="(item, idx) in filteredHotItems"
+                :key="`${item.source_key}-${item.rank}-${item.title}`"
+                class="hot-rank-row"
+              >
+                <span class="rank-index numeric" :class="{ 'is-top': idx < 3 }">{{ idx + 1 }}</span>
+                <div class="rank-body">
+                  <div class="rank-head-line">
+                    <strong class="rank-book-title">{{ item.title }}</strong>
+                    <span v-if="item.author" class="rank-book-author">{{ item.author }}</span>
+                  </div>
+                  <p v-if="item.intro" class="rank-book-intro">{{ item.intro }}</p>
+                </div>
+                <div class="rank-meta-right">
+                  <span class="rank-platform">{{ item.source_label }}</span>
+                  <div v-if="item.tags?.length" class="rank-tag-row">
+                    <span v-for="t in item.tags.slice(0, 2)" :key="t" class="rank-mini-tag">{{ t }}</span>
+                  </div>
+                </div>
+              </li>
+            </ol>
+            <div v-else class="empty-pane">
+              <p class="empty-title">暂无热榜条目</p>
+              <p class="empty-sub">登录云端账号后可查看完整多平台聚合热榜。</p>
+            </div>
+          </div>
+        </template>
+
+        <!-- 模组卡片网格 -->
+        <template v-else>
+          <div v-if="isDiscoverLoading && !displayedPacks.length" class="loading-wrap">
+            <n-spin size="medium">正在加载模组目录…</n-spin>
+          </div>
+
+          <div v-else-if="displayedPacks.length" class="mod-section">
+            <div class="mod-section-head">
+              <span class="mod-section-title">{{ activeRoleTitle }}</span>
+              <span class="mod-section-count numeric">{{ displayedPacks.length }}</span>
+            </div>
+
+            <div class="mod-cards-grid">
+              <ModPackCard
+                v-for="pack in displayedPacks"
+                :key="pack.id"
+                :pack="pack"
+                :installed="modHubStore.isInstalled(pack.id)"
+                :busy="modHubStore.isBusy(pack.id)"
+                @select="openPackDetail"
+                @install="handleInstallPack"
+                @manage="openPackDetail"
+              />
+            </div>
+
+            <div
+              v-if="discoverSource === 'cloud-official' && cloudOfficial.nextCursor"
+              class="load-more-row"
+            >
+              <button
+                type="button"
+                class="hub-ghost-btn"
+                :disabled="cloudOfficial.loading"
+                @click="loadCloudOfficial(false)"
+              >
+                {{ cloudOfficial.loading ? '加载中…' : '加载更多云端书元' }}
+              </button>
+            </div>
+          </div>
+
+          <div v-else class="empty-pane">
+            <p class="empty-title">没有找到匹配的叙事模组</p>
+            <p class="empty-sub">换个分类关键词，或使用底部地址栏直接从 GitHub 仓库安装。</p>
+          </div>
+        </template>
+      </div>
+    </template>
+
+    <!-- ══════════════════════════════════════════════
+         2. 已安装（Installed）：查看与一键回滚
+         ══════════════════════════════════════════════ -->
+    <template v-else-if="mainTab === 'installed'">
+      <div class="hub-scroll-body">
+        <div v-if="filteredInstalledRecords.length" class="mod-section">
+          <div class="installed-banner">
+            <span>
+              当前已启用 <strong class="numeric">{{ modHubStore.installedCount }}</strong> 个叙事模组。点击任意卡片可查看接管节点或一键卸载回滚。
+            </span>
+          </div>
+
+          <div class="mod-cards-grid">
+            <ModPackCard
+              v-for="rec in filteredInstalledRecords"
+              :key="rec.pack.id"
+              :pack="rec.pack"
+              :installed="true"
+              :busy="modHubStore.isBusy(rec.pack.id)"
+              @select="openPackDetail"
+              @install="handleInstallPack"
+              @manage="openPackDetail"
             />
           </div>
         </div>
-      </template>
 
-      <n-empty v-if="Object.keys(groupedNodes).length === 0 && !loading" description="暂无提示词数据" />
-    </div>
-
-    <!-- 加载状态（仅提示词广场模式下加载中显示） -->
-    <div class="loading-wrap" v-if="loading && mainTab === 'plaza'">
-      <n-spin size="medium">正在加载提示词库...</n-spin>
-    </div>
-
-    <!-- ══════════════════════════════════
-         详情弹窗（放大动画 Modal）— fixed 定位 + 高 z-index
-         ══════════════════════════════════ -->
-    <transition name="plaza-zoom">
-      <div
-        v-if="showDetailModal && selectedNode"
-        class="detail-overlay"
-        @click.self="closeDetail"
-      >
-        <div class="detail-modal" :class="{ 'is-entering': detailEntering }">
-          <!-- 弹窗头部 -->
-          <div class="detail-modal-header">
-            <div class="dm-header-left">
-              <div class="dm-icon-badge">{{ selectedNode.name.charAt(0) }}</div>
-              <div class="dm-title-block">
-                <h3 class="dm-title">{{ selectedNode.name }}</h3>
-                <div class="dm-meta-row">
-                  <code class="dm-key">{{ selectedNode.node_key }}</code>
-                  <n-tag
-                    :type="selectedNode.is_builtin ? 'info' : 'success'"
-                    size="tiny"
-                    :bordered="false"
-                  >{{ selectedNode.is_builtin ? '内置' : '自定义' }}</n-tag>
-                  <n-tag v-if="selectedNode.output_format === 'json'" size="tiny" :bordered="false" type="success">JSON</n-tag>
-                </div>
-              </div>
-            </div>
-            <button class="dm-close-btn" @click="closeDetail" aria-label="关闭">
-              <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
-            </button>
-          </div>
-
-          <!-- 弹窗内容 -->
-          <div class="detail-modal-body">
-            <Suspense>
-              <template #default>
-                <PromptDetailPanel
-                  v-if="showDetailModal && selectedNode"
-                  :node-key="selectedNode.node_key"
-                  @updated="onNodeUpdated"
-                  @close="closeDetail"
-                />
-              </template>
-              <template #fallback>
-                <div class="detail-panel-loading">
-                  <n-spin size="medium" description="加载编辑器…" />
-                </div>
-              </template>
-            </Suspense>
-          </div>
+        <div v-else class="empty-pane">
+          <p class="empty-title">尚未安装任何扩展模组</p>
+          <p class="empty-sub">
+            引擎正以出厂默认规则运行。前往「发现」挑选文风去 AI 味、潜台词博弈或毒点审稿模组，一键装入工作流。
+          </p>
+          <button type="button" class="empty-cta-btn" @click="switchMainTab('discover')">
+            浏览精选模组
+          </button>
         </div>
       </div>
-    </transition>
+    </template>
 
-    <!-- 创建新节点弹窗 -->
-    <!-- 导入 JSON（与顶栏入口共用能力） -->
+    <!-- ══════════════════════════════════════════════
+         3. 内置内核（Engine Nodes · 78）
+         ══════════════════════════════════════════════ -->
+    <template v-else-if="mainTab === 'nodes'">
+      <div v-if="categories.length" class="engine-cat-bar">
+        <button
+          type="button"
+          class="role-chip"
+          :class="{ 'is-active': activeCategory === null }"
+          @click="activeCategory = null"
+        >
+          全部环节
+          <span class="chip-num numeric">{{ stats?.total_nodes || allNodes.length }}</span>
+        </button>
+        <button
+          v-for="cat in categories"
+          :key="cat.key"
+          type="button"
+          class="role-chip"
+          :class="{ 'is-active': activeCategory === cat.key }"
+          @click="activeCategory = cat.key"
+        >
+          {{ stripLeadingSymbol(cat.name) }}
+          <span class="chip-num numeric">{{ cat.count }}</span>
+        </button>
+      </div>
+
+      <div class="hub-scroll-body">
+        <div v-if="loading" class="loading-wrap">
+          <n-spin size="medium">正在读取引擎内核节点…</n-spin>
+        </div>
+
+        <template v-else-if="searchQuery.trim()">
+          <div v-if="filteredNodes.length" class="mod-section">
+            <div class="mod-section-head">
+              <span class="mod-section-title">匹配「{{ searchQuery }}」的内核节点</span>
+              <span class="mod-section-count numeric">{{ filteredNodes.length }}</span>
+            </div>
+            <div class="node-grid">
+              <NodeCard
+                v-for="node in filteredNodes"
+                :key="node.id"
+                :node="node"
+                @click="openDetail(node)"
+              />
+            </div>
+          </div>
+          <n-empty v-else description="没有找到匹配的内核节点" />
+        </template>
+
+        <template v-else>
+          <div
+            v-for="(nodes, catKey) in groupedNodes"
+            :key="catKey"
+            class="category-section"
+          >
+            <div class="mod-section-head">
+              <span class="mod-section-title">{{ getCategoryName(String(catKey)) }}</span>
+              <span class="mod-section-count numeric">{{ nodes.length }}</span>
+            </div>
+            <div class="node-grid">
+              <NodeCard
+                v-for="node in nodes"
+                :key="node.id"
+                :node="node"
+                @click="openDetail(node)"
+              />
+            </div>
+          </div>
+          <n-empty
+            v-if="Object.keys(groupedNodes).length === 0"
+            description="暂无内核节点数据"
+          />
+        </template>
+      </div>
+    </template>
+
+    <!-- ══════════════════════════════════════════════
+         4. 反 AI 质检（Anti-AI Dashboard）
+         ══════════════════════════════════════════════ -->
+    <div v-else class="hub-scroll-body">
+      <Suspense>
+        <template #default>
+          <AntiAIDashboard />
+        </template>
+        <template #fallback>
+          <div class="loading-wrap">
+            <n-spin size="medium">加载反 AI 质检面板…</n-spin>
+          </div>
+        </template>
+      </Suspense>
+    </div>
+
+    <!-- ══════════════════════════════════════════════
+         底部去中心化安装栏（对标 Magpie：GitHub 仓库 / JSON 链接 / 本机文件）
+         ══════════════════════════════════════════════ -->
+    <footer v-if="mainTab === 'discover' || mainTab === 'installed'" class="hub-install-dock">
+      <span class="dock-label">已有想装的模组？</span>
+      <input
+        v-model="quickInstallInput"
+        type="text"
+        class="dock-input"
+        placeholder="输入 GitHub 仓库（github:owner/repo）、模组 JSON 直链，或选择本机文件"
+        @keydown.enter="handleQuickSourceInstall"
+      />
+      <input
+        ref="localModFileInput"
+        type="file"
+        accept=".json,application/json"
+        class="hidden-file-input"
+        @change="onLocalModFilePicked"
+      />
+      <button
+        type="button"
+        class="dock-file-btn"
+        title="从本机选择 plotpilot-mod.json 文件"
+        aria-label="选择本机模组文件"
+        @click="triggerLocalFilePicker"
+      >
+        <svg viewBox="0 0 20 20" fill="none" width="16" height="16" aria-hidden="true">
+          <path
+            d="M2.8 5.5A1.8 1.8 0 0 1 4.6 3.7h3.5l1.6 1.8h5.7a1.8 1.8 0 0 1 1.8 1.8v7.2a1.8 1.8 0 0 1-1.8 1.8H4.6a1.8 1.8 0 0 1-1.8-1.8V5.5Z"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </button>
+      <button
+        type="button"
+        class="dock-submit-btn"
+        :disabled="quickInstalling || !quickInstallInput.trim()"
+        @click="handleQuickSourceInstall"
+      >
+        {{ quickInstalling ? '安装中…' : '安装' }}
+      </button>
+    </footer>
+
+    <!-- 模组详情弹窗（四宫格 + 样章对比 + 接管明细） -->
+    <ModPackDetailModal
+      :show="Boolean(activePackDetail)"
+      :pack="activePackDetail"
+      :installed="activePackDetail ? modHubStore.isInstalled(activePackDetail.id) : false"
+      :busy="activePackDetail ? modHubStore.isBusy(activePackDetail.id) : false"
+      @close="activePackDetail = null"
+      @install="handleInstallPack"
+      @uninstall="handleUninstallPack"
+      @export-pack="handleExportSinglePack"
+      @inspect-node="handleInspectEngineNode"
+    />
+
+    <!-- 模组打包工坊弹窗 -->
+    <ModPackBuilderModal
+      :show="showBuilderModal"
+      :nodes="allNodes"
+      @close="showBuilderModal = false"
+      @created="loadData"
+    />
+
+    <!-- 内核单节点编辑器弹窗 -->
+    <div
+      v-if="showDetailModal && selectedNode"
+      class="detail-overlay"
+      @click.self="closeDetail"
+    >
+      <div class="detail-modal" :class="{ 'is-entering': detailEntering }">
+        <div class="detail-modal-header">
+          <div class="dm-header-left">
+            <div class="dm-icon-badge">{{ selectedNode.name.charAt(0) }}</div>
+            <div class="dm-title-block">
+              <h3 class="dm-title">{{ selectedNode.name }}</h3>
+              <div class="dm-meta-row">
+                <code class="dm-key">{{ selectedNode.node_key }}</code>
+                <n-tag
+                  :type="selectedNode.is_builtin ? 'info' : 'success'"
+                  size="tiny"
+                  :bordered="false"
+                >
+                  {{ selectedNode.is_builtin ? '内置内核' : '自定义' }}
+                </n-tag>
+              </div>
+            </div>
+          </div>
+          <button type="button" class="dm-close-btn" aria-label="关闭" @click="closeDetail">
+            <svg viewBox="0 0 24 24" width="18" height="18">
+              <path
+                fill="currentColor"
+                d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"
+              />
+            </svg>
+          </button>
+        </div>
+
+        <div class="detail-modal-body">
+          <Suspense>
+            <template #default>
+              <PromptDetailPanel
+                v-if="showDetailModal && selectedNode"
+                :node-key="selectedNode.node_key"
+                @updated="onNodeUpdated"
+                @close="closeDetail"
+              />
+            </template>
+            <template #fallback>
+              <div class="detail-panel-loading">
+                <n-spin size="medium" description="加载编辑器…" />
+              </div>
+            </template>
+          </Suspense>
+        </div>
+      </div>
+    </div>
+
+    <!-- 导入整库备份弹窗 -->
     <n-modal
       v-model:show="showImportModal"
       preset="dialog"
-      title="导入提示词"
+      title="导入提示词备份"
       positive-text="导入"
       negative-text="取消"
-      @positive-click="handleImportJson"
       style="max-width: 520px"
+      @positive-click="handleImportJson"
     >
       <div class="import-body">
         <p class="import-hint">
-          支持广场导出 JSON 或仅含 <code>prompts</code> 数组。按 <code>id</code> 匹配已有节点并更新。
+          支持导入整库备份 JSON（含 <code>prompts</code> 数组）或单个 <code>plotpilot-mod/v1</code> 模组文件。
         </p>
         <n-upload
           accept=".json,application/json"
@@ -213,32 +530,33 @@
           :show-file-list="true"
           @change="onImportFile"
         >
-          <n-button>选择文件</n-button>
+          <n-button>选择 JSON 文件</n-button>
         </n-upload>
       </div>
     </n-modal>
 
+    <!-- 新建自定义内核节点弹窗 -->
     <n-modal
       v-model:show="showCreateModal"
       preset="dialog"
-      title="创建自定义提示词"
+      title="创建自定义内核节点"
       positive-text="创建"
       negative-text="取消"
-      @positive-click="handleCreate"
       style="max-width: 560px"
+      @positive-click="handleCreate"
     >
       <n-form ref="createFormRef" :model="createForm" label-placement="left" label-width="auto">
         <n-form-item label="名称" ruleRequired>
-          <n-input v-model:value="createForm.name" placeholder="如：我的自定义提取器" />
+          <n-input v-model:value="createForm.name" placeholder="如：悬疑线索回收检查器" />
         </n-form-item>
         <n-form-item label="标识键">
-          <n-input v-model:value="createForm.node_key" placeholder="my-custom-extractor（留空自动生成）" />
+          <n-input v-model:value="createForm.node_key" placeholder="mystery-clue-checker（留空自动生成）" />
         </n-form-item>
         <n-form-item label="分类">
           <n-select
             v-model:value="createForm.category"
             :options="categoryOptions"
-            placeholder="选择分类"
+            placeholder="选择环节分类"
           />
         </n-form-item>
         <n-form-item label="System 提示词">
@@ -246,7 +564,7 @@
             v-model:value="createForm.system"
             type="textarea"
             :rows="4"
-            placeholder="System 角色提示词..."
+            placeholder="System 角色与规则指令…"
           />
         </n-form-item>
         <n-form-item label="User 模板">
@@ -254,11 +572,11 @@
             v-model:value="createForm.user_template"
             type="textarea"
             :rows="3"
-            placeholder="User 模板（支持 {variable} 变量）..."
+            placeholder="User 模板（支持 {context} 等变量）…"
           />
         </n-form-item>
-        <n-form-item label="描述">
-          <n-input v-model:value="createForm.description" placeholder="简短描述这个提示词的用途" />
+        <n-form-item label="用途说明">
+          <n-input v-model:value="createForm.description" placeholder="一句话说明该节点解决什么问题" />
         </n-form-item>
       </n-form>
     </n-modal>
@@ -266,49 +584,161 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, reactive, nextTick, watch, defineAsyncComponent } from 'vue'
 import {
-  NButton, NTag, NInput, NSpin, NEmpty,
-  NModal, NForm, NFormItem, NSelect, NUpload, useMessage,
+  ref,
+  computed,
+  onMounted,
+  onUnmounted,
+  reactive,
+  nextTick,
+  watch,
+  defineAsyncComponent,
+} from 'vue'
+import {
+  NButton,
+  NTag,
+  NInput,
+  NSpin,
+  NEmpty,
+  NModal,
+  NForm,
+  NFormItem,
+  NSelect,
+  NUpload,
+  useMessage,
 } from 'naive-ui'
-import { promptPlazaApi, type PromptNode, type PromptCategoryInfo, type PromptStats, type PlazaInitResult } from '../../api/llmControl'
+import {
+  promptPlazaApi,
+  type PromptNode,
+  type PromptCategoryInfo,
+  type PromptStats,
+  type PlazaInitResult,
+} from '../../api/llmControl'
+import {
+  CloudSquareError,
+  fetchHotNovels,
+  fetchSquareAssets,
+  fetchSquareCommunity,
+  fetchSquareGenres,
+  type HotNovelItem,
+  type HotNovelTerm,
+  type SquareAsset,
+  type SquareCommunityAsset,
+  type SquareGenre,
+} from '@/api/cloudSquare'
+import {
+  MOD_ROLE_CATEGORIES,
+  type ModRoleCategory,
+  type NarrativeModPack,
+} from '@/domain/modPack/types'
+import { useModHubStore, parseAnyModJson } from '@/stores/modHubStore'
 import { formatApiError } from '../../utils/apiError'
 import { runtimePerformance } from '../../config/performance'
+import ModPackCard from '@/components/modhub/ModPackCard.vue'
+import ModPackDetailModal from '@/components/modhub/ModPackDetailModal.vue'
+import ModPackBuilderModal from '@/components/modhub/ModPackBuilderModal.vue'
+import StateBlock from '@/components/square/SquareStateBlock.vue'
 import NodeCard from './promptPlaza/NodeCard.vue'
 
-/** 详情 / Anti-AI 惰性分包，缩短首屏解析与请求前排队的链路 */
 const PromptDetailPanel = defineAsyncComponent(() => import('./promptPlaza/PromptDetailPanel.vue'))
 const AntiAIDashboard = defineAsyncComponent(() => import('./promptPlaza/AntiAIDashboard.vue'))
 
-const message = useMessage()
+export type ModHubMainTab = 'discover' | 'installed' | 'nodes' | 'anti-ai'
+export type DiscoverSourceKey = 'all' | 'curated' | 'cloud-official' | 'cloud-community' | 'hot'
+
+const DISCOVER_SOURCES: Array<{ key: DiscoverSourceKey; label: string }> = [
+  { key: 'all', label: '全部来源' },
+  { key: 'curated', label: '墨枢精选' },
+  { key: 'cloud-official', label: '云端书元' },
+  { key: 'cloud-community', label: '社区共享' },
+  { key: 'hot', label: '热榜风向' },
+]
 
 const props = withDefaults(
   defineProps<{
-    /** 由入口预拉的统计，避免与 loadData 重复请求 getStats */
     seedStats?: PromptStats | null
+    initialTab?: ModHubMainTab
+    initialDiscoverSource?: DiscoverSourceKey
+    fullPage?: boolean
   }>(),
-  { seedStats: null },
+  {
+    seedStats: null,
+    initialTab: 'discover',
+    initialDiscoverSource: 'all',
+    fullPage: false,
+  },
 )
 
 const emit = defineEmits<{
   (e: 'refresh-stats', payload: PromptStats | null): void
+  (e: 'request-cloud-login'): void
 }>()
 
-// ---- 状态 ----
+const message = useMessage()
+const modHubStore = useModHubStore()
+
 const loading = ref(true)
 const searchQuery = ref('')
-const mainTab = ref<'plaza' | 'anti-ai'>('plaza')
+const mainTab = ref<ModHubMainTab>(props.initialTab)
+const activeRole = ref<ModRoleCategory>('all')
+const discoverSource = ref<DiscoverSourceKey>(props.initialDiscoverSource)
 const activeCategory = ref<string | null>(null)
+
 const selectedNode = ref<PromptNode | null>(null)
 const showDetailModal = ref(false)
 const detailEntering = ref(false)
 let closeDetailTimer: ReturnType<typeof setTimeout> | null = null
+
+const activePackDetail = ref<NarrativeModPack | null>(null)
+const showBuilderModal = ref(false)
 const showCreateModal = ref(false)
 const showImportModal = ref(false)
 const importFileText = ref('')
+
+const quickInstallInput = ref('')
+const quickInstalling = ref(false)
+const localModFileInput = ref<HTMLInputElement | null>(null)
+
 const stats = ref<PromptStats | null>(null)
 const categories = ref<PromptCategoryInfo[]>([])
 const allNodes = ref<PromptNode[]>([])
+
+// ── 云端数据状态（plotpilot.xyz 代理） ──
+const cloudGenres = ref<SquareGenre[]>([])
+const selectedCloudGenre = ref('')
+const cloudOfficial = reactive<{
+  assets: SquareAsset[]
+  nextCursor: string
+  loading: boolean
+  error: CloudSquareError | null
+}>({
+  assets: [],
+  nextCursor: '',
+  loading: false,
+  error: null,
+})
+
+const cloudCommunity = reactive<{
+  assets: SquareCommunityAsset[]
+  loading: boolean
+  error: CloudSquareError | null
+}>({
+  assets: [],
+  loading: false,
+  error: null,
+})
+
+const hotState = reactive<{
+  items: HotNovelItem[]
+  terms: HotNovelTerm[]
+  loading: boolean
+  error: CloudSquareError | null
+}>({
+  items: [],
+  terms: [],
+  loading: false,
+  error: null,
+})
 
 watch(
   () => props.seedStats,
@@ -318,7 +748,6 @@ watch(
   { immediate: true },
 )
 
-// 创建表单
 const createFormRef = ref()
 const createForm = reactive({
   name: '',
@@ -329,28 +758,132 @@ const createForm = reactive({
   description: '',
 })
 
-// ---- 计算属性 ----
+const searchPlaceholder = computed(() => {
+  if (mainTab.value === 'nodes') return '搜索内核节点名称、键或描述…'
+  if (mainTab.value === 'installed') return '筛选已启用的模组…'
+  if (discoverSource.value === 'hot') return '筛选热榜书名或标签…'
+  return '搜索模组、文风、题材 Hook 或作者…'
+})
 
-/** 过滤后的节点列表 */
-const filteredNodes = computed(() => {
-  if (!searchQuery.value.trim()) return allNodes.value
-  const q = searchQuery.value.toLowerCase().trim()
-  return allNodes.value.filter(n =>
-    n.name.toLowerCase().includes(q) ||
-    (n.description || '').toLowerCase().includes(q) ||
-    n.node_key.toLowerCase().includes(q) ||
-    n.tags.some(t => t.toLowerCase().includes(q)) ||
-    (n.source || '').toLowerCase().includes(q)
+// ── 将精选包 + 云端资产统一映射为标准模组卡片 ──
+const officialCloudPacks = computed<NarrativeModPack[]>(() =>
+  cloudOfficial.assets.map(a => modHubStore.convertOfficialAssetToPack(a)),
+)
+
+const communityCloudPacks = computed<NarrativeModPack[]>(() =>
+  cloudCommunity.assets.map(c => modHubStore.convertCommunityAssetToPack(c)),
+)
+
+const sourceFilteredPool = computed<NarrativeModPack[]>(() => {
+  if (discoverSource.value === 'curated') return modHubStore.curatedPacks
+  if (discoverSource.value === 'cloud-official') return officialCloudPacks.value
+  if (discoverSource.value === 'cloud-community') return communityCloudPacks.value
+  if (discoverSource.value === 'hot') return []
+  return [
+    ...modHubStore.curatedPacks,
+    ...officialCloudPacks.value,
+    ...communityCloudPacks.value,
+  ]
+})
+
+const queryFilteredPool = computed<NarrativeModPack[]>(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return sourceFilteredPool.value
+  return sourceFilteredPool.value.filter(
+    p =>
+      p.name.toLowerCase().includes(q) ||
+      p.summary.toLowerCase().includes(q) ||
+      p.author.toLowerCase().includes(q) ||
+      p.roleLabel.toLowerCase().includes(q) ||
+      p.tags.some(t => t.toLowerCase().includes(q)),
   )
 })
 
-/** 按分类分组的节点 */
+const roleCounts = computed<Record<ModRoleCategory, number>>(() => {
+  const counts: Record<ModRoleCategory, number> = {
+    all: queryFilteredPool.value.length,
+    'style-anti-ai': 0,
+    'opening-hook': 0,
+    'pacing-plot': 0,
+    'dialogue-voice': 0,
+    'review-guard': 0,
+    worldbuilding: 0,
+  }
+  for (const p of queryFilteredPool.value) {
+    counts[p.roleCategory] = (counts[p.roleCategory] ?? 0) + 1
+  }
+  return counts
+})
+
+const displayedPacks = computed<NarrativeModPack[]>(() => {
+  if (activeRole.value === 'all') return queryFilteredPool.value
+  return queryFilteredPool.value.filter(p => p.roleCategory === activeRole.value)
+})
+
+const activeRoleTitle = computed(() => {
+  const found = MOD_ROLE_CATEGORIES.find(c => c.key === activeRole.value)
+  if (!found || found.key === 'all') {
+    if (discoverSource.value === 'curated') return '墨枢官方精选模组'
+    if (discoverSource.value === 'cloud-official') return '云端官方书元库'
+    if (discoverSource.value === 'cloud-community') return '社区作者共享'
+    return '推荐叙事模组与书元'
+  }
+  return found.label
+})
+
+const isDiscoverLoading = computed(
+  () => cloudOfficial.loading || cloudCommunity.loading,
+)
+
+const cloudInlineNotice = computed(() => {
+  const err = cloudOfficial.error || cloudCommunity.error
+  if (!err) return ''
+  if (err.kind === 'suspended') return err.message || '云端广场暂未开放服务，当前展示本地精选模组。'
+  return `未能同步 plotpilot.xyz 云端目录（${err.message}），当前展示本机可用精选模组。`
+})
+
+const filteredHotItems = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return hotState.items
+  return hotState.items.filter(
+    i =>
+      i.title.toLowerCase().includes(q) ||
+      (i.author || '').toLowerCase().includes(q) ||
+      (i.tags || []).some(t => t.toLowerCase().includes(q)),
+  )
+})
+
+const filteredInstalledRecords = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return modHubStore.installedList
+  return modHubStore.installedList.filter(
+    r =>
+      r.pack.name.toLowerCase().includes(q) ||
+      r.pack.summary.toLowerCase().includes(q) ||
+      r.pack.roleLabel.toLowerCase().includes(q),
+  )
+})
+
+// ── 内置内核节点计算 ──
+const filteredNodes = computed(() => {
+  if (!searchQuery.value.trim()) return allNodes.value
+  const q = searchQuery.value.toLowerCase().trim()
+  return allNodes.value.filter(
+    n =>
+      n.name.toLowerCase().includes(q) ||
+      (n.description || '').toLowerCase().includes(q) ||
+      n.node_key.toLowerCase().includes(q) ||
+      n.tags.some(t => t.toLowerCase().includes(q)),
+  )
+})
+
 const groupedNodes = computed<Record<string, PromptNode[]>>(() => {
-  const nodes = filteredNodes.value
   const result: Record<string, PromptNode[]> = {}
-  for (const node of nodes) {
+  for (const node of filteredNodes.value) {
     const cat = activeCategory.value
-      ? (node.category === activeCategory.value ? node.category : null)
+      ? node.category === activeCategory.value
+        ? node.category
+        : null
       : node.category
     if (cat) {
       ;(result[cat] ||= []).push(node)
@@ -359,33 +892,55 @@ const groupedNodes = computed<Record<string, PromptNode[]>>(() => {
   return result
 })
 
-/** 分类下拉选项 */
 const categoryOptions = computed(() =>
   categories.value.map(c => ({
-    label: c.name,
+    label: stripLeadingSymbol(c.name),
     value: c.key,
-  }))
+  })),
 )
 
-// ---- 方法 ----
+function stripLeadingSymbol(raw: string): string {
+  const parts = raw.trim().split(/\s+/)
+  if (parts.length > 1 && parts[0].length <= 3) {
+    return parts.slice(1).join(' ')
+  }
+  return raw
+}
 
-async function loadData() {
+function getCategoryName(catKey: string): string {
+  const cat = categories.value.find(c => c.key === catKey)
+  return cat ? stripLeadingSymbol(cat.name) : catKey
+}
+
+function switchMainTab(tab: ModHubMainTab): void {
+  mainTab.value = tab
+}
+
+function selectDiscoverSource(src: DiscoverSourceKey): void {
+  discoverSource.value = src
+  if (src === 'cloud-community' && !cloudCommunity.assets.length && !cloudCommunity.loading) {
+    void loadCloudCommunity(true)
+  } else if (src === 'hot' && !hotState.items.length && !hotState.loading) {
+    void loadHotFeed(true)
+  }
+}
+
+function selectCloudGenre(slug: string): void {
+  selectedCloudGenre.value = slug
+  void loadCloudOfficial(true)
+}
+
+// ── 数据加载 ──
+async function loadData(): Promise<void> {
   loading.value = true
   try {
-    // 优化：单次聚合请求替代原来 3 次并发请求
-    const res = await promptPlazaApi.plazaInit() as unknown as PlazaInitResult
-
+    const res = (await promptPlazaApi.plazaInit()) as unknown as PlazaInitResult
     if (res.stats) stats.value = res.stats
     categories.value = res.categories || []
     const nodesMap = res.nodes_by_category || {}
     allNodes.value = Object.values(nodesMap).flat()
-
-    if (!res.stats && categories.value.length === 0 && allNodes.value.length === 0) {
-      message.error('加载提示词数据失败，请稍后重试')
-    }
-  } catch (e) {
-    console.error('加载提示词广场失败:', e)
-    // 降级：回退到分散请求
+    modHubStore.syncWithBackendNodes(allNodes.value)
+  } catch {
     try {
       const [statsRes, catsRes, nodesRes] = await Promise.all([
         promptPlazaApi.getStats().catch(() => null),
@@ -396,11 +951,9 @@ async function loadData() {
       categories.value = (catsRes as unknown as PromptCategoryInfo[]) || []
       const nodesMap = (nodesRes as unknown as Record<string, PromptNode[]>) || {}
       allNodes.value = Object.values(nodesMap).flat()
-      if (!statsRes && categories.value.length === 0 && allNodes.value.length === 0) {
-        message.error('加载提示词数据失败，请稍后重试')
-      }
+      modHubStore.syncWithBackendNodes(allNodes.value)
     } catch {
-      message.error('加载提示词数据失败')
+      message.error('加载本地提示词内核失败')
     }
   } finally {
     loading.value = false
@@ -408,24 +961,200 @@ async function loadData() {
   emit('refresh-stats', stats.value)
 }
 
-function openDetail(node: PromptNode) {
+async function loadCloudGenres(): Promise<void> {
+  try {
+    cloudGenres.value = await fetchSquareGenres()
+  } catch {
+    cloudGenres.value = []
+  }
+}
+
+async function loadCloudOfficial(reset: boolean): Promise<void> {
+  cloudOfficial.loading = true
+  cloudOfficial.error = null
+  if (reset) {
+    cloudOfficial.assets = []
+    cloudOfficial.nextCursor = ''
+  }
+  try {
+    const data = await fetchSquareAssets({
+      genre: selectedCloudGenre.value || undefined,
+      cursor: reset ? undefined : cloudOfficial.nextCursor || undefined,
+      limit: 24,
+    })
+    cloudOfficial.assets = reset ? data.assets : [...cloudOfficial.assets, ...data.assets]
+    cloudOfficial.nextCursor = data.next_cursor ?? ''
+  } catch (e) {
+    cloudOfficial.error =
+      e instanceof CloudSquareError ? e : new CloudSquareError('unknown', String(e))
+  } finally {
+    cloudOfficial.loading = false
+  }
+}
+
+async function loadCloudCommunity(reset: boolean): Promise<void> {
+  cloudCommunity.loading = true
+  cloudCommunity.error = null
+  if (reset) cloudCommunity.assets = []
+  try {
+    const data = await fetchSquareCommunity({ sort: 'hot', limit: 24 })
+    cloudCommunity.assets = data.assets ?? []
+  } catch (e) {
+    cloudCommunity.error =
+      e instanceof CloudSquareError ? e : new CloudSquareError('unknown', String(e))
+  } finally {
+    cloudCommunity.loading = false
+  }
+}
+
+async function loadHotFeed(reset: boolean): Promise<void> {
+  if (!reset && hotState.items.length) return
+  hotState.loading = true
+  hotState.error = null
+  try {
+    const feed = await fetchHotNovels(30)
+    hotState.items = feed.highlights ?? []
+    hotState.terms = feed.terms ?? []
+    if (!hotState.items.length) {
+      const seen = new Set<string>()
+      for (const s of feed.sources ?? []) {
+        for (const item of s.items ?? []) {
+          const k = `${item.source_key}-${item.title}`
+          if (seen.has(k)) continue
+          seen.add(k)
+          hotState.items.push(item)
+        }
+      }
+    }
+  } catch (e) {
+    hotState.error =
+      e instanceof CloudSquareError ? e : new CloudSquareError('unknown', String(e))
+  } finally {
+    hotState.loading = false
+  }
+}
+
+async function refreshCloudFeeds(force = false): Promise<void> {
+  await Promise.all([
+    loadCloudGenres(),
+    loadCloudOfficial(true),
+    discoverSource.value === 'all' || discoverSource.value === 'cloud-community'
+      ? loadCloudCommunity(true)
+      : Promise.resolve(),
+    discoverSource.value === 'hot' ? loadHotFeed(force) : Promise.resolve(),
+  ])
+}
+
+// ── 模组安装 / 卸载 / 详情 / 导出 ──
+async function openPackDetail(pack: NarrativeModPack): Promise<void> {
+  activePackDetail.value = pack
+  if (pack.cloudSourceId) {
+    const hydrated = await modHubStore.hydrateCloudPackDetail(pack)
+    if (activePackDetail.value?.id === pack.id) {
+      activePackDetail.value = hydrated
+    }
+  }
+}
+
+async function handleInstallPack(pack: NarrativeModPack): Promise<void> {
+  try {
+    const record = await modHubStore.installModPack(pack, allNodes.value)
+    if (activePackDetail.value?.id === pack.id) {
+      activePackDetail.value = record.pack
+    }
+    message.success(`已启用模组「${record.pack.name}」`)
+    await loadData()
+  } catch (e) {
+    message.error(formatApiError(e, '模组安装失败'))
+  }
+}
+
+async function handleUninstallPack(pack: NarrativeModPack): Promise<void> {
+  try {
+    await modHubStore.uninstallModPack(pack.id)
+    message.success(`已卸载「${pack.name}」并回滚受影响的引擎节点`)
+    activePackDetail.value = null
+    await loadData()
+  } catch (e) {
+    message.error(formatApiError(e, '卸载模组失败'))
+  }
+}
+
+function handleExportSinglePack(pack: NarrativeModPack): void {
+  const manifest = modHubStore.createManifestFromPack(pack)
+  const blob = new Blob([JSON.stringify(manifest, null, 2)], {
+    type: 'application/json',
+  })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${pack.id}.plotpilot-mod.json`
+  a.click()
+  URL.revokeObjectURL(url)
+  message.success('已导出模组 JSON 清单')
+}
+
+function handleInspectEngineNode(nodeKey: string): void {
+  activePackDetail.value = null
+  selectNodeByKey(nodeKey)
+}
+
+// ── 底部快捷安装栏（GitHub / URL / 本机 JSON） ──
+async function handleQuickSourceInstall(): Promise<void> {
+  const raw = quickInstallInput.value.trim()
+  if (!raw) return
+  quickInstalling.value = true
+  try {
+    const record = await modHubStore.installFromSourceInput(raw, allNodes.value)
+    quickInstallInput.value = ''
+    message.success(`成功安装模组「${record.pack.name}」`)
+    await loadData()
+    activePackDetail.value = record.pack
+  } catch (e) {
+    message.error(e instanceof Error ? e.message : '外部模组安装失败')
+  } finally {
+    quickInstalling.value = false
+  }
+}
+
+function triggerLocalFilePicker(): void {
+  localModFileInput.value?.click()
+}
+
+async function onLocalModFilePicked(e: Event): Promise<void> {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  quickInstalling.value = true
+  try {
+    const record = await modHubStore.installFromLocalFile(file, allNodes.value)
+    message.success(`已从本机文件安装「${record.pack.name}」`)
+    await loadData()
+    activePackDetail.value = record.pack
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : '读取模组文件失败')
+  } finally {
+    quickInstalling.value = false
+  }
+}
+
+// ── 内核节点详情与备份导入导出 ──
+function openDetail(node: PromptNode): void {
   if (closeDetailTimer) {
     clearTimeout(closeDetailTimer)
     closeDetailTimer = null
   }
   selectedNode.value = node
   showDetailModal.value = true
-  // 触发进入动画
   nextTick(() => {
     detailEntering.value = true
   })
 }
 
-function closeDetail() {
+function closeDetail(): void {
   detailEntering.value = false
-  if (closeDetailTimer) {
-    clearTimeout(closeDetailTimer)
-  }
+  if (closeDetailTimer) clearTimeout(closeDetailTimer)
   closeDetailTimer = setTimeout(() => {
     closeDetailTimer = null
     showDetailModal.value = false
@@ -433,11 +1162,11 @@ function closeDetail() {
   }, runtimePerformance.workbench.promptPlazaCloseAnimationMs)
 }
 
-function onNodeUpdated() {
-  loadData()
+function onNodeUpdated(): void {
+  void loadData()
 }
 
-async function handleExportJson() {
+async function handleExportJson(): Promise<void> {
   try {
     const res = await promptPlazaApi.exportAll()
     const blob = new Blob([JSON.stringify(res, null, 2)], { type: 'application/json' })
@@ -447,7 +1176,7 @@ async function handleExportJson() {
     a.download = `prompts-backup-${new Date().toISOString().slice(0, 10)}.json`
     a.click()
     URL.revokeObjectURL(url)
-    message.success('已导出')
+    message.success('已导出整库备份')
   } catch (e: unknown) {
     const err = e as { message?: string }
     message.error(err?.message || '导出失败')
@@ -457,35 +1186,40 @@ async function handleExportJson() {
 function onImportFile(data: {
   file: { file?: File | null }
   fileList: Array<{ file?: File | null }>
-}) {
+}): void {
   const f = data.file?.file
   if (!f) return
   const reader = new FileReader()
-  reader.onload = (e) => {
-    importFileText.value = (e.target?.result as string) || ''
+  reader.onload = (ev) => {
+    importFileText.value = (ev.target?.result as string) || ''
   }
   reader.readAsText(f)
 }
 
-async function handleImportJson() {
+async function handleImportJson(): Promise<boolean> {
   if (!importFileText.value.trim()) {
     message.warning('请先选择 JSON 文件')
     return false
   }
   try {
-    const parsed = JSON.parse(importFileText.value) as {
-      prompts?: unknown[]
-      [key: string]: unknown
+    const parsed = JSON.parse(importFileText.value) as Record<string, unknown>
+    if (parsed.schema === 'plotpilot-mod/v1' || Array.isArray(parsed.overrides)) {
+      const pack = parseAnyModJson(parsed, '手动导入', 'local')
+      await modHubStore.installModPack(pack, allNodes.value)
+      message.success(`已安装模组「${pack.name}」`)
+      showImportModal.value = false
+      importFileText.value = ''
+      await loadData()
+      return true
     }
     if (!parsed.prompts || !Array.isArray(parsed.prompts)) {
-      message.error('JSON 中需包含 prompts 数组')
+      message.error('JSON 中需包含 prompts 数组或 plotpilot-mod/v1 清单')
       return false
     }
-    const result = await promptPlazaApi.importData(parsed as Parameters<typeof promptPlazaApi.importData>[0])
+    const result = await promptPlazaApi.importData(
+      parsed as Parameters<typeof promptPlazaApi.importData>[0],
+    )
     message.success(result.message || '导入完成')
-    if (result.errors?.length) {
-      message.warning(`部分条目未导入：${result.errors.slice(0, 3).join('；')}`)
-    }
     showImportModal.value = false
     importFileText.value = ''
     await loadData()
@@ -496,14 +1230,9 @@ async function handleImportJson() {
   }
 }
 
-function getCategoryName(catKey: string): string {
-  const cat = categories.value.find(c => c.key === catKey)
-  return cat ? cat.name.split(' ').slice(1).join(' ') || cat.name : catKey
-}
-
-async function handleCreate() {
+async function handleCreate(): Promise<boolean> {
   if (!createForm.name.trim()) {
-    message.warning('请输入提示词名称')
+    message.warning('请输入节点名称')
     return false
   }
   try {
@@ -515,10 +1244,17 @@ async function handleCreate() {
       user_template: createForm.user_template,
       description: createForm.description,
     })
-    message.success('创建成功')
+    message.success('节点创建成功')
     showCreateModal.value = false
-    Object.assign(createForm, { name: '', node_key: '', category: 'generation', system: '', user_template: '', description: '' })
-    loadData()
+    Object.assign(createForm, {
+      name: '',
+      node_key: '',
+      category: 'generation',
+      system: '',
+      user_template: '',
+      description: '',
+    })
+    await loadData()
     return true
   } catch (e: unknown) {
     message.error(formatApiError(e, '创建失败'))
@@ -526,8 +1262,21 @@ async function handleCreate() {
   }
 }
 
+function selectNodeByKey(nodeKey: string): void {
+  mainTab.value = 'nodes'
+  const node = allNodes.value.find(n => n.node_key === nodeKey)
+  if (node) {
+    openDetail(node)
+  } else {
+    searchQuery.value = nodeKey
+  }
+}
+
 onMounted(() => {
-  loadData()
+  void loadData()
+  void loadCloudGenres()
+  void loadCloudOfficial(true)
+  void loadCloudCommunity(true)
 })
 
 onUnmounted(() => {
@@ -537,231 +1286,653 @@ onUnmounted(() => {
   }
 })
 
-// 供外部联动调用：按 CPMS node_key 选中并打开提示词详情
-function selectNodeByKey(nodeKey: string) {
-  const node = allNodes.value.find(n => n.node_key === nodeKey)
-  if (node) {
-    openDetail(node)
-  } else {
-    // 未找到精确匹配，尝试搜索
-    searchQuery.value = nodeKey
-  }
-}
-
-defineExpose({ loadData, selectNodeByKey })
+defineExpose({ loadData, selectNodeByKey, refreshCloudFeeds })
 </script>
 
 <style scoped>
-/* ═══════════════════════════════════════════════════
-   提示词广场 — 主容器
-   ═══════════════════════════════════════════════════ */
-.prompt-plaza {
+.mod-hub {
   display: flex;
   flex-direction: column;
   height: 100%;
-  overflow-y: auto;
+  min-height: 0;
+  background: var(--app-page-bg);
+  color: var(--app-text-primary);
 }
 
-/* ---- 顶部栏 ---- */
-.plaza-header {
+.mod-hub.is-fullpage {
+  flex: 1;
+}
+
+.numeric {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 顶栏主视图胶囊条（对标 Magpie：内置 | 发现 | 已安装） ── */
+.hub-topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 18px 10px;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 20px;
+  background: var(--app-surface);
+  border-bottom: 1px solid var(--app-border);
   flex-shrink: 0;
 }
-.header-left {
-  display: flex;
+
+.hub-nav-pills {
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--app-surface-subtle);
+  border: 1px solid var(--app-border);
 }
-.header-right {
-  display: flex;
+
+.hub-pill {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--app-text-secondary);
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
 }
-.plaza-search-input {
-  width: min(220px, 36vw);
+
+.hub-pill:hover {
+  color: var(--app-text-primary);
 }
-.import-body {
-  margin-top: 8px;
+
+.hub-pill.is-active {
+  background: var(--app-surface);
+  border-color: var(--app-border);
+  color: var(--app-text-primary);
+  font-weight: 600;
 }
-.import-hint {
-  font-size: 13px;
-  color: var(--app-text-muted);
-  margin-bottom: 12px;
-  line-height: 1.5;
-}
-.import-hint code {
+
+.pill-count {
   font-size: 12px;
-  padding: 1px 5px;
-  border-radius: 4px;
+  color: var(--app-text-muted);
+}
+
+.hub-pill.is-active .pill-count {
+  color: var(--color-brand);
+}
+
+.hub-topbar-right {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.hub-ghost-btn {
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  color: var(--app-text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.hub-ghost-btn:hover:not(:disabled) {
+  border-color: var(--color-brand);
+  color: var(--color-brand);
+}
+
+.hub-ghost-btn.is-accent {
+  border-color: var(--color-brand);
+  color: var(--color-brand);
+  background: var(--color-brand-light);
+}
+
+.hub-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface-subtle);
+  width: min(260px, 52vw);
+}
+
+.hub-search:focus-within {
+  border-color: var(--color-brand);
+  background: var(--app-surface);
+}
+
+.search-svg {
+  width: 15px;
+  height: 15px;
+  color: var(--app-text-muted);
+  flex-shrink: 0;
+}
+
+.search-field {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--app-text-primary);
+  font-size: 13px;
+  outline: none;
+}
+
+.search-clear {
+  border: none;
+  background: transparent;
+  color: var(--app-text-muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+/* ── 二级筛选栏：创作角色芯片 + 来源切换 ── */
+.discover-filter-bar,
+.engine-cat-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 20px;
+  background: var(--app-surface);
+  border-bottom: 1px solid var(--app-border);
+  flex-shrink: 0;
+}
+
+.engine-cat-bar {
+  justify-content: flex-start;
+  gap: 6px;
+}
+
+.role-chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.role-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 11px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: var(--app-surface-subtle);
+  color: var(--app-text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.role-chip:hover {
+  color: var(--app-text-primary);
+  border-color: var(--app-border);
+}
+
+.role-chip.is-active {
+  background: var(--color-brand-light);
+  border-color: color-mix(in srgb, var(--color-brand) 30%, var(--app-border));
+  color: var(--color-brand);
+  font-weight: 600;
+}
+
+.chip-num {
+  font-size: 11.5px;
+  color: var(--app-text-muted);
+}
+
+.role-chip.is-active .chip-num {
+  color: var(--color-brand);
+}
+
+.source-segmented {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  border: 1px solid var(--app-border);
   background: var(--app-surface-subtle);
 }
-.plaza-title {
+
+.source-btn {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--app-text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.source-btn:hover {
+  color: var(--app-text-primary);
+}
+
+.source-btn.is-active {
+  background: var(--app-surface);
+  color: var(--app-text-primary);
+  font-weight: 600;
+}
+
+.hot-hint-text {
+  font-size: 13px;
+  color: var(--app-text-muted);
+}
+
+.genre-subbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 20px;
+  background: var(--app-surface-subtle);
+  border-bottom: 1px solid var(--app-border);
+}
+
+.sub-chip {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.sub-chip.is-active {
+  background: var(--color-brand);
+  border-color: var(--color-brand);
+  color: var(--app-text-inverse);
+}
+
+/* ── 主体滚动区 ── */
+.hub-scroll-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px 20px 24px;
+}
+
+.cloud-inline-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  border-radius: 9px;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  font-size: 13px;
+  color: var(--app-text-secondary);
+}
+
+.inline-retry-btn {
+  border: none;
+  background: transparent;
+  color: var(--color-brand);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+
+.inline-retry-btn:hover {
+  text-decoration: underline;
+}
+
+.mod-section,
+.category-section {
+  margin-bottom: 24px;
+}
+
+.mod-section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.mod-section-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--app-text-primary);
+}
+
+.mod-section-count {
+  font-size: 13px;
+  color: var(--app-text-muted);
+}
+
+.mod-cards-grid,
+.node-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(296px, 1fr));
+  gap: 14px;
+}
+
+.load-more-row {
+  display: flex;
+  justify-content: center;
+  margin-top: 18px;
+}
+
+.installed-banner {
+  padding: 11px 14px;
+  margin-bottom: 14px;
+  border-radius: 10px;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  font-size: 13.5px;
+  color: var(--app-text-secondary);
+}
+
+.empty-pane {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 56px 20px;
+  gap: 8px;
+}
+
+.empty-title {
   margin: 0;
   font-size: 16px;
   font-weight: 700;
   color: var(--app-text-primary);
-  letter-spacing: 0.01em;
 }
 
-/* ---- 主标签切换 ---- */
-.main-tabs {
+.empty-sub {
+  margin: 0;
+  font-size: 14px;
+  color: var(--app-text-muted);
+  max-width: 46ch;
+  line-height: 1.6;
+}
+
+.empty-cta-btn {
+  margin-top: 8px;
+  height: 36px;
+  padding: 0 18px;
+  border-radius: 9px;
+  border: 1px solid var(--color-brand);
+  background: var(--color-brand);
+  color: var(--app-text-inverse);
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* ── 热榜视图 ── */
+.hot-panel {
   display: flex;
-  gap: 0;
-  padding: 10px 18px 0;
-  border-bottom: 2px solid var(--app-border);
+  flex-direction: column;
+  gap: 14px;
+}
+
+.hot-terms-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+}
+
+.terms-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--app-text-muted);
+  margin-right: 4px;
+}
+
+.term-pill {
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--app-surface-subtle);
+  color: var(--app-text-secondary);
+  font-size: 12px;
+}
+
+.hot-rank-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hot-rank-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+}
+
+.rank-index {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: var(--app-surface-subtle);
+  color: var(--app-text-muted);
+  font-size: 13px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
 }
-.main-tab {
-  font-size: 14px;
-  font-weight: 500;
-  padding: 10px 20px;
-  cursor: pointer;
-  color: var(--app-text-muted);
-  border-bottom: 2px solid transparent;
-  margin-bottom: -2px;
-  transition: all 0.2s ease;
-  user-select: none;
-}
-.main-tab:hover {
-  color: var(--app-text-primary);
-}
-.main-tab.is-active {
+
+.rank-index.is-top {
+  background: var(--color-brand-light);
   color: var(--color-brand);
-  border-bottom-color: var(--color-brand);
-  font-weight: 600;
 }
 
+.rank-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.rank-head-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.rank-book-title {
+  font-size: 15px;
+  color: var(--app-text-primary);
+}
+
+.rank-book-author {
+  font-size: 12.5px;
+  color: var(--app-text-muted);
+}
+
+.rank-book-intro {
+  margin: 4px 0 0;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--app-text-secondary);
+  max-width: 65ch;
+}
+
+.rank-meta-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.rank-platform {
+  font-size: 12px;
+  color: var(--app-text-muted);
+}
+
+.rank-tag-row {
+  display: flex;
+  gap: 4px;
+}
+
+.rank-mini-tag {
+  font-size: 11.5px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--app-surface-subtle);
+  color: var(--app-text-secondary);
+}
+
+/* ── 底部去中心化安装条（对标 Magpie） ── */
+.hub-install-dock {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 20px;
+  background: var(--app-surface);
+  border-top: 1px solid var(--app-border);
+  flex-shrink: 0;
+}
+
+.dock-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--app-text-secondary);
+  white-space: nowrap;
+}
+
+.dock-input {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface-subtle);
+  color: var(--app-text-primary);
+  font-size: 13px;
+  outline: none;
+}
+
+.dock-input:focus {
+  border-color: var(--color-brand);
+  background: var(--app-surface);
+}
+
+.hidden-file-input {
+  display: none;
+}
+
+.dock-file-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  color: var(--app-text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.dock-file-btn:hover {
+  border-color: var(--color-brand);
+  color: var(--color-brand);
+}
+
+.dock-submit-btn {
+  height: 36px;
+  padding: 0 18px;
+  border-radius: 8px;
+  border: 1px solid var(--color-brand);
+  background: var(--color-brand);
+  color: var(--app-text-inverse);
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.dock-submit-btn:hover:not(:disabled) {
+  background: var(--color-brand-hover);
+  border-color: var(--color-brand-hover);
+}
+
+.dock-submit-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.loading-wrap,
 .detail-panel-loading {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 200px;
+  padding: 56px 20px;
 }
 
-/* ---- 分类标签 ---- */
-.category-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 8px 18px 14px;
-  flex-shrink: 0;
-  border-bottom: 1px solid var(--app-border);
-  background: var(--app-surface-subtle);
-}
-.category-tab {
-  font-size: 13px;
-  transition: all 0.2s ease;
-  border-radius: 16px;
-  padding: 0 14px;
-  height: 30px;
-  display: inline-flex;
-  align-items: center;
-  cursor: pointer;
-  color: var(--app-text-secondary);
-  background: var(--app-surface);
-  border: 1px solid var(--app-border);
-  user-select: none;
-}
-.category-tab:hover {
-  border-color: var(--color-brand);
-  color: var(--color-brand);
-}
-.category-tab.is-active {
-  background: var(--color-brand);
-  color: var(--app-text-inverse);
-  border-color: var(--color-brand);
-  box-shadow: 0 2px 6px var(--color-brand-border);
-}
-.category-tab.is-active:hover {
-  background: var(--color-brand-hover);
-}
-
-/* ---- 内容区 ---- */
-.plaza-content {
-  flex: 1;
-  padding: 14px 18px;
-  overflow-y: auto;
-}
-.search-results-header {
-  font-size: 13px;
-  color: var(--app-text-muted);
-  margin-bottom: 12px;
-  padding: 0 4px;
-}
-
-/* ---- 分类区块 ---- */
-.category-section {
-  margin-bottom: 24px;
-}
-.section-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
-  padding-bottom: 8px;
-  border-bottom: 2px solid var(--app-border);
-}
-.section-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--app-text-primary);
-}
-
-/* ---- 节点卡片网格 ---- */
-.node-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 12px;
-}
-
-/* ---- 加载 ---- */
-.loading-wrap {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 60px 20px;
-}
-
-/* ═══════════════════════════════════════════════════
-   详情弹窗 — 放大动画 Modal（fixed + 超高 z-index）
-   ═══════════════════════════════════════════════════ */
-
-/* 遮罩层 — 盖住 n-modal 的遮罩 */
+/* ── 内核节点详情弹窗（无阴影渐变，克制干净） ── */
 .detail-overlay {
   position: fixed;
   inset: 0;
   z-index: 3000;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(6px);
+  background: rgba(15, 15, 14, 0.48);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 20px;
 }
 
-/* 弹窗主体 */
 .detail-modal {
   width: 100%;
-  max-width: 900px;
+  max-width: 880px;
   height: 85vh;
   max-height: 800px;
   background: var(--app-surface);
-  border-radius: var(--app-radius-xl);
-  box-shadow:
-    0 25px 80px rgba(0, 0, 0, 0.3),
-    0 10px 30px rgba(0, 0, 0, 0.15);
+  border-radius: 16px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--app-border-strong);
-  transform: scale(0.92);
+  transform: scale(0.96);
   opacity: 0;
-  transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.22s ease;
+  transition: transform 0.2s ease, opacity 0.18s ease;
 }
 
 .detail-modal.is-entering {
@@ -769,119 +1940,127 @@ defineExpose({ loadData, selectNodeByKey })
   opacity: 1;
 }
 
-/* 弹窗头部 */
 .detail-modal-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 16px 22px 14px;
   border-bottom: 1px solid var(--app-border);
-  background: var(--app-surface-subtle);
+  background: var(--app-surface);
   flex-shrink: 0;
 }
+
 .dm-header-left {
   display: flex;
   align-items: center;
   gap: 12px;
   min-width: 0;
 }
+
 .dm-icon-badge {
   width: 40px;
   height: 40px;
-  border-radius: 12px;
+  border-radius: 10px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, var(--color-brand), var(--color-brand-hover));
-  color: var(--app-text-inverse);
-  font-size: 17px;
-  font-weight: 800;
-  letter-spacing: -0.02em;
+  background: var(--app-surface-subtle);
+  border: 1px solid var(--app-border);
+  color: var(--app-text-primary);
+  font-size: 16px;
+  font-weight: 700;
   flex-shrink: 0;
 }
+
 .dm-title-block {
   min-width: 0;
 }
+
 .dm-title {
   margin: 0;
   font-size: 16px;
   font-weight: 700;
   color: var(--app-text-primary);
-  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+
 .dm-meta-row {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   margin-top: 3px;
-  flex-wrap: wrap;
-}
-.dm-key {
-  font-size: 11px;
-  font-family: var(--font-mono);
-  color: var(--app-text-muted);
-  background: var(--app-surface-subtle);
-  padding: 1px 7px;
-  border-radius: 4px;
-  border: 1px solid var(--app-border);
 }
 
-/* 关闭按钮 */
+.dm-key {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--app-text-muted);
+}
+
 .dm-close-btn {
   width: 32px;
   height: 32px;
+  border-radius: 8px;
   border: none;
   background: transparent;
-  border-radius: var(--app-radius-sm);
-  cursor: pointer;
+  color: var(--app-text-muted);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--app-text-muted);
-  transition: all 0.18s ease;
-  flex-shrink: 0;
+  cursor: pointer;
 }
+
 .dm-close-btn:hover {
   background: var(--app-surface-subtle);
   color: var(--app-text-primary);
 }
 
-/* 弹窗内容区 */
 .detail-modal-body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 0;
+  padding: 16px 22px 22px;
 }
 
-/* ═══════════════════════════════════════════════════
-   放大动画过渡
-   ═══════════════════════════════════════════════════ */
-.plaza-zoom-enter-active {
-  transition: opacity 0.22s ease;
-}
-.plaza-zoom-enter-active .detail-modal {
-  transition: transform 0.32s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.26s ease;
-}
-.plaza-zoom-enter-from {
-  opacity: 0;
-}
-.plaza-zoom-enter-from .detail-modal {
-  transform: scale(0.88) translateY(20px);
-  opacity: 0;
+.import-body {
+  margin-top: 8px;
 }
 
-.plaza-zoom-leave-active {
-  transition: opacity 0.2s ease;
+.import-hint {
+  font-size: 13.5px;
+  color: var(--app-text-secondary);
+  margin-bottom: 12px;
+  line-height: 1.55;
 }
-.plaza-zoom-leave-active .detail-modal {
-  transition: transform 0.2s cubic-bezier(0.4, 0, 1, 1), opacity 0.18s ease;
+
+.import-hint code {
+  font-size: 12px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--app-surface-subtle);
 }
-.plaza-zoom-leave-to {
-  opacity: 0;
-}
-.plaza-zoom-leave-to .detail-modal {
-  transform: scale(0.95);
-  opacity: 0;
+
+@media (max-width: 640px) {
+  .hub-topbar,
+  .discover-filter-bar,
+  .hub-scroll-body,
+  .hub-install-dock {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .hub-search {
+    width: 100%;
+  }
+
+  .hub-install-dock {
+    flex-wrap: wrap;
+  }
+
+  .dock-label {
+    width: 100%;
+  }
 }
 </style>

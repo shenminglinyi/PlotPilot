@@ -21,7 +21,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from infrastructure.persistence.database.write_dispatch import (
+    sqlite_writes_bypass_queue,
+)
+
 logger = logging.getLogger(__name__)
+
+# 进程级提示词写锁：统一串行化 PromptManager / CAS 路由 / AI Invocation 采纳写回，杜绝异步队列写乱序覆盖
+PROMPT_MUTATION_LOCK = threading.RLock()
 
 # 旧版 JSON 种子目录（仅当 prompt_packages 为空时回退合并）
 _PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
@@ -208,6 +215,7 @@ class NodeInfo:
             "is_builtin": self.is_builtin,
             "sort_order": self.sort_order,
             "template_id": self.template_id,
+            "active_version_id": self.active_version_id,
             "version_count": self.version_count,
             # 当前激活版本的预览
             "system_preview": av.system_prompt[:200] + "..." if av and len(av.system_prompt) > 200 else (av.system_prompt or ""),
@@ -323,7 +331,7 @@ class PromptManager:
         if self._seeded:
             return True
 
-        with self._seed_lock:
+        with self._seed_lock, PROMPT_MUTATION_LOCK, sqlite_writes_bypass_queue():
             # 双重检查：拿到锁后再看一次，可能其它线程已经完成了 seed
             if self._seeded:
                 return True
@@ -738,19 +746,20 @@ class PromptManager:
     def create_template(self, name: str, description: str = "",
                         category: str = "user", **kwargs) -> TemplateInfo:
         """创建自定义模板包。"""
-        db = self._get_db()
-        tid = _uid()
-        now = datetime.now().isoformat()
-        conn = db.get_connection()
-        conn.execute("""
-            INSERT INTO prompt_templates
-            (id, name, description, category, version, author, icon, color,
-             is_builtin, metadata, created_at, updated_at)
-            VALUES (?, ?, ?, ?, '1.0.0', '', '📦', '#6b7280', 0, '{}', ?, ?)
-        """, (tid, name, description, category, now, now))
-        conn.commit()
-        return TemplateInfo({"id": tid, "name": name, "description": description,
-                             "category": category, "node_count": 0})
+        with PROMPT_MUTATION_LOCK, sqlite_writes_bypass_queue():
+            db = self._get_db()
+            tid = _uid()
+            now = datetime.now().isoformat()
+            conn = db.get_connection()
+            conn.execute("""
+                INSERT INTO prompt_templates
+                (id, name, description, category, version, author, icon, color,
+                 is_builtin, metadata, created_at, updated_at)
+                VALUES (?, ?, ?, ?, '1.0.0', '', '📦', '#6b7280', 0, '{}', ?, ?)
+            """, (tid, name, description, category, now, now))
+            conn.commit()
+            return TemplateInfo({"id": tid, "name": name, "description": description,
+                                 "category": category, "node_count": 0})
 
     # ------------------------------------------------------------------
     # 节点 CRUD
@@ -844,47 +853,50 @@ class PromptManager:
                     system_prompt: str = "", user_template: str = "",
                     **kwargs) -> NodeInfo:
         """在指定模板包下创建新节点（v1）。"""
-        db = self._get_db()
-        node_id = _uid()
-        ver_id = _uid()
-        now = datetime.now().isoformat()
+        with PROMPT_MUTATION_LOCK, sqlite_writes_bypass_queue():
+            db = self._get_db()
+            node_id = _uid()
+            ver_id = _uid()
+            now = datetime.now().isoformat()
 
-        tags_s = json.dumps(kwargs.get("tags", []), ensure_ascii=False)
-        vars_s = json.dumps(kwargs.get("variables", []), ensure_ascii=False)
-        out_fmt = kwargs.get("output_format") or "text"
-        src = kwargs.get("source") or ""
-        cm = kwargs.get("contract_module")
-        cmodel = kwargs.get("contract_model")
+            tags_s = json.dumps(kwargs.get("tags", []), ensure_ascii=False)
+            vars_s = json.dumps(kwargs.get("variables", []), ensure_ascii=False)
+            out_fmt = kwargs.get("output_format") or "text"
+            src = kwargs.get("source") or ""
+            cm = kwargs.get("contract_module")
+            cmodel = kwargs.get("contract_model")
 
-        db.execute("""
-            INSERT INTO prompt_nodes
-            (id, template_id, node_key, name, description, category,
-             source, output_format, contract_module, contract_model, tags, variables,
-             is_builtin, sort_order, active_version_id, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)
-        """, (
-            node_id, template_id, node_key, name,
-            kwargs.get("description", ""), kwargs.get("category", "generation"),
-            src, out_fmt, cm, cmodel, tags_s, vars_s,
-            ver_id, now, now,
-        ))
+            db.execute("""
+                INSERT INTO prompt_nodes
+                (id, template_id, node_key, name, description, category,
+                 source, output_format, contract_module, contract_model, tags, variables,
+                 is_builtin, sort_order, active_version_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)
+            """, (
+                node_id, template_id, node_key, name,
+                kwargs.get("description", ""), kwargs.get("category", "generation"),
+                src, out_fmt, cm, cmodel, tags_s, vars_s,
+                ver_id, now, now,
+            ))
 
-        db.execute("""
-            INSERT INTO prompt_versions
-            (id, node_id, version_number, system_prompt, user_template,
-             change_summary, created_by, created_at)
-            VALUES (?, ?, 1, ?, ?, '初始版本', 'user', ?)
-        """, (ver_id, node_id, system_prompt, user_template, now))
+            db.execute("""
+                INSERT INTO prompt_versions
+                (id, node_id, version_number, system_prompt, user_template,
+                 change_summary, created_by, created_at)
+                VALUES (?, ?, 1, ?, ?, '初始版本', 'user', ?)
+            """, (ver_id, node_id, system_prompt, user_template, now))
 
-        db.commit()
-        return self.get_node(node_id, by_key=False)
+            db.commit()
+            return self.get_node(node_id, by_key=False)
 
     def delete_node(self, node_id: str) -> bool:
         """删除节点及其所有版本。"""
-        db = self._get_db()
-        cursor = db.execute("DELETE FROM prompt_nodes WHERE id = ?", (node_id,))
-        db.commit()
-        return cursor.rowcount > 0
+        with PROMPT_MUTATION_LOCK, sqlite_writes_bypass_queue():
+            db = self._get_db()
+            db.execute("DELETE FROM prompt_versions WHERE node_id = ?", (node_id,))
+            cursor = db.execute("DELETE FROM prompt_nodes WHERE id = ?", (node_id,))
+            db.commit()
+            return cursor.rowcount > 0
 
     # ------------------------------------------------------------------
     # 版本管理（核心！）
@@ -921,74 +933,75 @@ class PromptManager:
         Returns:
             更新后的节点（含新激活版本）。
         """
-        db = self._get_db()
+        with PROMPT_MUTATION_LOCK, sqlite_writes_bypass_queue():
+            db = self._get_db()
 
-        # 获取当前最新版本号
-        row = db.execute(
-            "SELECT COALESCE(MAX(version_number), 0) AS max_ver "
-            "FROM prompt_versions WHERE node_id = ?",
-            (node_id,),
-        ).fetchone()
-        next_ver = (row["max_ver"] if row else 0) + 1
-        new_ver_id = _uid()
-        now = datetime.now().isoformat()
+            # 获取当前最新版本号
+            row = db.execute(
+                "SELECT COALESCE(MAX(version_number), 0) AS max_ver "
+                "FROM prompt_versions WHERE node_id = ?",
+                (node_id,),
+            ).fetchone()
+            next_ver = (row["max_ver"] if row else 0) + 1
+            new_ver_id = _uid()
+            now = datetime.now().isoformat()
 
-        # 获取当前版本作为基础
-        current = self._get_current_version(db, node_id)
-        new_system = system_prompt if system_prompt is not None else (
-            current.system_prompt if current else ""
-        )
-        new_user = user_template if user_template is not None else (
-            current.user_template if current else ""
-        )
+            # 获取当前版本作为基础
+            current = self._get_current_version(db, node_id)
+            new_system = system_prompt if system_prompt is not None else (
+                current.system_prompt if current else ""
+            )
+            new_user = user_template if user_template is not None else (
+                current.user_template if current else ""
+            )
 
-        # 创建新版本
-        db.execute("""
-            INSERT INTO prompt_versions
-            (id, node_id, version_number, system_prompt, user_template,
-             change_summary, created_by, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, 'user', ?)
-        """, (new_ver_id, node_id, next_ver, new_system, new_user,
-              change_summary or f"v{next_ver} 编辑", now))
+            # 创建新版本
+            db.execute("""
+                INSERT INTO prompt_versions
+                (id, node_id, version_number, system_prompt, user_template,
+                 change_summary, created_by, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'user', ?)
+            """, (new_ver_id, node_id, next_ver, new_system, new_user,
+                  change_summary or f"v{next_ver} 编辑", now))
 
-        # 更新节点的 active_version_id 和元字段
-        set_clauses = ["active_version_id = ?", "updated_at = ?"]
-        params: List[Any] = [new_ver_id, now]
+            # 更新节点的 active_version_id 和元字段
+            set_clauses = ["active_version_id = ?", "updated_at = ?"]
+            params: List[Any] = [new_ver_id, now]
 
-        if kwargs.get("name"):
-            set_clauses.append("name = ?")
-            params.append(kwargs["name"])
-        if kwargs.get("description") is not None:
-            set_clauses.append("description = ?")
-            params.append(kwargs["description"])
-        if kwargs.get("tags") is not None:
-            set_clauses.append("tags = ?")
-            params.append(json.dumps(kwargs["tags"], ensure_ascii=False))
-        if kwargs.get("variables") is not None:
-            set_clauses.append("variables = ?")
-            params.append(json.dumps(kwargs["variables"], ensure_ascii=False))
-        if kwargs.get("output_format") is not None:
-            set_clauses.append("output_format = ?")
-            params.append(kwargs["output_format"])
-        if kwargs.get("contract_module") is not None:
-            set_clauses.append("contract_module = ?")
-            params.append(kwargs["contract_module"])
-        if kwargs.get("contract_model") is not None:
-            set_clauses.append("contract_model = ?")
-            params.append(kwargs["contract_model"])
-        if kwargs.get("source") is not None:
-            set_clauses.append("source = ?")
-            params.append(kwargs["source"])
-        if kwargs.get("category") is not None:
-            set_clauses.append("category = ?")
-            params.append(kwargs["category"])
+            if kwargs.get("name") is not None:
+                set_clauses.append("name = ?")
+                params.append(kwargs["name"])
+            if kwargs.get("description") is not None:
+                set_clauses.append("description = ?")
+                params.append(kwargs["description"])
+            if kwargs.get("tags") is not None:
+                set_clauses.append("tags = ?")
+                params.append(json.dumps(kwargs["tags"], ensure_ascii=False))
+            if kwargs.get("variables") is not None:
+                set_clauses.append("variables = ?")
+                params.append(json.dumps(kwargs["variables"], ensure_ascii=False))
+            if kwargs.get("output_format") is not None:
+                set_clauses.append("output_format = ?")
+                params.append(kwargs["output_format"])
+            if kwargs.get("contract_module") is not None:
+                set_clauses.append("contract_module = ?")
+                params.append(kwargs["contract_module"])
+            if kwargs.get("contract_model") is not None:
+                set_clauses.append("contract_model = ?")
+                params.append(kwargs["contract_model"])
+            if kwargs.get("source") is not None:
+                set_clauses.append("source = ?")
+                params.append(kwargs["source"])
+            if kwargs.get("category") is not None:
+                set_clauses.append("category = ?")
+                params.append(kwargs["category"])
 
-        params.append(node_id)
-        sql = f"UPDATE prompt_nodes SET {', '.join(set_clauses)} WHERE id = ?"
-        db.execute(sql, params)
-        db.commit()
+            params.append(node_id)
+            sql = f"UPDATE prompt_nodes SET {', '.join(set_clauses)} WHERE id = ?"
+            db.execute(sql, params)
+            db.commit()
 
-        return self.get_node(node_id, by_key=False)
+            return self.get_node(node_id, by_key=False)
 
     def rollback_node(self, node_id: str,
                       target_version_id: str) -> Optional[NodeInfo]:
@@ -998,43 +1011,44 @@ class PromptManager:
         - 不删除任何历史记录
         - 回滚本身也是一个版本，可以再次回滚回来
         """
-        db = self._get_db()
+        with PROMPT_MUTATION_LOCK, sqlite_writes_bypass_queue():
+            db = self._get_db()
 
-        # 获取目标版本
-        target = self.get_version(target_version_id)
-        if not target:
-            return None
+            # 获取目标版本
+            target = self.get_version(target_version_id)
+            if not target:
+                return None
 
-        # 获取当前最新版本号
-        row = db.execute(
-            "SELECT COALESCE(MAX(version_number), 0) AS max_ver "
-            "FROM prompt_versions WHERE node_id = ?",
-            (node_id,),
-        ).fetchone()
-        next_ver = (row["max_ver"] if row else 0) + 1
-        new_ver_id = _uid()
-        now = datetime.now().isoformat()
+            # 获取当前最新版本号
+            row = db.execute(
+                "SELECT COALESCE(MAX(version_number), 0) AS max_ver "
+                "FROM prompt_versions WHERE node_id = ?",
+                (node_id,),
+            ).fetchone()
+            next_ver = (row["max_ver"] if row else 0) + 1
+            new_ver_id = _uid()
+            now = datetime.now().isoformat()
 
-        # 以目标版本的内容创建新版本（标记为回滚）
-        db.execute("""
-            INSERT INTO prompt_versions
-            (id, node_id, version_number, system_prompt, user_template,
-             change_summary, created_by, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, 'user', ?)
-        """, (
-            new_ver_id, node_id, next_ver,
-            target.system_prompt, target.user_template,
-            f"回滚到 v{target.version_number}",
-            now,
-        ))
+            # 以目标版本的内容创建新版本（标记为回滚）
+            db.execute("""
+                INSERT INTO prompt_versions
+                (id, node_id, version_number, system_prompt, user_template,
+                 change_summary, created_by, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'user', ?)
+            """, (
+                new_ver_id, node_id, next_ver,
+                target.system_prompt, target.user_template,
+                f"回滚到 v{target.version_number}",
+                now,
+            ))
 
-        db.execute(
-            "UPDATE prompt_nodes SET active_version_id=?, updated_at=? WHERE id=?",
-            (new_ver_id, now, node_id),
-        )
-        db.commit()
+            db.execute(
+                "UPDATE prompt_nodes SET active_version_id=?, updated_at=? WHERE id=?",
+                (new_ver_id, now, node_id),
+            )
+            db.commit()
 
-        return self.get_node(node_id, by_key=False)
+            return self.get_node(node_id, by_key=False)
 
     def compare_versions(self, version_id_1: str,
                          version_id_2: str) -> Dict[str, Any]:

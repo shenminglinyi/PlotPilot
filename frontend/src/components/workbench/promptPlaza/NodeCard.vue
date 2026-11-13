@@ -1,72 +1,40 @@
 <template>
-  <div class="node-card" :class="{ 'is-builtin': node.is_builtin, 'has-edit': node.has_user_edit }" @click="$emit('click')">
-    <!-- 卡片头部 -->
+  <article
+    class="node-card"
+    :class="{ 'is-builtin': node.is_builtin, 'has-edit': node.has_user_edit }"
+    role="button"
+    tabindex="0"
+    @click="$emit('click')"
+    @keydown.enter.prevent="$emit('click')"
+  >
     <div class="card-header">
       <div class="card-title-row">
-        <span class="card-name">{{ node.name }}</span>
-        <n-tag
-          v-if="node.output_format === 'json'"
-          size="tiny"
-          type="success"
-          :bordered="false"
-        >JSON</n-tag>
-        <n-tag
-          v-if="node.has_user_edit"
-          size="tiny"
-          type="warning"
-          :bordered="false"
-        >已修改</n-tag>
+        <span class="card-name" :title="node.name">{{ node.name }}</span>
+        <span v-if="node.has_user_edit" class="status-pill is-edited">已调优</span>
+        <span v-else-if="!node.is_builtin" class="status-pill is-custom">自定义</span>
       </div>
-      <div class="card-key">{{ node.node_key }}</div>
+      <code class="card-key">{{ node.node_key }}</code>
     </div>
 
-    <!-- 描述 -->
-    <div class="card-desc">{{ node.description || '暂无描述' }}</div>
+    <p class="card-desc">{{ node.description || '引擎底层提示词节点' }}</p>
 
-    <!-- 变量标签 -->
-    <div class="card-vars" v-if="node.variable_names.length">
-      <span class="var-label">变量:</span>
-      <n-tag
-        v-for="vname in displayedVars"
-        :key="vname"
-        size="tiny"
-        :bordered="false"
-        type="info"
-        round
-      >
-        {{ '{' + vname + '}' }}
-      </n-tag>
-      <span v-if="node.variable_names.length > 3" class="more-vars">
-        +{{ node.variable_names.length - 3 }}
+    <div v-if="cleanTags.length" class="card-tags">
+      <span v-for="tag in cleanTags" :key="tag" class="tag-chip">{{ tag }}</span>
+    </div>
+
+    <footer class="card-footer">
+      <span class="footer-item numeric">v{{ node.version_count }}</span>
+      <span v-if="node.variable_names.length" class="footer-item numeric">
+        {{ node.variable_names.length }} 项输入槽位
       </span>
-    </div>
-
-    <!-- 标签 -->
-    <div class="card-tags" v-if="node.tags.length">
-      <n-tag
-        v-for="tag in node.tags.slice(0, 4)"
-        :key="tag"
-        size="tiny"
-        :bordered="false"
-      >{{ tag }}</n-tag>
-    </div>
-
-    <!-- 底部信息 -->
-    <div class="card-footer">
-      <span class="footer-item version-badge" :title="`${node.version_count} 个版本`">
-        v.{{ node.version_count }}
-      </span>
-      <span class="footer-item source-text" :title="node.source">
-        {{ sourceLabel }}
-      </span>
-      <span v-if="node.is_builtin" class="builtin-badge">内置</span>
-    </div>
-  </div>
+      <span v-if="node.output_format === 'json'" class="format-pill">结构化 JSON</span>
+      <span class="origin-pill">{{ node.is_builtin ? '内置内核' : '本地扩展' }}</span>
+    </footer>
+  </article>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { NTag } from 'naive-ui'
 import type { PromptNode } from '../../../api/llmControl'
 
 const props = defineProps<{
@@ -77,131 +45,137 @@ defineEmits<{
   click: []
 }>()
 
-const displayedVars = computed(() => props.node.variable_names.slice(0, 3))
-
-const sourceLabel = computed(() => {
-  const src = props.node.source
-  if (!src) return ''
-  // 提取文件名
-  const lastPart = src.split(':').pop() || src
-  return lastPart.length > 30 ? '...' + lastPart.slice(-30) : lastPart
-})
+const cleanTags = computed(() =>
+  props.node.tags.filter(t => !/^v\d+$/i.test(t.trim())).slice(0, 3),
+)
 </script>
 
 <style scoped>
 .node-card {
   background: var(--app-surface);
   border: 1px solid var(--app-border);
-  border-radius: 10px;
-  padding: 14px;
+  border-radius: 12px;
+  padding: 15px 16px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: border-color 0.16s ease, background-color 0.16s ease;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  position: relative;
-}
-.node-card:hover {
-  border-color: var(--color-brand);
-  box-shadow: var(--app-shadow-md);
-  transform: translateY(-2px);
-}
-.node-card.is-builtin {
-  border-left: 3px solid var(--color-brand);
-}
-.node-card.has-edit {
-  border-left: 3px solid var(--color-warning);
+  gap: 10px;
+  outline: none;
 }
 
-/* 头部 */
-.card-header {
-  flex-shrink: 0;
+.node-card:hover,
+.node-card:focus-visible {
+  border-color: var(--app-border-strong);
 }
+
+.node-card.has-edit {
+  border-color: color-mix(in srgb, var(--color-warning) 36%, var(--app-border));
+}
+
+.card-header {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
 .card-title-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
+
 .card-name {
-  font-size: 14px;
+  flex: 1;
+  font-size: 14.5px;
   font-weight: 600;
   color: var(--app-text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.card-key {
-  font-size: 11px;
-  color: var(--app-text-muted);
-  font-family: var(--font-mono, 'SF Mono', 'Fira Code', monospace);
+
+.status-pill {
+  flex-shrink: 0;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
 }
 
-/* 描述 */
-.card-desc {
+.status-pill.is-edited {
+  background: var(--color-warning-light);
+  color: var(--color-warning);
+}
+
+.status-pill.is-custom {
+  background: var(--color-brand-light);
+  color: var(--color-brand);
+}
+
+.card-key {
   font-size: 12px;
+  color: var(--app-text-muted);
+  font-family: var(--font-mono);
+}
+
+.card-desc {
+  margin: 0;
+  font-size: 13.5px;
   color: var(--app-text-secondary);
-  line-height: 1.5;
+  line-height: 1.56;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  min-height: 36px;
+  min-height: 42px;
 }
 
-/* 变量 */
-.card-vars {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-.var-label {
-  font-size: 11px;
-  color: var(--app-text-muted);
-  margin-right: 2px;
-}
-.more-vars {
-  font-size: 11px;
-  color: var(--app-text-muted);
-}
-
-/* 标签 */
 .card-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 6px;
 }
 
-/* 底部 */
+.tag-chip {
+  font-size: 11.5px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--app-surface-subtle);
+  color: var(--app-text-secondary);
+}
+
 .card-footer {
   display: flex;
   align-items: center;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 8px;
   padding-top: 8px;
-  border-top: 1px solid var(--app-border);
+  border-top: 1px solid var(--app-divider);
   margin-top: auto;
-}
-.footer-item {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--app-text-muted);
 }
-.version-badge {
-  font-weight: 500;
+
+.numeric {
+  font-variant-numeric: tabular-nums;
 }
-.source-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 140px;
-  flex: 1;
-}
-.builtin-badge {
-  font-size: 10px;
-  background: linear-gradient(135deg, var(--color-brand), var(--color-purple));
-  color: var(--app-text-inverse);
+
+.format-pill {
+  font-size: 11px;
   padding: 1px 6px;
   border-radius: 4px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
+  background: var(--color-success-light);
+  color: var(--color-success);
+  font-weight: 500;
+}
+
+.origin-pill {
+  margin-left: auto;
+  font-size: 11.5px;
+  padding: 1px 7px;
+  border-radius: 5px;
+  background: var(--app-surface-subtle);
+  color: var(--app-text-secondary);
 }
 </style>

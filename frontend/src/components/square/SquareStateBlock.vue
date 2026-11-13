@@ -138,18 +138,18 @@ const hint = computed(() => {
   border-radius: 9px;
   padding: 8px 20px;
   cursor: pointer;
-  transition: all 0.16s ease;
+  transition: border-color 0.16s ease, color 0.16s ease, background-color 0.16s ease;
 }
 
 .state-btn:hover {
-  border-color: var(--color-brand, #4f46e5);
-  color: var(--color-brand, #4f46e5);
+  border-color: var(--color-brand);
+  color: var(--color-brand);
 }
 
 .state-btn.primary {
-  background: var(--color-brand, #4f46e5);
-  border-color: var(--color-brand, #4f46e5);
-  color: #fff;
+  background: var(--color-brand);
+  border-color: var(--color-brand);
+  color: var(--app-text-inverse);
 }
 
 .state-btn.primary:hover {

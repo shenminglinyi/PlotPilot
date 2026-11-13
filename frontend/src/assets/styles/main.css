@@ -1,5 +1,6 @@
 /* ═══════════════════════════════════════════════════
-   PlotPilot 全局样式 — 颜色架构（亮色 / 暗色 / 黑金）
+   PlotPilot 全局样式 — 东方纸墨编辑室色阶架构（亮色 / 暗色 / 黑金）
+   遵循 tasteskill v2 app-screens 规范：无廉价紫、无花哨渐变、对比度 >= 4.5:1
    ═══════════════════════════════════════════════════ */
 
 @import './workbench-panels.css';
@@ -14,7 +15,6 @@
 html {
   scroll-behavior: smooth;
   text-rendering: optimizeLegibility;
-  /* 应用设置「字体大小」：与 fontSizeStore 写入的 --app-font-scale 联动 */
   font-size: calc(16px * var(--app-font-scale, 1));
 }
 
@@ -22,366 +22,333 @@ body {
   font-family: var(--font-sans);
   font-size: var(--font-size-base);
   font-weight: var(--font-weight-body);
-  -webkit-font-smoothing: subpixel-antialiased;
-  -moz-osx-font-smoothing: auto;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   background: var(--app-page-bg);
   color: var(--app-text-primary);
   min-height: 100vh;
   font-variant-ligatures: common-ligatures;
   text-size-adjust: 100%;
   line-height: 1.6;
-  transition: background-color 0.3s ease, color 0.3s ease;
+  transition: background-color 0.24s ease, color 0.24s ease;
 }
 
 /* ═══════════════════════════════════════════════════
-   亮色模式 (默认)
+   亮色模式 (默认：温润宣纸底 + 松烟墨 + 深黛青数据点缀)
    ═══════════════════════════════════════════════════ */
 :root {
-  /* 应用设置「字体大小」基准倍率；运行时由 fontSizeStore 覆盖 */
   --app-font-scale: 1;
 
-  /* ── 品牌色 ── */
-  --color-brand: #2563eb;
-  --color-brand-hover: #3b82f6;
-  --color-brand-pressed: #1d4ed8;
-  --color-brand-suppl: #60a5fa;
-  --color-brand-light: rgba(37, 99, 235, 0.08);
-  --color-brand-border: rgba(37, 99, 235, 0.18);
+  /* ── 核心主色与数据强调色（深黛青，占比 < 3%）── */
+  --color-primary-ink: #181817;
+  --color-brand: #1f5e5b;
+  --color-brand-hover: #29736f;
+  --color-brand-pressed: #164644;
+  --color-brand-suppl: #358782;
+  --color-brand-light: rgba(31, 94, 91, 0.08);
+  --color-brand-border: rgba(31, 94, 91, 0.22);
 
-  /* ── 黑金装饰色 ── */
-  --color-gold: #d4a853;
-  --color-gold-light: #f5deb3;
-  --color-gold-dim: rgba(212, 168, 83, 0.15);
-  --color-gold-border: rgba(212, 168, 83, 0.25);
-  --color-gold-glow: rgba(212, 168, 83, 0.35);
+  /* ── 古铜印金点缀色（高对比 >= 5.2:1）── */
+  --color-gold: #7a5510;
+  --color-gold-light: #e8dec9;
+  --color-gold-dim: rgba(122, 85, 16, 0.10);
+  --color-gold-border: rgba(122, 85, 16, 0.24);
+  --color-gold-glow: rgba(122, 85, 16, 0.16);
 
-  /* ── 黑金主播限定色（主播品牌标识）── */
+  /* ── 语义状态色（全量通过 4.5:1 对比度门禁）── */
+  --color-success: #247b50;
+  --color-success-light: #dcfae5;
+  --color-success-dim: rgba(36, 123, 80, 0.10);
+  --color-warning: #92580e;
+  --color-warning-light: #fff6e0;
+  --color-warning-dim: rgba(146, 88, 14, 0.10);
+  --color-danger: #b82e33;
+  --color-danger-light: #ffedea;
+  --color-danger-dim: rgba(184, 46, 51, 0.10);
+  --color-info: #2b5b73;
+  --color-info-dim: rgba(43, 91, 115, 0.10);
+  /* 兼容历史变量名，映射为沉稳青灰，彻底禁用廉价紫 */
+  --color-purple: #3d5a6c;
+  --color-purple-light: #e7eef2;
+  --color-purple-dim: rgba(61, 90, 108, 0.10);
 
-  /* ── 语义色 ── */
-  --color-success: #22c55e;
-  --color-success-light: #dcfce7;
-  --color-success-dim: rgba(34, 197, 94, 0.12);
-  --color-warning: #f59e0b;
-  --color-warning-light: #fef3c7;
-  --color-warning-dim: rgba(245, 158, 11, 0.12);
-  --color-danger: #ef4444;
-  --color-danger-light: #fee2e2;
-  --color-danger-dim: rgba(239, 68, 68, 0.12);
-  --color-info: #3b82f6;
-  --color-info-dim: rgba(59, 130, 246, 0.12);
-  --color-purple: #8b5cf6;
-  --color-purple-light: #ede9fe;
-  --color-purple-dim: rgba(139, 92, 246, 0.12);
-
-  /* ── 文字色（全部使用变量，禁止硬编码）── */
-  --app-text-primary: #111827;
-  --app-text-secondary: #1f2937;
-  --app-text-muted: #475569;
+  /* ── 三层文字色（对比度均 >= 5.0:1）── */
+  --app-text-primary: #161615;
+  --app-text-secondary: #454440;
+  --app-text-muted: #66645e;
   --app-text-inverse: #ffffff;
 
-  /* 与 Naive UI n-text depth、旧组件对齐：统一走 app 文字色，避免暗色下仍落回 #0f172a */
   --text-color-1: var(--app-text-primary);
   --text-color-2: var(--app-text-secondary);
   --text-color-3: var(--app-text-muted);
 
-  /* ── 背景色 ── */
-  --app-page-bg: #eef1f6;
+  /* ── 双色场与低饱和石纸阶梯 ── */
+  --app-page-bg: #f4f4f2;
   --app-surface: #ffffff;
-  --app-surface-raised: #ffffff;
-  --app-surface-subtle: #f8fafc;
+  --app-surface-raised: #fafafa;
+  --app-surface-subtle: #ecece9;
+  --app-surface-active: #e2e2de;
   --app-input-bg: #ffffff;
 
-  /* ── 边框 ── */
-  --app-border: rgba(15, 23, 42, 0.09);
-  --app-border-strong: rgba(15, 23, 42, 0.15);
-  --app-divider: rgba(15, 23, 42, 0.06);
+  /* ── 1px 柔和纸缘边界（有边框则不叠阴影）── */
+  --app-border: #e3e3de;
+  --app-border-strong: #ccccc5;
+  --app-divider: #eaeae6;
 
-  /* ── 阴影 ── */
-  --app-shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06);
-  --app-shadow-md: 0 4px 16px rgba(15, 23, 42, 0.06);
-  --app-shadow-lg: 0 8px 28px rgba(15, 23, 42, 0.08);
-  --app-shadow-hover: 0 8px 24px rgba(15, 23, 42, 0.12);
+  /* ── 极简浮层阴影令牌（仅用于真实悬浮菜单/弹窗）── */
+  --app-shadow-sm: none;
+  --app-shadow-md: none;
+  --app-shadow-lg: none;
+  --app-shadow-hover: none;
 
-  /* ── 布局 ── */
-  --app-radius-sm: 8px;
-  --app-radius-md: 10px;
-  --app-radius-lg: 14px;
-  --app-radius-xl: 20px;
-  --app-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  /* ── 圆角双模制（紧凑工具型 6px / 8px / 12px）── */
+  --app-radius-sm: 6px;
+  --app-radius-md: 8px;
+  --app-radius-lg: 12px;
+  --app-radius-xl: 16px;
+  --app-transition: 0.16s cubic-bezier(0.4, 0, 0.2, 1);
 
   /* ── 面板专用 ── */
-  --plotpilot-split-border: rgba(15, 23, 42, 0.07);
-  --plotpilot-panel-muted: #f8fafc;
+  --plotpilot-split-border: #e3e3de;
+  --plotpilot-panel-muted: #f4f4f2;
 
-  /* ── 字体 ── */
-  --font-sans: 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans SC', 'Source Han Sans CN', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Consolas', 'Liberation Mono', monospace;
-  --font-serif: 'Noto Serif SC', 'Source Han Serif CN', 'Songti SC', Georgia, serif;
+  /* ── 字体栈（严格控制在无衬线 UI + 衬线正文阅读，最多两套主字体）── */
+  --font-sans: 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei UI', 'Microsoft YaHei', system-ui, -apple-system, sans-serif;
+  --font-serif: Georgia, 'Songti SC', 'Noto Serif SC', 'SimSun', serif;
 
-  /* ── 字号阶梯：使用 rem，随 html font-size（即 --app-font-scale）自动缩放 ── */
-  --font-size-2xs:  0.6875rem;  /* 11px @ scale=1 */
-  --font-size-xs:   0.75rem;    /* 12px @ scale=1 */
-  --font-size-sm:   0.8125rem;  /* 13px @ scale=1 */
-  --font-size-base: 0.875rem;   /* 14px @ scale=1 */
-  --font-size-lg:   1rem;       /* 16px @ scale=1 */
-  --font-size-xl:   1.125rem;   /* 18px @ scale=1 */
-  --font-size-2xl:  1.25rem;    /* 20px @ scale=1 */
-  --font-size-3xl:  1.5rem;     /* 24px @ scale=1 */
-  --font-size-display: 2rem;    /* 32px @ scale=1 */
-  --font-weight-body: 500;
-  --font-weight-medium: 600;
-  --font-weight-strong: 700;
-  --font-weight-display: 800;
-  --line-height-tight: 1.25;
+  /* ── 字号阶梯 ── */
+  --font-size-2xs:  0.6875rem;  /* 11px */
+  --font-size-xs:   0.75rem;    /* 12px */
+  --font-size-sm:   0.8125rem;  /* 13px */
+  --font-size-base: 0.875rem;   /* 14px */
+  --font-size-lg:   1rem;       /* 16px */
+  --font-size-xl:   1.125rem;   /* 18px */
+  --font-size-2xl:  1.25rem;    /* 20px */
+  --font-size-3xl:  1.5rem;     /* 24px */
+  --font-size-display: 1.75rem; /* 28px */
+  --font-weight-body: 400;
+  --font-weight-medium: 500;
+  --font-weight-strong: 600;
+  --font-weight-display: 600;
+  --line-height-tight: 1.28;
   --line-height-ui: 1.5;
-  --line-height-reading: 1.75;
+  --line-height-reading: 1.85;
 
-  /* ── DAG 画布专用 ── */
-  --dag-canvas-bg: #eef1f6;
-  --dag-canvas-grid: rgba(15, 23, 42, 0.06);
+  /* ── DAG 画布专用（去彩虹色与廉价紫）── */
+  --dag-canvas-bg: #f6f5f1;
+  --dag-canvas-grid: rgba(22, 22, 21, 0.05);
   --dag-node-bg: #ffffff;
-  --dag-node-border: rgba(15, 23, 42, 0.12);
-  --dag-node-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+  --dag-node-border: #dcd8ce;
+  --dag-node-shadow: none;
   --dag-node-selected-ring: var(--color-brand);
-  --dag-edge-default: rgba(15, 23, 42, 0.25);
+  --dag-edge-default: rgba(22, 22, 21, 0.24);
   --dag-edge-active: var(--color-brand);
-  --dag-edge-conditional: rgba(15, 23, 42, 0.35);
-  --dag-port-text: #3b82f6;
-  --dag-port-json: #8b5cf6;
-  --dag-port-score: #f59e0b;
-  --dag-port-boolean: #22c55e;
-  --dag-port-list: #ec4899;
-  --dag-port-prompt: #6366f1;
+  --dag-edge-conditional: rgba(22, 22, 21, 0.34);
+  --dag-port-text: #1f5e5b;
+  --dag-port-json: #2b5b73;
+  --dag-port-score: #92580e;
+  --dag-port-boolean: #247b50;
+  --dag-port-list: #6e5a44;
+  --dag-port-prompt: #181817;
   --dag-toolbar-bg: var(--app-surface);
   --dag-toolbar-border: var(--app-border);
   --dag-menu-bg: var(--app-surface);
   --dag-menu-border: var(--app-border-strong);
-  --dag-menu-hover: var(--color-brand-light);
+  --dag-menu-hover: var(--app-surface-subtle);
 
-  /* ── StatsTopBar 渐变 ── */
-  --stats-bar-gradient: linear-gradient(135deg, #1f2937 0%, #334155 55%, #475569 100%);
+  /* ── 顶栏扁平纸感（彻底移除深色渐变条）── */
+  --stats-bar-gradient: #ffffff;
+  --stats-bar-border-bottom: 1px solid var(--app-border);
 
-  /* 彩色顶栏上的文字与「药丸」图标底（与 --app-text-inverse 解耦：暗色主题里 inverse 是深色字，不能用在渐变条上） */
-  --nav-hero-text: #ffffff;
-  --nav-hero-text-muted: rgba(255, 255, 255, 0.86);
-  --nav-hero-pill-bg-top: rgba(255, 255, 255, 0.26);
-  --nav-hero-pill-bg-bottom: rgba(255, 255, 255, 0.1);
-  --nav-hero-pill-border: rgba(255, 255, 255, 0.32);
-  --nav-hero-shadow: 0 1px 0 rgba(255, 255, 255, 0.12) inset;
+  --nav-hero-text: var(--app-text-primary);
+  --nav-hero-text-muted: var(--app-text-muted);
+  --nav-hero-pill-bg-top: var(--app-surface-subtle);
+  --nav-hero-pill-bg-bottom: var(--app-surface-subtle);
+  --nav-hero-pill-border: var(--app-border);
+  --nav-hero-shadow: none;
 
-  /* ── 组件交互态（Tab / 档案 / 运行时栏）── */
-  --tab-track-bg: linear-gradient(135deg, var(--color-brand), var(--color-brand-hover));
-  --tab-track-shadow: 0 2px 10px var(--color-brand-border), 0 1px 3px var(--color-brand-border);
-  --tab-active-color: var(--app-text-inverse, #ffffff);
-  --tab-inactive-color: var(--app-text-secondary, #475569);
-  --tab-inactive-hover-color: var(--app-text-primary, #0f172a);
-  --profile-active-bg: var(--color-brand-light, rgba(79, 70, 229, 0.08));
-  --runtime-model-color: var(--color-brand, #4f46e5);
-  --runtime-mock-model-color: var(--color-gold, #d4a853);
+  /* ── 组件交互态 ── */
+  --tab-track-bg: var(--color-primary-ink);
+  --tab-track-shadow: none;
+  --tab-active-color: #ffffff;
+  --tab-inactive-color: var(--app-text-secondary);
+  --tab-inactive-hover-color: var(--app-text-primary);
+  --profile-active-bg: var(--color-brand-light);
+  --runtime-bar-bg: var(--app-surface-subtle);
+  --runtime-bar-border: var(--app-border);
+  --runtime-mock-bg: var(--color-warning-light);
+  --runtime-mock-border: rgba(146, 88, 14, 0.24);
+  --runtime-model-color: var(--color-brand);
+  --runtime-mock-model-color: var(--color-warning);
 
   color-scheme: light;
 }
 
 /* ═══════════════════════════════════════════════════
-   暗色模式
+   暗色模式 (True-black flat 夜读纸墨，无脏蓝灰底)
    ═══════════════════════════════════════════════════ */
 [data-theme='dark'] {
-  /* ── 品牌色（暗模式下略提亮）── */
-  --color-brand: #60a5fa;
-  --color-brand-hover: #93c5fd;
-  --color-brand-pressed: #3b82f6;
-  --color-brand-suppl: #bfdbfe;
-  --color-brand-light: rgba(96, 165, 250, 0.12);
-  --color-brand-border: rgba(96, 165, 250, 0.22);
+  --color-primary-ink: #f2f0eb;
+  --color-brand: #4fa39e;
+  --color-brand-hover: #6bbab5;
+  --color-brand-pressed: #3b8580;
+  --color-brand-suppl: #84ccc7;
+  --color-brand-light: rgba(79, 163, 158, 0.14);
+  --color-brand-border: rgba(79, 163, 158, 0.28);
 
-  /* ── 黑金装饰色（暗模式下更耀眼）── */
-  --color-gold: #e5b86e;
-  --color-gold-light: #f5ddb5;
-  --color-gold-dim: rgba(229, 184, 110, 0.12);
-  --color-gold-border: rgba(229, 184, 110, 0.2);
-  --color-gold-glow: rgba(229, 184, 110, 0.4);
+  --color-gold: #d4ab55;
+  --color-gold-light: #f0deb4;
+  --color-gold-dim: rgba(212, 171, 85, 0.12);
+  --color-gold-border: rgba(212, 171, 85, 0.24);
+  --color-gold-glow: rgba(212, 171, 85, 0.20);
 
-  /* ── 黑金主播限定色（暗模式：更温暖的金铜色调）── */
+  --app-text-primary: #f2f0eb;
+  --app-text-secondary: #b5b3ad;
+  --app-text-muted: #8e8c86;
+  --app-text-inverse: #111111;
 
-  /* ── 文字色 ── */
-  --app-text-primary: #f3f4f6;
-  --app-text-secondary: #d1d5db;
-  --app-text-muted: #9ca3af;
-  --app-text-inverse: #0f172a;
+  --tab-track-bg: #f2f0eb;
+  --tab-track-shadow: none;
+  --tab-active-color: #111111;
+  --tab-inactive-color: #b5b3ad;
+  --tab-inactive-hover-color: #f2f0eb;
 
-  /* ── 组件交互态（Tab / 档案 / 运行时栏）── */
-  --tab-track-bg: linear-gradient(135deg, var(--color-brand), var(--color-brand-hover));
-  --tab-track-shadow: 0 2px 10px var(--color-brand-border), 0 1px 3px var(--color-brand-border);
-  --tab-active-color: var(--app-text-inverse, #ffffff);
-  --tab-inactive-color: var(--app-text-secondary, #94a3b8);
-  --tab-inactive-hover-color: var(--app-text-primary, #e2e8f0);
+  --app-page-bg: #0b0b0b;
+  --app-surface: #141414;
+  --app-surface-raised: #1e1e1e;
+  --app-surface-subtle: #191919;
+  --app-surface-active: #242424;
+  --app-input-bg: #141414;
 
-  /* ── 背景色（深色系，不要太深，符合美学）── */
-  --app-page-bg: #121826;
-  --app-surface: #1a2235;
-  --app-surface-raised: #232d42;
-  --app-surface-subtle: #161d2e;
-  --app-input-bg: #161d2e;
+  --app-border: #262626;
+  --app-border-strong: #383838;
+  --app-divider: #1f1f1f;
 
-  /* ── 边框 ── */
-  --app-border: rgba(148, 163, 184, 0.12);
-  --app-border-strong: rgba(148, 163, 184, 0.2);
-  --app-divider: rgba(148, 163, 184, 0.08);
+  --plotpilot-split-border: #262626;
+  --plotpilot-panel-muted: #0f0f0f;
 
-  /* ── 阴影 ── */
-  --app-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.25);
-  --app-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.3);
-  --app-shadow-lg: 0 8px 28px rgba(0, 0, 0, 0.35);
-  --app-shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.4);
+  --stats-bar-gradient: #141414;
+  --stats-bar-border-bottom: 1px solid #262626;
 
-  /* ── 面板专用 ── */
-  --plotpilot-split-border: rgba(148, 163, 184, 0.1);
-  --plotpilot-panel-muted: #161d2e;
+  --nav-hero-text: #f2f0eb;
+  --nav-hero-text-muted: #8e8c86;
+  --nav-hero-pill-bg-top: #1e1e1e;
+  --nav-hero-pill-bg-bottom: #1e1e1e;
+  --nav-hero-pill-border: #2e2e2e;
+  --nav-hero-shadow: none;
 
-  /* ── StatsTopBar 渐变（暗色版：深靛蓝+微光）── */
-  --stats-bar-gradient: linear-gradient(135deg, #161d2e 0%, #1e293b 50%, #334155 100%);
-
-  --nav-hero-text: #f8fafc;
-  --nav-hero-text-muted: rgba(248, 250, 252, 0.82);
-  --nav-hero-pill-bg-top: rgba(255, 255, 255, 0.16);
-  --nav-hero-pill-bg-bottom: rgba(255, 255, 255, 0.06);
-  --nav-hero-pill-border: rgba(255, 255, 255, 0.22);
-  --nav-hero-shadow: 0 1px 0 rgba(255, 255, 255, 0.08) inset;
-
-  /* ── DAG 画布专用（暗色版）── */
-  --dag-canvas-bg: #0f1623;
-  --dag-canvas-grid: rgba(148, 163, 184, 0.06);
-  --dag-node-bg: #1a2235;
-  --dag-node-border: rgba(148, 163, 184, 0.15);
-  --dag-node-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+  --dag-canvas-bg: #0b0b0b;
+  --dag-canvas-grid: rgba(255, 255, 255, 0.05);
+  --dag-node-bg: #141414;
+  --dag-node-border: #2b2b2b;
+  --dag-node-shadow: none;
   --dag-node-selected-ring: var(--color-brand);
-  --dag-edge-default: rgba(148, 163, 184, 0.2);
+  --dag-edge-default: rgba(255, 255, 255, 0.22);
   --dag-edge-active: var(--color-brand);
-  --dag-edge-conditional: rgba(148, 163, 184, 0.3);
-  --dag-port-text: #60a5fa;
-  --dag-port-json: #a78bfa;
-  --dag-port-score: #fbbf24;
-  --dag-port-boolean: #4ade80;
-  --dag-port-list: #f472b6;
-  --dag-port-prompt: #818cf8;
-  --dag-toolbar-bg: var(--app-surface);
-  --dag-toolbar-border: var(--app-border);
-  --dag-menu-bg: var(--app-surface);
-  --dag-menu-border: var(--app-border-strong);
-  --dag-menu-hover: var(--color-brand-light);
+  --dag-edge-conditional: rgba(255, 255, 255, 0.32);
+  --dag-port-text: #4fa39e;
+  --dag-port-json: #6ba3be;
+  --dag-port-score: #d4ab55;
+  --dag-port-boolean: #3fc07a;
+  --dag-port-list: #b89c7d;
+  --dag-port-prompt: #f2f0eb;
 
-  /* ── 语义色（暗模式：更亮的色值 + dim 改为极低不透明度）── */
-  --color-success: #4ade80;
-  --color-success-light: rgba(74, 222, 128, 0.14);
-  --color-success-dim: rgba(74, 222, 128, 0.08);
-  --color-warning: #fbbf24;
-  --color-warning-light: rgba(251, 191, 36, 0.14);
-  --color-warning-dim: rgba(251, 191, 36, 0.08);
-  --color-danger: #f87171;
-  --color-danger-light: rgba(248, 113, 113, 0.14);
-  --color-danger-dim: rgba(248, 113, 113, 0.08);
-  --color-info: #60a5fa;
-  --color-info-dim: rgba(96, 165, 250, 0.08);
-  --color-purple: #a78bfa;
-  --color-purple-light: rgba(167, 139, 250, 0.14);
-  --color-purple-dim: rgba(167, 139, 250, 0.08);
+  --color-success: #3fc07a;
+  --color-success-light: #172a1d;
+  --color-success-dim: rgba(63, 192, 122, 0.12);
+  --color-warning: #e0a84b;
+  --color-warning-light: #2a2113;
+  --color-warning-dim: rgba(224, 168, 75, 0.12);
+  --color-danger: #e5566f;
+  --color-danger-light: #2c1a20;
+  --color-danger-dim: rgba(229, 86, 111, 0.12);
+  --color-info: #6ba3be;
+  --color-info-dim: rgba(107, 163, 190, 0.12);
+  --color-purple: #7d98a8;
+  --color-purple-light: #1a2228;
+  --color-purple-dim: rgba(125, 152, 168, 0.12);
+
+  --runtime-bar-bg: #191919;
+  --runtime-bar-border: #2b2b2b;
+  --runtime-mock-bg: #2a2113;
+  --runtime-mock-border: rgba(224, 168, 75, 0.28);
 
   color-scheme: dark;
 }
 
 /* ═══════════════════════════════════════════════════
-   黑金模式（主播限定色）— 奢华暗金风格
-   基于 dark 深色基底 + 金铜色调强调
+   黑金模式（古籍泥金 — 纯黑哑光底 + 克制古铜金）
    ═══════════════════════════════════════════════════ */
 [data-theme='anchor'] {
-  /* ── 品牌色：金紫融合 ── */
+  --color-primary-ink: #ddb74b;
   --color-brand: #c9a227;
   --color-brand-hover: #ddb930;
   --color-brand-pressed: #a88a1f;
   --color-brand-suppl: #e8c84a;
   --color-brand-light: rgba(201, 162, 39, 0.12);
-  --color-brand-border: rgba(201, 162, 39, 0.2);
+  --color-brand-border: rgba(201, 162, 39, 0.26);
 
-  /* ── 黑金装饰色（更浓郁）── */
-  --color-gold: #f0c866;
-  --color-gold-light: #f5ddb5;
-  --color-gold-dim: rgba(240, 200, 102, 0.1);
-  --color-gold-border: rgba(240, 200, 102, 0.18);
-  --color-gold-glow: rgba(240, 200, 102, 0.35);
+  --color-gold: #ddb74b;
+  --color-gold-light: #f2dfb3;
+  --color-gold-dim: rgba(221, 183, 75, 0.11);
+  --color-gold-border: rgba(221, 183, 75, 0.22);
+  --color-gold-glow: rgba(221, 183, 75, 0.20);
 
-  /* ── DAG 画布专用（黑金版）── */
-  --dag-canvas-bg: #08090c;
-  --dag-canvas-grid: rgba(201, 162, 39, 0.04);
-  --dag-node-bg: #111620;
-  --dag-node-border: rgba(201, 162, 39, 0.12);
-  --dag-node-shadow: 0 2px 10px rgba(0, 0, 0, 0.3), 0 0 16px rgba(201, 162, 39, 0.04);
+  --app-text-primary: #f0ead6;
+  --app-text-secondary: #c4b99a;
+  --app-text-muted: #968c7a;
+  --app-text-inverse: #090908;
+
+  --app-page-bg: #090908;
+  --app-surface: #131210;
+  --app-surface-raised: #1c1a16;
+  --app-surface-subtle: #171512;
+  --app-surface-active: #23201a;
+  --app-input-bg: #131210;
+
+  --app-border: rgba(201, 162, 39, 0.16);
+  --app-border-strong: rgba(201, 162, 39, 0.28);
+  --app-divider: rgba(201, 162, 39, 0.10);
+
+  --plotpilot-split-border: rgba(201, 162, 39, 0.15);
+  --plotpilot-panel-muted: #0e0d0b;
+
+  --stats-bar-gradient: #131210;
+  --stats-bar-border-bottom: 1px solid rgba(201, 162, 39, 0.18);
+
+  --nav-hero-text: #f0ead6;
+  --nav-hero-text-muted: #968c7a;
+  --nav-hero-pill-bg-top: #1c1a16;
+  --nav-hero-pill-bg-bottom: #1c1a16;
+  --nav-hero-pill-border: rgba(201, 162, 39, 0.24);
+  --nav-hero-shadow: none;
+
+  --dag-canvas-bg: #090908;
+  --dag-canvas-grid: rgba(201, 162, 39, 0.05);
+  --dag-node-bg: #131210;
+  --dag-node-border: rgba(201, 162, 39, 0.18);
+  --dag-node-shadow: none;
   --dag-node-selected-ring: var(--color-gold);
-  --dag-edge-default: rgba(201, 162, 39, 0.18);
+  --dag-edge-default: rgba(201, 162, 39, 0.22);
   --dag-edge-active: var(--color-gold);
-  --dag-edge-conditional: rgba(201, 162, 39, 0.28);
+  --dag-edge-conditional: rgba(201, 162, 39, 0.32);
   --dag-port-text: #e8b84a;
   --dag-port-json: #d4a843;
   --dag-port-score: #f0c866;
   --dag-port-boolean: #c9a227;
   --dag-port-list: #e5b86e;
   --dag-port-prompt: #ddb930;
-  --dag-toolbar-bg: var(--app-surface);
-  --dag-toolbar-border: var(--app-border);
-  --dag-menu-bg: var(--app-surface);
-  --dag-menu-border: var(--app-border-strong);
-  --dag-menu-hover: var(--color-gold-dim);
 
-  /* ── 主播限定色（核心品牌金）── */
-
-  /* ── 文字色（暖调暗色文字，更高对比度）── */
-  --app-text-primary: #f0ead6;
-  --app-text-secondary: #c4b99a;
-  --app-text-muted: #8a8070;
-  --app-text-inverse: #0a0c10;
-
-  /* ── 背景色（墨黑+微金底纹）── */
-  --app-page-bg: #0a0c10;
-  --app-surface: #111620;
-  --app-surface-raised: #181f2e;
-  --app-surface-subtle: #0d1018;
-  --app-input-bg: #0d1018;
-
-  /* ── 边框（金色调边框）── */
-  --app-border: rgba(201, 162, 39, 0.08);
-  --app-border-strong: rgba(201, 162, 39, 0.14);
-  --app-divider: rgba(201, 162, 39, 0.06);
-
-  /* ── 阴影（带金色光晕）── */
-  --app-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
-  --app-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.35), 0 0 20px rgba(201, 162, 39, 0.04);
-  --app-shadow-lg: 0 8px 28px rgba(0, 0, 0, 0.4), 0 0 40px rgba(201, 162, 39, 0.06);
-  --app-shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.45), 0 0 30px rgba(201, 162, 39, 0.08);
-
-  /* ── 面板专用 ── */
-  --plotpilot-split-border: rgba(201, 162, 39, 0.1);
-  --plotpilot-panel-muted: #0d1018;
-
-  /* ── StatsTopBar 渐变（黑金版：墨黑金边）── */
-  --stats-bar-gradient: linear-gradient(135deg, #16130f 0%, #1f1a13 50%, #2a2318 100%);
-
-  /* 黑金模式顶部栏额外装饰：金色底边线 */
-  --stats-bar-border-bottom: 1px solid rgba(212, 168, 67, 0.18);
-
-  --nav-hero-text: #faf6ee;
-  --nav-hero-text-muted: rgba(250, 246, 238, 0.78);
-  --nav-hero-pill-bg-top: rgba(212, 168, 67, 0.22);
-  --nav-hero-pill-bg-bottom: rgba(10, 12, 16, 0.35);
-  --nav-hero-pill-border: rgba(212, 168, 67, 0.35);
-  --nav-hero-shadow: 0 1px 0 rgba(245, 215, 126, 0.12) inset;
+  --runtime-bar-bg: #171512;
+  --runtime-bar-border: rgba(201, 162, 39, 0.20);
 
   color-scheme: dark;
 }
 
 /* ═══════════════════════════════════════════════════
-   通用组件样式（使用变量，自动适配亮/暗/黑金）
+   通用组件排版与数字规范
    ═══════════════════════════════════════════════════ */
 
-/* 工作台 / 侧栏共用 */
 .plotpilot-panel-surface {
   background: var(--plotpilot-panel-muted);
   border-left: 1px solid var(--plotpilot-split-border);
@@ -390,7 +357,6 @@ body {
 .plotpilot-panel-title {
   font-size: var(--font-size-sm);
   font-weight: 600;
-  letter-spacing: 0.02em;
   color: var(--app-text-primary);
   margin: 0 0 var(--plotpilot-space-3, 8px);
 }
@@ -413,112 +379,96 @@ body {
   font-family: var(--font-sans);
   font-size: var(--font-size-base);
   line-height: 1.72;
-  letter-spacing: 0.01em;
   word-break: break-word;
   overflow-wrap: break-word;
 }
 .md-body p { margin: 0 0 0.65em; }
 .md-body p:last-child { margin-bottom: 0; }
-.md-body pre, .md-body code { font-family: var(--font-mono); font-size: 0.92em; }
+.md-body pre, .md-body code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.92em; }
 .md-body pre {
   padding: 12px 14px;
   border-radius: 8px;
   overflow-x: auto;
-  background: var(--color-brand-light);
+  background: var(--app-surface-subtle);
+  border: 1px solid var(--app-border);
   margin: 0.5em 0;
 }
 .md-body code {
   padding: 0.15em 0.4em;
   border-radius: 4px;
-  background: var(--color-brand-light);
+  background: var(--app-surface-subtle);
 }
 .md-body pre code { padding: 0; background: none; }
 .md-body ul, .md-body ol { margin: 0.4em 0 0.6em 1.25em; }
 .md-body blockquote {
   margin: 0.5em 0;
   padding-left: 12px;
-  border-left: 3px solid var(--color-brand);
+  border-left: 2px solid var(--color-brand);
   color: var(--app-text-muted);
 }
 
-/* 标题 */
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-sans);
   font-weight: 600;
-  line-height: 1.4;
+  line-height: 1.35;
   color: var(--app-text-primary);
 }
 
-/* 小说正文阅读模式 */
+/* 出版物级小说正文阅读排版（行宽 <= 58ch 约束） */
 .novel-content {
   font-family: var(--font-serif);
   font-size: 16px;
   line-height: 1.9;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.015em;
+  max-width: 58ch;
   text-align: justify;
 }
-.novel-content p { text-indent: 2em; margin-bottom: 0.8em; }
+.novel-content p { text-indent: 2em; margin-bottom: 0.85em; }
 .novel-content p:first-child { text-indent: 0; }
 
 /* 代码块 */
 .code-block, pre[class*='language-'] {
-  font-family: var(--font-mono);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 13px;
   line-height: 1.6;
   tab-size: 2;
 }
 
-/* 表单元素 */
 input, textarea, select { font-family: inherit; font-size: inherit; }
 button { font-family: inherit; }
 
-/* 数字/数据展示 */
-.numeric, .data-value {
-  font-family: var(--font-mono);
+/* 数字等宽对齐（使用正文无衬线 tabular-nums，不乱切等宽代码字体） */
+.numeric, .data-value, .tabular-nums {
   font-variant-numeric: tabular-nums;
 }
 
-/* 拼音注音 */
 ruby { ruby-align: center; }
 rt { font-size: 0.6em; color: var(--app-text-muted); }
 
-/* ═══════════════════════════════════════════════════
-   StatsTopBar — 使用变量渐变 + 主题装饰边框
-   ═══════════════════════════════════════════════════ */
 .stats-top-bar {
   background: var(--stats-bar-gradient);
-  border-bottom: var(--stats-bar-border-bottom, 1px solid rgba(255, 255, 255, 0.08));
+  border-bottom: var(--stats-bar-border-bottom);
 }
 
-/* ═══════════════════════════════════════════════════
-   Home 页面 — 使用变量
-   ═══════════════════════════════════════════════════ */
+/* Home 与通用区块扁平化（无渐变、无常驻阴影） */
 .home-bg {
-  background:
-    radial-gradient(ellipse 110% 80% at 50% -30%, var(--color-brand-light), transparent 55%),
-    linear-gradient(180deg, var(--app-page-bg) 0%, var(--app-surface-subtle) 100%);
+  background: var(--app-page-bg);
 }
 .title { color: var(--app-text-primary); }
 .subtitle { color: var(--app-text-secondary); }
 .settings-btn {
   background: var(--app-surface);
-  color: var(--app-text-secondary, #94a3b8);
+  color: var(--app-text-secondary);
   border: 1px solid var(--app-border);
 }
 .settings-btn:hover {
-  background: var(--color-brand-light);
-  color: var(--color-brand);
-  box-shadow: var(--app-shadow-md);
+  background: var(--app-surface-subtle);
+  color: var(--app-text-primary);
 }
-.create-card {
-  background: var(--app-surface);
-  border: 1px solid var(--app-border);
-  box-shadow: var(--app-shadow-md);
-}
+.create-card,
 .books-section {
   background: var(--app-surface);
   border: 1px solid var(--app-border);
-  box-shadow: var(--app-shadow-md);
 }
 .section-title { color: var(--app-text-primary); }
 .book-count {
@@ -527,27 +477,26 @@ rt { font-size: 0.6em; color: var(--app-text-muted); }
 }
 .selection-bar { background: var(--app-surface-subtle); }
 .empty-illustration {
-  background: linear-gradient(135deg, var(--app-surface-subtle) 0%, var(--app-border) 100%);
+  background: var(--app-surface-subtle);
+  border: 1px solid var(--app-border);
 }
 .empty-title { color: var(--app-text-primary); }
 .empty-desc { color: var(--app-text-muted); }
 .book-title { color: var(--app-text-primary); }
-.book-card:hover { box-shadow: var(--app-shadow-hover); }
+.book-card:hover { border-color: var(--app-border-strong); }
 .advanced-settings {
-  background: var(--color-brand-light);
-  border-color: var(--color-brand-border);
+  background: var(--app-surface-subtle);
+  border-color: var(--app-border);
 }
 
-/* ═══════════════════════════════════════════════════
-   GlobalLLMEntryButton Drawer — 使用统一变量
-   ═══════════════════════════════════════════════════ */
+/* GlobalLLMEntryButton Drawer */
 .global-llm-drawer-title { color: var(--app-text-primary); }
 .global-llm-drawer-subtitle { color: var(--app-text-muted); }
 .global-llm-runtime-bar {
   background: var(--runtime-bar-bg);
   border-color: var(--runtime-bar-border);
 }
-.global-llm-runtime-model { color: var(--runtime-model-color); font-weight: 800; }
+.global-llm-runtime-model { color: var(--runtime-model-color); font-weight: 600; }
 .global-llm-runtime-label { color: var(--app-text-muted); }
 .global-llm-runtime-name { color: var(--app-text-secondary); }
 .global-llm-runtime-chip {
@@ -562,7 +511,6 @@ rt { font-size: 0.6em; color: var(--app-text-muted); }
   color: var(--runtime-mock-model-color);
 }
 
-/* 嵌入模型区域 */
 .embedding-section-title { color: var(--app-text-primary); }
 .embedding-section-desc { color: var(--app-text-muted); }
 .emb-mode-label { color: var(--app-text-muted); }
@@ -570,23 +518,12 @@ rt { font-size: 0.6em; color: var(--app-text-muted); }
 .emb-local-name { color: var(--color-success); }
 .emb-local-desc { color: var(--color-success); }
 
-/* ═══════════════════════════════════════════════════
-   SettingsPanel 右侧面板
-   ═══════════════════════════════════════════════════ */
 .right-panel { background: var(--plotpilot-panel-muted); }
 
-/* ═══════════════════════════════════════════════════
-   主题切换过渡动画
-   ═══════════════════════════════════════════════════ */
-
-/*
- * View Transition API（Chrome/Edge 111+）：
- * 截图旧页面 → 应用新主题 → 新旧画面交叉淡入淡出。
- * 不依赖 `*` 选择器，不与组件自身 transition 冲突。
- */
+/* 主题切换过渡动画 */
 ::view-transition-old(root),
 ::view-transition-new(root) {
-  animation-duration: 0.32s;
+  animation-duration: 0.28s;
   animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -608,14 +545,10 @@ rt { font-size: 0.6em; color: var(--app-text-muted); }
   to   { opacity: 1; }
 }
 
-/*
- * 降级方案（Firefox / Safari）：
- * 仅对关键属性加 transition，避免 `*` 选择器拖累性能。
- */
 .theme-transitioning {
   transition:
-    background-color 0.3s ease,
-    color 0.3s ease !important;
+    background-color 0.24s ease,
+    color 0.24s ease !important;
 }
 
 .theme-transitioning [class*='n-'],
@@ -625,7 +558,7 @@ rt { font-size: 0.6em; color: var(--app-text-muted); }
 .theme-transitioning .right-panel,
 .theme-transitioning .sidebar {
   transition:
-    background-color 0.3s ease,
-    color 0.3s ease,
-    border-color 0.3s ease !important;
+    background-color 0.24s ease,
+    color 0.24s ease,
+    border-color 0.24s ease !important;
 }

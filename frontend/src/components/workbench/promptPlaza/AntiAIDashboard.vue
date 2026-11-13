@@ -428,7 +428,7 @@ const defenseLayers = computed(() => {
       name: 'L1 正向行为映射',
       desc: '将否定指令转为确定性的动作映射',
       icon: '',
-      color: '#6366f1',
+      color: '#1f5e5b',
       active: true,
     },
     {
@@ -436,7 +436,7 @@ const defenseLayers = computed(() => {
       name: 'L2 核心协议 P1-P5',
       desc: '五大写作法则：密度/感官/差异/节奏/衔接',
       icon: '',
-      color: '#8b5cf6',
+      color: '#2a726e',
       active: true,
     },
     {
@@ -444,7 +444,7 @@ const defenseLayers = computed(() => {
       name: 'L3 场景化白名单',
       desc: '不同场景的差异化模式豁免',
       icon: '',
-      color: '#a855f7',
+      color: '#15803d',
       active: (layers?.L3_allowlist_scenes ?? 0) > 0,
     },
     {
@@ -452,7 +452,7 @@ const defenseLayers = computed(() => {
       name: 'L4 角色状态向量',
       desc: '声线指纹/紧张习惯/反应模式/信息边界',
       icon: '',
-      color: '#d946ef',
+      color: '#b45309',
       active: layers?.L4_state_vector === 'active',
     },
     {
@@ -460,7 +460,7 @@ const defenseLayers = computed(() => {
       name: 'L5 上下文配额',
       desc: '洋葱模型配额分配，T0 永不压缩',
       icon: '',
-      color: '#ec4899',
+      color: '#92400e',
       active: layers?.L5_context_quota === 'active',
     },
     {
@@ -468,7 +468,7 @@ const defenseLayers = computed(() => {
       name: 'L6 Token 级拦截',
       desc: 'AC自动机流式扫描 + Logit Bias 抑制',
       icon: '',
-      color: '#f43f5e',
+      color: '#c2410c',
       active: layers?.L6_token_guard === 'active',
     },
     {
@@ -476,7 +476,7 @@ const defenseLayers = computed(() => {
       name: 'L7 章后审计',
       desc: '35+模式检测 + 指标趋势 + 自适应学习',
       icon: '',
-      color: '#ef4444',
+      color: '#b91c1c',
       active: layers?.L7_audit === 'active',
     },
   ]
@@ -593,7 +593,7 @@ onMounted(() => {
   color: var(--app-text-muted);
   border-bottom: 2px solid transparent;
   margin-bottom: -2px;
-  transition: all 0.2s ease;
+  transition: color 0.2s ease, border-color 0.2s ease;
   user-select: none;
 }
 .sub-tab:hover {
@@ -619,11 +619,10 @@ onMounted(() => {
   border-radius: var(--app-radius-md);
   border: 1px solid var(--app-border);
   background: var(--app-surface);
-  transition: all 0.2s ease;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
 }
 .layer-card:hover {
   border-color: var(--layer-color);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 .layer-card.is-active {
   border-left: 3px solid var(--layer-color);
@@ -760,7 +759,7 @@ onMounted(() => {
 }
 .dist-bar-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--color-brand), var(--color-purple));
+  background: var(--color-brand);
   border-radius: 4px;
   transition: width 0.3s ease;
   min-width: 4px;

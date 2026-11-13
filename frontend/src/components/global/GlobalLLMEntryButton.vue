@@ -21,9 +21,7 @@
         </template>
         <template v-else>
           <span class="global-llm-icon-core">
-            <span class="global-llm-icon-grid"></span>
-            <span class="global-llm-icon-chip">⚙️</span>
-            <span class="global-llm-icon-spark">✦</span>
+            <span class="global-llm-icon-chip">AI</span>
           </span>
 
           <span class="global-llm-copy">
@@ -166,7 +164,7 @@
                       <!-- 未安装 / 检测中 -->
                       <template v-if="extensionsStatus && !extensionsStatus.all_installed">
                         <n-alert type="warning" :show-icon="true" class="mb-3">
-                          <template #header>⚠️ 缺少本地 AI 扩展包</template>
+                          <template #header>缺少本地 AI 扩展包</template>
                           本地向量检索需要 faiss / numpy / sentence-transformers 等依赖。
                           请点击下方按钮一键安装（约 2GB，需要 5~20 分钟）。
                         </n-alert>
@@ -177,7 +175,7 @@
                             :disabled="extensionsInstalling"
                             @click="startInstallExtensions"
                           >
-                            {{ extensionsInstalling ? '正在安装...' : '📦 下载并安装扩展包' }}
+                            {{ extensionsInstalling ? '正在安装...' : '下载并安装扩展包' }}
                           </n-button>
                           <n-button
                             v-if="extensionsInstalling"
@@ -193,7 +191,7 @@
                       <!-- 已安装 -->
                       <template v-else-if="extensionsStatus && extensionsStatus.all_installed">
                         <n-alert type="success" :show-icon="false" class="mb-3">
-                          ✅ 本地 AI 扩展包已安装完毕（faiss · numpy · sentence-transformers）
+                          本地 AI 扩展包已安装完毕（faiss · numpy · sentence-transformers）
                         </n-alert>
                       </template>
 
@@ -419,16 +417,16 @@ function startInstallExtensions() {
     onDone: (success) => {
       extensionsInstalling.value = false
       if (success) {
-        extensionsInstallLog.value.push('✅ 安装完成！请重启服务以生效。')
+        extensionsInstallLog.value.push('安装完成，请重启服务以生效。')
         extensionsInstallPercent.value = 100
       } else {
-        extensionsInstallLog.value.push('❌ 安装失败，请检查网络后重试')
+        extensionsInstallLog.value.push('安装失败，请检查网络后重试')
       }
       void checkExtensionsStatus()
     },
     onError: (err) => {
       extensionsInstalling.value = false
-      extensionsInstallLog.value.push(`❌ 错误: ${err.message}`)
+      extensionsInstallLog.value.push(`错误: ${err.message}`)
     },
   })
 }
@@ -522,91 +520,56 @@ watch(drawerTab, (tab) => {
   display: block;
   overflow: hidden;
   border: 1px solid var(--app-border);
-  background:
-    radial-gradient(circle at 18% 18%, var(--color-brand-light, rgba(129, 140, 248, 0.32)), transparent 28%),
-    linear-gradient(135deg, var(--color-brand), var(--color-brand-hover));
-  color: var(--app-text-inverse);
-  box-shadow: var(--app-shadow-md), 0 10px 26px var(--color-brand-border, rgba(79, 70, 229, 0.22));
-  backdrop-filter: blur(12px);
+  background: var(--app-surface);
+  color: var(--app-text-primary);
   cursor: pointer;
-  transition:
-    transform 0.18s ease,
-    box-shadow 0.18s ease,
-    opacity 0.18s ease,
-    border-color 0.18s ease;
+  transition: border-color 0.16s ease, color 0.16s ease, background-color 0.16s ease;
 }
 
 .global-llm-main.variant-topbar {
   width: 248px;
-  min-height: 68px;
-  padding: 12px 14px;
-  border-radius: var(--app-radius-xl);
-  color: var(--nav-hero-text, #ffffff);
-  border-color: rgba(255, 255, 255, 0.28);
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.08));
-  box-shadow:
-    var(--app-shadow-md),
-    0 12px 32px rgba(0, 0, 0, 0.18);
+  min-height: 60px;
+  padding: 10px 14px;
+  border-radius: var(--app-radius-lg);
 }
 
 .global-llm-main.variant-topbar .global-llm-title {
-  color: var(--nav-hero-text, #ffffff);
+  color: var(--app-text-primary);
 }
 
 .global-llm-main.variant-topbar .global-llm-subtitle {
-  color: var(--nav-hero-text-muted, rgba(255, 255, 255, 0.86));
+  color: var(--app-text-muted);
 }
 
 .global-llm-main.variant-topbar .global-llm-icon-core {
-  background: linear-gradient(
-    180deg,
-    var(--nav-hero-pill-bg-top, rgba(255, 255, 255, 0.22)),
-    var(--nav-hero-pill-bg-bottom, rgba(255, 255, 255, 0.08))
-  );
-  border: 1px solid var(--nav-hero-pill-border, rgba(255, 255, 255, 0.28));
-  box-shadow: var(--nav-hero-shadow, inset 0 1px 0 rgba(255, 255, 255, 0.12));
-}
-
-.global-llm-main.variant-topbar .global-llm-icon-grid {
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.1) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.1) 1px, transparent 1px);
+  background: var(--app-surface-subtle);
+  border: 1px solid var(--app-border);
 }
 
 .global-llm-main.variant-sidebar {
-  /* 紧凑导航行（配 StatsSidebar 重设计后的 38px 入口行，不再是大渐变砖） */
   width: 100%;
   box-sizing: border-box;
   min-height: 38px;
   padding: 0 12px;
-  border-radius: 10px;
+  border-radius: 9px;
   background: var(--app-surface);
   color: var(--app-text-primary);
   border: 1px solid var(--app-border);
-  box-shadow: none;
 }
 
 .global-llm-main:hover {
-  transform: translateY(-1px);
-  border-color: var(--color-brand-border);
-  box-shadow: var(--app-shadow-lg), 0 14px 32px var(--color-brand-border, rgba(79, 70, 229, 0.28));
+  border-color: var(--color-brand);
+  color: var(--color-brand);
 }
 
 .global-llm-main.variant-sidebar:hover {
-  filter: none;
-  transform: translateY(-1px);
   background: var(--app-surface);
-  border-color: var(--color-brand, #4f46e5);
-  box-shadow: none;
+  border-color: var(--color-brand);
+  color: var(--color-brand);
 }
 
 .global-llm-glow {
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(circle at 80% 20%, var(--app-text-inverse, rgba(255, 255, 255, 0.18)), transparent 24%),
-    linear-gradient(180deg, var(--app-text-inverse, rgba(255, 255, 255, 0.06)), transparent 45%);
-  pointer-events: none;
+  display: none;
 }
 
 .global-llm-main-content {
@@ -623,17 +586,13 @@ watch(drawerTab, (tab) => {
   width: 100%;
 }
 
-.global-llm-main.variant-sidebar .global-llm-glow {
-  display: none;
-}
-
 .global-llm-plain-icon {
   width: 16px;
   height: 16px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--color-brand, #4f46e5);
+  color: var(--color-brand);
   flex: none;
 }
 
@@ -642,79 +601,25 @@ watch(drawerTab, (tab) => {
   height: 16px;
 }
 
-[data-theme='anchor'] .global-llm-main.variant-sidebar {
-  background: var(--app-surface);
-  border: 1px solid var(--app-border);
-  color: var(--app-text-primary);
-  box-shadow: none;
-}
-
-[data-theme='anchor'] .global-llm-main.variant-sidebar:hover {
-  transform: translateY(-1px);
-  filter: none;
-  border-color: var(--color-brand, #c9a227);
-  box-shadow: none;
-}
-
 .global-llm-icon-core {
   position: relative;
   flex: 0 0 auto;
-  width: 40px;
-  height: 40px;
-  border-radius: 14px;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(180deg, var(--app-text-inverse, rgba(15, 23, 42, 0.5)), var(--app-text-inverse, rgba(15, 23, 42, 0.16)));
-  border: 1px solid var(--app-text-inverse, rgba(255, 255, 255, 0.12));
-  box-shadow: inset 0 1px 0 var(--app-text-inverse, rgba(255, 255, 255, 0.08));
-}
-.global-llm-main.variant-sidebar .global-llm-icon-core { 
-  width: 24px; 
-  height: 24px; 
-  border-radius: 8px; 
-}
-
-.global-llm-icon-grid {
-  position: absolute;
-  inset: 8px;
-  border-radius: inherit;
-  opacity: 0.35;
-  background-image:
-    linear-gradient(var(--color-brand-suppl, rgba(191, 219, 254, 0.12)) 1px, transparent 1px),
-    linear-gradient(90deg, var(--color-brand-suppl, rgba(191, 219, 254, 0.12)) 1px, transparent 1px);
-  background-size: 7px 7px;
-}
-.global-llm-main.variant-sidebar .global-llm-icon-grid { 
-  inset: 4px; 
-  background-size: 4px 4px; 
+  background: var(--app-surface-subtle);
+  border: 1px solid var(--app-border);
 }
 
 .global-llm-icon-chip {
   position: relative;
   z-index: 1;
-  font-size: 16px;
+  font-size: 13px;
+  font-weight: 700;
   line-height: 1;
-}
-.global-llm-main.variant-sidebar .global-llm-icon-chip { font-size: 11px; }
-
-.global-llm-icon-spark {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  font-size: 12px;
-  color: var(--color-gold);
-  filter: drop-shadow(0 0 6px var(--color-gold-glow));
-}
-.global-llm-main.variant-sidebar .global-llm-icon-spark { 
-  top: 1px; 
-  right: 1px; 
-  font-size: 7px; 
-  width: 5px; 
-  height: 5px; 
-  border-radius: 50%; 
-  background: var(--color-gold); 
-  box-shadow: 0 0 4px var(--color-gold-glow); 
 }
 
 .global-llm-copy {
@@ -752,8 +657,7 @@ watch(drawerTab, (tab) => {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: linear-gradient(180deg, var(--color-success-light, #86efac), var(--color-success, #22c55e));
-  box-shadow: 0 0 0 4px var(--color-success-light, rgba(34, 197, 94, 0.14));
+  background: var(--color-success);
 }
 .global-llm-main.variant-sidebar .global-llm-status { 
   width: 6px; 
@@ -804,15 +708,14 @@ watch(drawerTab, (tab) => {
   flex-shrink: 0;
   width: 28px;
   height: 28px;
-  border-radius: 9px;
+  border-radius: 8px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, var(--color-brand), var(--color-brand-hover));
+  background: var(--color-brand);
   color: var(--app-text-inverse);
   font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
+  font-weight: 700;
 }
 
 .modal-header-title {
@@ -922,12 +825,12 @@ watch(drawerTab, (tab) => {
   gap: 12px;
   padding: 12px 14px;
   border-radius: var(--app-radius-lg);
-  background: var(--runtime-bar-bg, linear-gradient(135deg, var(--color-brand-light), var(--app-surface)));
-  border: 1px solid var(--runtime-bar-border, var(--color-brand-border));
+  background: var(--runtime-bar-bg, var(--app-surface-subtle));
+  border: 1px solid var(--runtime-bar-border, var(--app-border));
 }
 
 .global-llm-runtime-bar.is-mock {
-  background: var(--runtime-mock-bg, linear-gradient(135deg, var(--color-gold-dim), var(--app-surface)));
+  background: var(--runtime-mock-bg, var(--color-warning-light));
   border-color: var(--runtime-mock-border, var(--color-gold-border));
 }
 

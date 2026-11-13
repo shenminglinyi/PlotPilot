@@ -1,5 +1,10 @@
+import type { AxiosRequestConfig } from 'axios'
 import { apiClient } from './config'
 import { runtimePerformance } from '@/config/performance'
+
+export type PromptApiCallConfig = AxiosRequestConfig & {
+  silentGlobalFeedback?: boolean
+}
 
 export type LLMProtocol = 'openai' | 'anthropic' | 'gemini'
 
@@ -152,6 +157,7 @@ export interface PromptNode {
   is_builtin: boolean
   sort_order: number
   template_id: string
+  active_version_id?: string | null
   version_count: number
   system_preview: string
   user_template_preview: string
@@ -316,7 +322,16 @@ export interface NodeBindingsResult {
 
 // ---------- 请求类型 ----------
 
-export interface PromptUpdatePayload {
+export interface PromptMutationPreconditions {
+  expected_active_version_id?: string
+  expected_version_count?: number
+  expected_system?: string
+  expected_user_template?: string
+  expected_name?: string
+  expected_description?: string
+}
+
+export interface PromptUpdatePayload extends PromptMutationPreconditions {
   system?: string
   user_template?: string
   name?: string
@@ -385,37 +400,68 @@ export const promptPlazaApi = {
     apiClient.get<Record<string, PromptNode[]>>('/llm-control/prompts/by-category'),
 
   /** 单个节点详情 */
-  getNodeDetail: (nodeKey: string) =>
-    apiClient.get<PromptNodeDetail>(`/llm-control/prompts/${nodeKey}`),
+  getNodeDetail: (nodeKey: string, config?: PromptApiCallConfig) =>
+    apiClient.get<PromptNodeDetail>(
+      `/llm-control/prompts/${encodeURIComponent(nodeKey)}`,
+      config,
+    ),
 
   /** 创建自定义节点 */
-  createNode: (payload: CreateNodePayload) =>
-    apiClient.post<{ status: string; node: PromptNode }>('/llm-control/prompts/nodes', payload),
+  createNode: (payload: CreateNodePayload, config?: PromptApiCallConfig) =>
+    apiClient.post<{ status: string; node: PromptNode }>(
+      '/llm-control/prompts/nodes',
+      payload,
+      config,
+    ),
 
-  /** 删除自定义节点 */
-  deleteNode: (nodeId: string) =>
-    apiClient.delete<{ status: string; node_id: string }>(`/llm-control/prompts/nodes/${nodeId}`),
+  /** 删除自定义节点（支持可选 CAS 并发前置条件） */
+  deleteNode: (
+    nodeId: string,
+    config?: PromptApiCallConfig & { data?: PromptMutationPreconditions },
+  ) =>
+    apiClient.delete<{ status: string; node_id: string }>(
+      `/llm-control/prompts/nodes/${encodeURIComponent(nodeId)}`,
+      config,
+    ),
 
   // ---- 版本管理 ----
 
   /** 节点版本历史 */
-  getNodeVersions: (nodeKey: string) =>
-    apiClient.get<PromptVersion[]>(`/llm-control/prompts/${nodeKey}/versions`),
+  getNodeVersions: (nodeKey: string, config?: PromptApiCallConfig) =>
+    apiClient.get<PromptVersion[]>(
+      `/llm-control/prompts/${encodeURIComponent(nodeKey)}/versions`,
+      config,
+    ),
 
   /** 单个版本详情 */
-  getVersionDetail: (versionId: string) =>
-    apiClient.get<PromptVersionDetail>(`/llm-control/prompts/versions/${versionId}`),
+  getVersionDetail: (versionId: string, config?: PromptApiCallConfig) =>
+    apiClient.get<PromptVersionDetail>(
+      `/llm-control/prompts/versions/${encodeURIComponent(versionId)}`,
+      config,
+    ),
 
   /** 更新节点（自动创建新版本） */
-  updateNode: (nodeKey: string, payload: PromptUpdatePayload) =>
+  updateNode: (
+    nodeKey: string,
+    payload: PromptUpdatePayload,
+    config?: PromptApiCallConfig,
+  ) =>
     apiClient.put<{ status: string; node: PromptNode | null; message: string }>(
-      `/llm-control/prompts/${nodeKey}`, payload,
+      `/llm-control/prompts/${encodeURIComponent(nodeKey)}`,
+      payload,
+      config,
     ),
 
   /** 回滚到指定版本 */
-  rollbackNode: (nodeKey: string, versionId: string) =>
+  rollbackNode: (
+    nodeKey: string,
+    versionId: string,
+    config?: PromptApiCallConfig,
+  ) =>
     apiClient.post<{ status: string; node: PromptNode; message: string }>(
-      `/llm-control/prompts/${nodeKey}/rollback/${versionId}`,
+      `/llm-control/prompts/${encodeURIComponent(nodeKey)}/rollback/${encodeURIComponent(versionId)}`,
+      undefined,
+      config,
     ),
 
   /** 对比两个版本 */
@@ -473,4 +519,12 @@ export const promptPlazaApi = {
   /** 节点绑定关系 */
   getNodeBindings: (nodeKey: string) =>
     apiClient.get<NodeBindingsResult>(`/llm-control/prompts/${nodeKey}/bindings`),
+
+  /** 经后端安全拉取远程模组清单（GitHub 仓库或直链 JSON） */
+  fetchRemoteModManifest: (source: string, config?: PromptApiCallConfig) =>
+    apiClient.post<{ ok: boolean; resolved_url: string; manifest: Record<string, unknown> }>(
+      '/llm-control/mods/fetch-remote',
+      { source },
+      config,
+    ),
 }

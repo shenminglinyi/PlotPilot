@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse, urlunparse
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Body, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from application.ai.llm_control_service import (
@@ -19,8 +19,18 @@ from application.ai.llm_control_service import (
 )
 from infrastructure.ai.provider_factory import LLMProviderFactory
 from infrastructure.ai.prompt_manager import get_prompt_manager, BUILTIN_CATEGORIES
+from infrastructure.persistence.database.write_dispatch import (
+    sqlite_writes_bypass_queue,
+)
 from interfaces.api.v1.workbench.llm_control_runtime_settings import (
     get_llm_control_runtime_settings,
+)
+from interfaces.api.v1.workbench.prompt_mutation_cas import (
+    PROMPT_MUTATION_LOCK,
+    PromptPreconditions,
+    create_prompt_node_atomic,
+    delete_prompt_node_atomic,
+    update_prompt_node_atomic,
 )
 
 logger = logging.getLogger(__name__)
@@ -223,13 +233,21 @@ async def test_llm_profile(profile: LLMProfile) -> LLMTestResult:
 
 
 class PromptUpdateRequest(BaseModel):
-    """请求体：更新提示词节点内容（自动创建新版本）。"""
+    """请求体：更新提示词节点内容（自动创建新版本，支持可选 CAS 并发前置条件）。"""
+    model_config = ConfigDict(extra="ignore")
+
     system: Optional[str] = None
     user_template: Optional[str] = None
     name: Optional[str] = None
     description: Optional[str] = None
     tags: Optional[List[str]] = None
     change_summary: str = ""
+    expected_active_version_id: Optional[str] = None
+    expected_version_count: Optional[int] = None
+    expected_system: Optional[str] = None
+    expected_user_template: Optional[str] = None
+    expected_name: Optional[str] = None
+    expected_description: Optional[str] = None
 
 
 class PromptRenderRequest(BaseModel):
@@ -481,74 +499,75 @@ async def import_prompts(payload: ImportPayload) -> Dict[str, Any]:
     skipped_count = 0
     errors: List[str] = []
 
-    templates = mgr.list_templates()
-    builtin_tmpl = next((t for t in templates if t.is_builtin), None)
-    target_template_id = (
-        builtin_tmpl.id if builtin_tmpl else (templates[0].id if templates else "")
-    )
-    if not target_template_id:
-        tmpl = mgr.create_template(name="导入模板", description="从 JSON 导入")
-        target_template_id = tmpl.id
+    with PROMPT_MUTATION_LOCK, sqlite_writes_bypass_queue():
+        templates = mgr.list_templates()
+        builtin_tmpl = next((t for t in templates if t.is_builtin), None)
+        target_template_id = (
+            builtin_tmpl.id if builtin_tmpl else (templates[0].id if templates else "")
+        )
+        if not target_template_id:
+            tmpl = mgr.create_template(name="导入模板", description="从 JSON 导入")
+            target_template_id = tmpl.id
 
-    for idx, p in enumerate(raw_prompts):
-        try:
-            node_key = p.get("id", "") or p.get("node_key", "")
-            name = p.get("name", f"导入提示词-{idx + 1}")
-            system_content = p.get("system", "")
-            user_content = p.get("user_template", "")
+        for idx, p in enumerate(raw_prompts):
+            try:
+                node_key = p.get("id", "") or p.get("node_key", "")
+                name = p.get("name", f"导入提示词-{idx + 1}")
+                system_content = p.get("system", "")
+                user_content = p.get("user_template", "")
 
-            if not node_key:
+                if not node_key:
+                    skipped_count += 1
+                    continue
+
+                existing = mgr.get_node(node_key, by_key=True)
+
+                meta: Dict[str, Any] = {}
+                for k in (
+                    "description",
+                    "tags",
+                    "variables",
+                    "output_format",
+                    "contract_module",
+                    "contract_model",
+                    "source",
+                    "category",
+                ):
+                    if k in p:
+                        meta[k] = p.get(k)
+
+                if existing:
+                    mgr.update_node(
+                        existing.id,
+                        system_prompt=system_content or None,
+                        user_template=user_content or None,
+                        change_summary=f"导入更新 ({now})",
+                        name=name or None,
+                        **meta,
+                    )
+                    updated_count += 1
+                else:
+                    mgr.create_node(
+                        template_id=target_template_id,
+                        node_key=node_key,
+                        name=name,
+                        system_prompt=system_content,
+                        user_template=user_content,
+                        description=p.get("description", ""),
+                        category=p.get("category", "generation"),
+                        tags=p.get("tags", []),
+                        variables=p.get("variables", []),
+                        output_format=p.get("output_format", "text"),
+                        source=p.get("source", ""),
+                        contract_module=p.get("contract_module"),
+                        contract_model=p.get("contract_model"),
+                    )
+                    created_count += 1
+
+            except Exception as exc:
+                key_hint = p.get("id", "") or p.get("name", f"index-{idx}")
+                errors.append(f"{key_hint}: {exc}")
                 skipped_count += 1
-                continue
-
-            existing = mgr.get_node(node_key, by_key=True)
-
-            meta: Dict[str, Any] = {}
-            for k in (
-                "description",
-                "tags",
-                "variables",
-                "output_format",
-                "contract_module",
-                "contract_model",
-                "source",
-                "category",
-            ):
-                if k in p:
-                    meta[k] = p.get(k)
-
-            if existing:
-                mgr.update_node(
-                    existing.id,
-                    system_prompt=system_content or None,
-                    user_template=user_content or None,
-                    change_summary=f"导入更新 ({now})",
-                    name=name or None,
-                    **meta,
-                )
-                updated_count += 1
-            else:
-                mgr.create_node(
-                    template_id=target_template_id,
-                    node_key=node_key,
-                    name=name,
-                    system_prompt=system_content,
-                    user_template=user_content,
-                    description=p.get("description", ""),
-                    category=p.get("category", "generation"),
-                    tags=p.get("tags", []),
-                    variables=p.get("variables", []),
-                    output_format=p.get("output_format", "text"),
-                    source=p.get("source", ""),
-                    contract_module=p.get("contract_module"),
-                    contract_model=p.get("contract_model"),
-                )
-                created_count += 1
-
-        except Exception as exc:
-            key_hint = p.get("id", "") or p.get("name", f"index-{idx}")
-            errors.append(f"{key_hint}: {exc}")
-            skipped_count += 1
 
     _invalidate_plaza_cache()
     return {
@@ -604,42 +623,49 @@ async def get_node_detail(node_key: str) -> Dict[str, Any]:
 
 @router.post('/prompts/nodes')
 async def create_node(payload: CreateNodeRequest) -> Dict[str, Any]:
-    """创建自定义提示词节点。"""
+    """创建自定义提示词节点（原子校验 node_key 唯一性）。"""
     mgr = get_prompt_manager()
-    mgr.ensure_seeded()
-
-    # 如果没指定 template_id，使用内置模板包
-    templates = mgr.list_templates()
-    tid = payload.template_id or (templates[0].id if templates else "")
-    if not tid:
-        raise HTTPException(status_code=400, detail="No template available")
-
-    key = payload.node_key or f"custom-{uuid.uuid4().hex[:8]}"
-    node = mgr.create_node(
-        template_id=tid,
-        node_key=key,
-        name=payload.name or "未命名提示词",
-        system_prompt=payload.system,
-        user_template=payload.user_template,
+    node = create_prompt_node_atomic(
+        mgr,
+        template_id=payload.template_id,
+        node_key=payload.node_key,
+        name=payload.name,
         description=payload.description,
         category=payload.category,
+        system=payload.system,
+        user_template=payload.user_template,
     )
     _invalidate_plaza_cache()
     return {"status": "ok", "node": node.to_dict()}
 
 
 @router.delete('/prompts/nodes/{node_id}')
-async def delete_node(node_id: str) -> Dict[str, str]:
-    """删除自定义节点（内置节点不允许删除）。"""
+async def delete_node(
+    node_id: str,
+    expected_version_id: Optional[str] = None,
+    expected_version_count: Optional[int] = None,
+    payload: Optional[PromptPreconditions] = Body(default=None),
+) -> Dict[str, str]:
+    """删除自定义节点（内置节点不允许删除，支持原子并发前置条件校验）。"""
     mgr = get_prompt_manager()
-    mgr.ensure_seeded()
-    node = mgr.get_node(node_id, by_key=False)
-    if node and node.is_builtin:
-        raise HTTPException(status_code=403, detail="Cannot delete built-in prompt")
-    success = mgr.delete_node(node_id)
+    merged_pre = PromptPreconditions(
+        expected_active_version_id=(
+            payload.expected_active_version_id
+            if payload and payload.expected_active_version_id is not None
+            else expected_version_id
+        ),
+        expected_version_count=(
+            payload.expected_version_count
+            if payload and payload.expected_version_count is not None
+            else expected_version_count
+        ),
+        expected_system=payload.expected_system if payload else None,
+        expected_user_template=payload.expected_user_template if payload else None,
+        expected_name=payload.expected_name if payload else None,
+        expected_description=payload.expected_description if payload else None,
+    )
+    delete_prompt_node_atomic(mgr, node_id, preconditions=merged_pre)
     _invalidate_plaza_cache()
-    if not success:
-        raise HTTPException(status_code=404, detail="Node not found")
     return {"status": "ok", "node_id": node_id}
 
 
@@ -671,21 +697,25 @@ async def get_version_detail(version_id: str) -> Dict[str, Any]:
 
 @router.put('/prompts/{node_key}')
 async def update_node(node_key: str, payload: PromptUpdateRequest) -> Dict[str, Any]:
-    """更新节点 —— 自动创建新版本（不覆盖历史）。"""
+    """更新节点 —— 自动创建新版本（支持原子 CAS 前置校验，不覆盖历史或并发编辑）。"""
     mgr = get_prompt_manager()
-    mgr.ensure_seeded()
-    node = mgr.get_node(node_key, by_key=True) or mgr.get_node(node_key, by_key=False)
-    if not node:
-        raise HTTPException(status_code=404, detail=f"Node '{node_key}' not found")
-
-    updated = mgr.update_node(
-        node.id,
-        system_prompt=payload.system,
+    updated = update_prompt_node_atomic(
+        mgr,
+        node_key,
+        system=payload.system,
         user_template=payload.user_template,
-        change_summary=payload.change_summary,
         name=payload.name,
         description=payload.description,
         tags=payload.tags,
+        change_summary=payload.change_summary,
+        preconditions=PromptPreconditions(
+            expected_active_version_id=payload.expected_active_version_id,
+            expected_version_count=payload.expected_version_count,
+            expected_system=payload.expected_system,
+            expected_user_template=payload.expected_user_template,
+            expected_name=payload.expected_name,
+            expected_description=payload.expected_description,
+        ),
     )
     _invalidate_plaza_cache()
     return {
@@ -700,11 +730,12 @@ async def rollback_node(node_key: str, version_id: str) -> Dict[str, Any]:
     """回滚节点到指定历史版本（创建回滚快照）。"""
     mgr = get_prompt_manager()
     mgr.ensure_seeded()
-    node = mgr.get_node(node_key, by_key=True) or mgr.get_node(node_key, by_key=False)
-    if not node:
-        raise HTTPException(status_code=404, detail=f"Node '{node_key}' not found")
+    with PROMPT_MUTATION_LOCK, sqlite_writes_bypass_queue():
+        node = mgr.get_node(node_key, by_key=True) or mgr.get_node(node_key, by_key=False)
+        if not node:
+            raise HTTPException(status_code=404, detail=f"Node '{node_key}' not found")
 
-    rolled_back = mgr.rollback_node(node.id, version_id)
+        rolled_back = mgr.rollback_node(node.id, version_id)
     if not rolled_back:
         raise HTTPException(status_code=400, detail="Rollback failed")
 
@@ -1072,3 +1103,20 @@ async def get_node_bindings(node_key: str) -> Dict[str, Any]:
         "bindings": bindings,
         "binding_count": len(bindings),
     }
+
+
+# ======================================================================
+# 墨枢模组中心：远程清单安全拉取（GitHub 仓库 / 直链 JSON）
+# ======================================================================
+
+from interfaces.api.v1.workbench.mod_manifest_remote import (
+    ModRemoteFetchRequest,
+    fetch_remote_mod_manifest_response,
+)
+
+
+@router.post("/mods/fetch-remote")
+async def fetch_remote_mod_manifest(payload: ModRemoteFetchRequest) -> Dict[str, Any]:
+    """安全拉取远程 plotpilot-mod.json 清单（支持 github:owner/repo 与公网 HTTPS 直链）。"""
+    return await fetch_remote_mod_manifest_response(payload)
+

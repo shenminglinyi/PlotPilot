@@ -201,13 +201,13 @@ const selectedBook = computed(() => props.books[selectedIndex.value] || null)
 
 /** 封面类型指纹色：类型字符串哈希 → 稳定色相（与旧网格卡片同一指纹算法），仅用于图标描环 */
 function kindAccent(genre: string): string {
-  if (!genre) return '#2563eb'
+  const palette = ['#1f5e5b', '#8a5a14', '#2e6f56', '#335c67', '#7c5832', '#26615c']
+  if (!genre) return palette[0]
   let hash = 0
   for (let i = 0; i < genre.length; i++) {
     hash = (hash * 31 + genre.charCodeAt(i)) | 0
   }
-  const hue = 200 + (Math.abs(hash) % 130)
-  return `hsl(${hue}, 52%, 38%)`
+  return palette[Math.abs(hash) % palette.length]
 }
 
 function bookSummary(book: DeckBookItem): string {
@@ -491,16 +491,13 @@ onUnmounted(() => {
   cursor: grabbing;
 }
 
-/* 书架台面：抬升面到页底的纵深井 */
+/* 书架台面：温暖纸案与沉稳框线 */
 .project-deck__tree {
   position: absolute;
   inset: 8px 10px 7px;
   border: 1px solid var(--app-border);
-  border-radius: 8px;
-  background:
-    radial-gradient(ellipse 42% 34% at 50% 52%, color-mix(in srgb, var(--color-brand) 7%, transparent), transparent 74%),
-    linear-gradient(180deg, var(--app-surface-subtle), var(--app-page-bg));
-  box-shadow: inset 0 1px color-mix(in srgb, var(--app-text-primary) 7%, transparent), inset 0 -48px 80px color-mix(in srgb, var(--app-text-primary) 10%, transparent);
+  border-radius: 10px;
+  background: var(--app-surface-subtle);
 }
 
 /* 台面接地线：中性色，跟随主题 */
@@ -509,13 +506,13 @@ onUnmounted(() => {
   z-index: 2;
   left: 50%;
   bottom: 15%;
-  width: min(94%, 1080px);
+  width: min(88%, 980px);
   height: 1px;
   transform: translateX(-50%) skewX(-15deg);
-  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--app-text-primary) 22%, transparent) 30%, color-mix(in srgb, var(--color-brand) 24%, transparent) 55%, color-mix(in srgb, var(--app-text-primary) 12%, transparent) 82%, transparent);
+  background: var(--app-border-strong);
 }
 
-/* ── 书籍封面：品牌资产，颜色固定（宣纸 + 选中亮绿），不随主题换肤 ── */
+/* ── 书籍封面：亚麻宣纸装帧 + 选中松烟黛青精装 ── */
 
 .project-deck-card {
   position: absolute;
@@ -527,14 +524,10 @@ onUnmounted(() => {
   flex-direction: column;
   justify-content: space-between;
   padding: 18px;
-  border: 1px solid rgba(248, 255, 251, 0.56);
+  border: 1px solid #d4d4ce;
   border-radius: 8px;
-  background:
-    linear-gradient(180deg, rgba(10, 13, 13, var(--deck-shade, 0)), rgba(10, 13, 13, var(--deck-shade, 0))),
-    linear-gradient(145deg, rgba(255, 255, 255, 0.42), transparent 26%, rgba(255, 255, 255, 0.12) 72%),
-    linear-gradient(148deg, rgba(244, 247, 244, 0.62), rgba(207, 216, 209, 0.42) 54%, rgba(223, 231, 225, 0.5));
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.62), inset 1px 0 rgba(255, 255, 255, 0.3), inset -1px 0 rgba(24, 36, 30, 0.16);
-  color: #1a221d;
+  background: #eeeeea;
+  color: #1c2220;
   cursor: grab;
   opacity: 1;
   transform:
@@ -552,28 +545,23 @@ onUnmounted(() => {
     transform 430ms cubic-bezier(0.16, 0.82, 0.25, 1),
     opacity 220ms ease,
     border-color 220ms ease,
-    box-shadow 360ms ease,
-    background 360ms ease;
+    background-color 320ms ease;
 }
 
 .project-deck.is-dragging .project-deck-card,
 .project-deck.is-settling .project-deck-card {
-  transition: opacity 120ms ease, box-shadow 180ms ease;
+  transition: opacity 120ms ease;
 }
 
 .project-deck-card:hover:not(.is-active) {
-  border-color: rgba(255, 255, 255, 0.9);
+  border-color: #9e988c;
 }
 
-/* 选中封面：亮绿材质（pw 原版书架选中色，属品牌资产固定色） */
+/* 选中封面：松烟黛青布面精装，白墨高对比 */
 .project-deck-card.is-active {
-  border-color: rgba(226, 255, 240, 0.72);
-  background:
-    radial-gradient(circle at 78% 15%, rgba(226, 255, 240, 0.24), transparent 29%),
-    linear-gradient(136deg, rgba(255, 255, 255, 0.27), transparent 28%, rgba(8, 66, 38, 0.13) 76%),
-    linear-gradient(148deg, #4ce595, #0c9c58 60%, #088449);
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.5), inset 1px 0 rgba(255, 255, 255, 0.28), inset -1px 0 rgba(6, 44, 27, 0.2);
-  color: #062c1b;
+  border-color: #174947;
+  background: #1f5e5b;
+  color: #f6f5f1;
   cursor: pointer;
 }
 
@@ -586,27 +574,26 @@ onUnmounted(() => {
   height: calc(100% - 8px);
   pointer-events: none;
   border-radius: 1px;
-  background:
-    repeating-linear-gradient(90deg, transparent 0 2px, rgba(88, 104, 94, 0.22) 2px 3px),
-    linear-gradient(90deg, #c8d2cb, #f4f8f5 20%, #dde5de 84%, #b3bfb6);
-  box-shadow: inset 0 2px 3px rgba(48, 62, 54, 0.2), inset 0 -2px 3px rgba(48, 62, 54, 0.18);
+  background: #e6e2d8;
+  border-top: 1px solid #d0cbc0;
+  border-bottom: 1px solid #d0cbc0;
   transform: translateZ(-3px) rotateY(90deg);
   transform-origin: 0 50%;
   backface-visibility: visible;
 }
 
-/* 封底：灰纸 */
+/* 封底：灰亚麻纸 */
 .project-deck-card__back {
   position: absolute;
   inset: 0;
-  border: 1px solid rgba(244, 250, 247, 0.8);
+  border: 1px solid #cbc5b9;
   border-radius: 5px;
-  background: linear-gradient(140deg, #cfd8d1, #a8b4ac);
+  background: #ddd8ce;
   transform: translateZ(calc(-1 * var(--deck-thickness, 28px)));
   pointer-events: none;
 }
 
-/* 书脊：纸材质 + 墨绿文字 */
+/* 书脊：暖亚麻纸材质 + 深墨竖排书名 */
 .project-deck-card__spine {
   position: absolute;
   inset: 0 auto 0 0;
@@ -617,10 +604,10 @@ onUnmounted(() => {
   justify-content: space-between;
   box-sizing: border-box;
   padding: 16px 4px;
-  color: #2c3a30;
-  border: 1px solid rgba(244, 250, 247, 0.75);
+  color: #242926;
+  border: 1px solid #cec8bc;
   border-radius: 4px;
-  background: linear-gradient(90deg, #a8b4ac, #dfe7e1 24%, #c2cec6 70%, #96a29a);
+  background: #e3dfd5;
   transform: translateZ(calc(-1 * var(--deck-thickness, 28px))) rotateY(-90deg);
   transform-origin: 0 50%;
   backface-visibility: hidden;
@@ -640,8 +627,8 @@ onUnmounted(() => {
 }
 
 .project-deck-card__spine-number {
-  font-size: 10px;
-  opacity: 0.65;
+  font-size: 11px;
+  opacity: 0.72;
 }
 
 .project-deck-card__spine .deck-icon {
@@ -649,28 +636,26 @@ onUnmounted(() => {
   height: 16px;
 }
 
-/* 封面接地投影 */
+/* 封面接地线 */
 .project-deck-card__contact-shadow {
   position: absolute;
-  top: calc(100% + 3px);
+  top: calc(100% + 4px);
   left: 50%;
-  width: 48px;
-  height: 12px;
-  border-radius: 50%;
-  background: radial-gradient(ellipse, rgba(0, 0, 0, 0.22), rgba(0, 0, 0, 0.07) 42%, transparent 72%);
+  width: 44px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(22, 22, 21, 0.14);
   pointer-events: none;
-  /* 反向旋转，避免侧对封面把投影压成一条线 */
   transform: translateX(-50%) rotateZ(calc(-1 * var(--deck-rotate-z))) rotateY(calc(-1 * var(--deck-rotate-y))) rotateX(calc(-1 * var(--deck-rotate-x)));
-  transition: width 430ms ease, height 430ms ease, opacity 430ms ease;
+  transition: width 430ms ease, opacity 430ms ease;
 }
 
 .project-deck-card.is-active .project-deck-card__contact-shadow {
-  width: 160px;
-  height: 18px;
-  opacity: 0.7;
+  width: 148px;
+  opacity: 0.55;
 }
 
-/* 光泽层容器：裁切高光，让书芯侧面能伸出卡片盒 */
+/* 装帧压槽装饰容器 */
 .project-deck-card__gloss {
   position: absolute;
   z-index: 1;
@@ -683,72 +668,25 @@ onUnmounted(() => {
 .project-deck-card__gloss::after {
   content: '';
   position: absolute;
-  inset: 0 auto 0 7px;
-  width: 5px;
-  background: linear-gradient(90deg, rgba(24, 40, 32, 0.16), rgba(255, 255, 255, 0.38), transparent);
+  inset: 0 auto 0 8px;
+  width: 1px;
+  background: rgba(22, 22, 21, 0.12);
 }
 
-/* 封面右缘：纸页厚度感 */
+.project-deck-card.is-active .project-deck-card__gloss::after {
+  background: rgba(246, 245, 241, 0.2);
+}
+
 .project-deck-card__edge {
   position: absolute;
   inset: 0 0 0 auto;
-  width: 10px;
-  background:
-    linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.42) 38%, rgba(20, 40, 30, 0.3)),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.52), transparent 20%, rgba(0, 0, 0, 0.22));
-  box-shadow: 6px 0 16px rgba(255, 255, 255, 0.08);
+  width: 4px;
+  background: rgba(22, 22, 21, 0.06);
 }
 
-/* 金属高光带：随指针位置移动的反光 */
-.project-deck-card__specular {
-  position: absolute;
-  z-index: 1;
-  inset: -40% -20% 30% -34%;
-  transform: rotate(-19deg) translate(var(--shine-x, 0), var(--shine-y, 0));
-  border-radius: 50%;
-  background: linear-gradient(
-    112deg,
-    transparent 22%,
-    rgba(255, 255, 255, 0.62) 44%,
-    rgba(255, 255, 255, 0.16) 60%,
-    transparent 74%
-  );
-  filter: blur(7px);
-  opacity: 0.8;
-  pointer-events: none;
-  transition: transform 320ms ease, opacity 220ms ease;
-}
-
-.project-deck-card.is-active .project-deck-card__specular {
-  background: linear-gradient(
-    112deg,
-    transparent 22%,
-    rgba(226, 255, 240, 0.42) 44%,
-    rgba(255, 255, 255, 0.1) 62%,
-    transparent 74%
-  );
-  opacity: 0.7;
-}
-
-/* 纸纹肌理 */
+.project-deck-card__specular,
 .project-deck-card__grain {
-  position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(90deg, rgba(24, 40, 32, 0.045) 1px, transparent 1px),
-    linear-gradient(rgba(24, 40, 32, 0.038) 1px, transparent 1px),
-    radial-gradient(circle at 82% 20%, rgba(24, 40, 32, 0.18) 0 2px, transparent 3px);
-  background-size: 22px 22px, 22px 22px, auto;
-  opacity: 0.62;
-  pointer-events: none;
-}
-
-.project-deck-card.is-active .project-deck-card__grain {
-  background:
-    linear-gradient(90deg, rgba(230, 255, 242, 0.07) 1px, transparent 1px),
-    linear-gradient(rgba(230, 255, 242, 0.05) 1px, transparent 1px),
-    radial-gradient(circle at 82% 20%, rgba(230, 255, 242, 0.28) 0 2px, transparent 3px);
-  background-size: 22px 22px, 22px 22px, auto;
+  display: none;
 }
 
 /* ── 封面前景内容 ── */
@@ -831,9 +769,9 @@ onUnmounted(() => {
   top: 15px;
   right: 15px;
   color: currentColor;
-  font-size: 10px;
-  font-weight: 800;
-  opacity: 0.58;
+  font-size: 11px;
+  font-weight: 700;
+  opacity: 0.65;
 }
 
 .project-deck-card__state {
@@ -842,12 +780,12 @@ onUnmounted(() => {
   gap: 6px;
   align-self: flex-start;
   min-height: 26px;
-  padding: 5px 8px;
+  padding: 4px 8px;
   border: 1px solid rgba(28, 46, 38, 0.18);
   border-radius: 5px;
   background: rgba(244, 250, 247, 0.22);
   color: inherit;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
 }
 
@@ -857,27 +795,26 @@ onUnmounted(() => {
   display: block;
   border-radius: 50%;
   background: currentColor;
-  box-shadow: 0 0 10px currentColor;
 }
 
-/* 阶段灯：固定语义色（状态色例外允许，与旧卡片契约一致） */
-.project-deck-card.is-stage-planning .project-deck-card__state i { background: #3b82f6; }
-.project-deck-card.is-stage-writing .project-deck-card__state i { background: #f59e0b; }
-.project-deck-card.is-stage-reviewing .project-deck-card__state i { background: #8b5cf6; }
-.project-deck-card.is-stage-completed .project-deck-card__state i { background: #10b981; }
+/* 阶段灯：沉稳墨枢语义色 */
+.project-deck-card.is-stage-planning .project-deck-card__state i { background: var(--color-info); }
+.project-deck-card.is-stage-writing .project-deck-card__state i { background: var(--color-warning); }
+.project-deck-card.is-stage-reviewing .project-deck-card__state i { background: #c9a227; }
+.project-deck-card.is-stage-completed .project-deck-card__state i { background: var(--color-success); }
 
 /* 类型指纹小签：悬停时与操作行同现 */
 .project-deck-card__genre {
   overflow: hidden;
-  max-width: 92px;
+  max-width: 96px;
   padding: 3px 7px;
-  border: 1px solid color-mix(in srgb, var(--kind-accent, #2563eb) 38%, rgba(28, 46, 38, 0.14));
+  border: 1px solid color-mix(in srgb, var(--kind-accent, #1f5e5b) 38%, rgba(28, 46, 38, 0.16));
   border-radius: 999px;
-  color: var(--kind-accent, #2563eb);
-  background: rgba(255, 255, 255, 0.18);
-  font-size: 10px;
-  font-weight: 650;
-  letter-spacing: 0.02em;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.16);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -890,11 +827,9 @@ onUnmounted(() => {
   align-self: flex-end;
   place-items: center;
   margin: 8px 2px 0 0;
-  border: 1px solid color-mix(in srgb, var(--kind-accent, #2563eb) 32%, rgba(20, 36, 28, 0.17));
+  border: 1px solid color-mix(in srgb, var(--kind-accent, #1f5e5b) 34%, rgba(20, 36, 28, 0.17));
   border-radius: 50%;
-  background:
-    radial-gradient(circle at 34% 26%, color-mix(in srgb, var(--kind-accent, #2563eb) 35%, white), rgba(255, 255, 255, 0.12) 54%, rgba(20, 36, 28, 0.08));
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.55), 0 7px 16px rgba(40, 32, 20, 0.08);
+  background: rgba(255, 255, 255, 0.34);
   color: inherit;
 }
 
@@ -904,9 +839,8 @@ onUnmounted(() => {
 }
 
 .project-deck-card.is-active .project-deck-card__icon {
-  border-color: rgba(226, 255, 240, 0.34);
-  background: radial-gradient(circle at 34% 26%, rgba(255, 255, 255, 0.36), rgba(255, 255, 255, 0.06) 54%, rgba(80, 30, 20, 0.14));
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.34), 0 9px 20px rgba(80, 30, 20, 0.14);
+  border-color: rgba(246, 245, 241, 0.34);
+  background: rgba(246, 245, 241, 0.14);
 }
 
 .project-deck-card__title {
@@ -917,9 +851,9 @@ onUnmounted(() => {
 
 .project-deck-card__title small {
   color: currentColor;
-  font-size: 10px;
-  font-weight: 700;
-  opacity: 0.72;
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.76;
   max-width: 145px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -930,8 +864,8 @@ onUnmounted(() => {
   display: -webkit-box;
   overflow: hidden;
   color: currentColor;
-  font-family: 'Noto Serif SC', 'Songti SC', 'SimSun', serif;
-  font-size: 19px;
+  font-family: var(--font-serif);
+  font-size: 18px;
   font-weight: 700;
   line-height: 1.3;
   -webkit-box-orient: vertical;
@@ -943,12 +877,12 @@ onUnmounted(() => {
   overflow: hidden;
   margin: 2px 0 0;
   color: currentColor;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.45;
-  opacity: 0.72;
+  opacity: 0.78;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
-  min-height: 29px;
+  min-height: 34px;
 }
 
 .project-deck-card.is-active .project-deck-card__title strong,
@@ -986,9 +920,9 @@ onUnmounted(() => {
 }
 
 .project-deck-card__progress em {
-  min-width: 29px;
+  min-width: 32px;
   color: currentColor;
-  font-size: 10px;
+  font-size: 11px;
   font-style: normal;
   font-weight: 700;
   text-align: right;
@@ -1001,8 +935,8 @@ onUnmounted(() => {
   min-height: 27px;
   margin-top: 8px;
   color: currentColor;
-  font-size: 9px;
-  opacity: 0.75;
+  font-size: 11px;
+  opacity: 0.8;
 }
 
 .project-deck-card footer span {
@@ -1012,7 +946,7 @@ onUnmounted(() => {
 .project-deck-card footer strong {
   overflow: hidden;
   max-width: 84px;
-  font-size: 10px;
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1070,7 +1004,6 @@ onUnmounted(() => {
 .project-deck-dots button.is-active {
   width: 24px;
   background: var(--color-brand);
-  box-shadow: 0 0 12px color-mix(in srgb, var(--color-brand) 38%, transparent);
 }
 
 /* ── 空态 / 加载骨架 ── */
@@ -1127,12 +1060,7 @@ onUnmounted(() => {
   height: 214px;
   border: 1px solid var(--app-border);
   border-radius: 8px;
-  background: linear-gradient(
-    108deg,
-    color-mix(in srgb, var(--app-text-primary) 5%, transparent),
-    color-mix(in srgb, var(--app-text-primary) 13%, transparent),
-    color-mix(in srgb, var(--app-text-primary) 5%, transparent)
-  );
+  background: var(--app-surface-subtle);
   transform:
     translateX(calc((var(--skeleton-i) - 3) * 52px))
     rotateY(-58deg)
