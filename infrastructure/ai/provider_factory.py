@@ -126,9 +126,16 @@ class DynamicLLMService(LLMService):
         self._cached_provider: Optional[LLMService] = None
         self._cached_key: Optional[str] = None
 
-    async def _resolve_provider(self) -> LLMService:
-        profile = self.factory.control_service.resolve_active_profile()
-        key = _make_cache_key(profile) if profile else "__mock__"
+    async def _resolve_provider(self, config: Optional[GenerationConfig] = None) -> LLMService:
+        # 多角色端点路由：config.model_role 指定 cheap/knowledge 时解析对应
+        # 档案（未配置/统一模式自动回退主力，见 resolve_role_profile）；
+        # 缓存按 (role, 档案指纹) 区分，避免切角色后串用旧 Provider
+        role = (getattr(config, "model_role", None) or "main").strip() or "main"
+        if role == "main":
+            profile = self.factory.control_service.resolve_active_profile()
+        else:
+            profile = self.factory.control_service.resolve_role_profile(role)
+        key = f"{role}|{_make_cache_key(profile) if profile else '__mock__'}"
 
         if key == self._cached_key and self._cached_provider is not None:
             return self._cached_provider
@@ -139,7 +146,8 @@ class DynamicLLMService(LLMService):
         self._cached_provider = provider
         self._cached_key = key
         logger.debug(
-            "Provider 缓存未命中，创建新实例: protocol=%s model=%s",
+            "Provider 缓存未命中，创建新实例: role=%s protocol=%s model=%s",
+            role,
             getattr(profile, "protocol", "?"),
             getattr(profile, "model", "?"),
         )
@@ -199,6 +207,7 @@ class DynamicLLMService(LLMService):
             max_tokens=max_tokens,
             temperature=temperature,
             response_format=config.response_format,
+            model_role=config.model_role,
         )
 
     @staticmethod
@@ -225,7 +234,7 @@ class DynamicLLMService(LLMService):
         return provider_label, generation_profile, model, metadata
 
     async def generate(self, prompt: Prompt, config: GenerationConfig) -> GenerationResult:
-        provider = await self._resolve_provider()
+        provider = await self._resolve_provider(config)
         effective_config = self._merge_config(config, provider)
         trace = ensure_trace(operation="llm_generate", metadata={"entry": "DynamicLLMService.generate"})
         request_span_id = trace.new_span_id("llm-request")
@@ -287,7 +296,7 @@ class DynamicLLMService(LLMService):
         return result
 
     async def stream_generate(self, prompt: Prompt, config: GenerationConfig) -> AsyncIterator[str]:
-        provider = await self._resolve_provider()
+        provider = await self._resolve_provider(config)
         effective_config = self._merge_config(config, provider)
         trace = ensure_trace(
             operation="llm_stream_generate",

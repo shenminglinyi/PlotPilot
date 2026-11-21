@@ -21,6 +21,17 @@ logger = logging.getLogger(__name__)
 LLMProtocol = Literal['openai', 'anthropic', 'gemini']
 LLMEndpointMode = Literal['unified', 'independent']
 
+# 多角色端点：档案名固定（前端 EngineMatrixSection 保存时使用同名），
+# 运行时按角色解析 + 空字段继承主力
+ROLE_MAIN = 'main'
+ROLE_CHEAP = 'cheap'
+ROLE_KNOWLEDGE = 'knowledge'
+_ROLE_PROFILE_NAMES = {
+    ROLE_MAIN: '主力模型',
+    ROLE_CHEAP: '经济模型',
+    ROLE_KNOWLEDGE: '知识图谱模型',
+}
+
 
 class LLMPreset(BaseModel):
     key: str
@@ -402,6 +413,48 @@ class LLMControlService:
         if active is None:
             return None
         return self.resolve_profile(active)
+
+    # ---- 多角色端点解析（统一/独立模式路由通道） ----------------------
+
+    def get_role_profile(self, role: str, config: Optional[LLMControlConfig] = None) -> Optional[LLMProfile]:
+        """按角色取原始档案：main=当前激活主力；其余按固定档案名匹配。"""
+        if role == ROLE_MAIN or not role:
+            return self.get_active_profile(config)
+        cfg = config or self.get_config()
+        target_name = _ROLE_PROFILE_NAMES.get(role)
+        if not target_name:
+            return self.get_active_profile(config)
+        for profile in cfg.profiles:
+            if profile.name == target_name:
+                return profile
+        return None
+
+    def resolve_role_profile(self, role: str, config: Optional[LLMControlConfig] = None) -> Optional[LLMProfile]:
+        """按角色解析可用端点（继承 + 回退语义，路由通道唯一入口）：
+
+        - 统一模式 / 未知角色 / 角色档案不存在 / 档案缺 model：一律回退
+          主力档案（独立配置残缺不应让任务报错）
+        - 独立模式且角色档案配了 model：
+          * API Key 留空 → 继承主力 Key（同网关共用凭证）
+          * Base URL 留空 → 协议同主力则跟随主力 URL，否则回协议预设
+            （跨协议硬继承会把 OpenAI 网关地址发给 Anthropic 客户端）
+        """
+        cfg = config or self.get_config()
+        main = self.resolve_profile(self.get_active_profile(cfg)) if cfg.profiles else None
+        if cfg.endpoint_mode != 'independent' or role == ROLE_MAIN or not role:
+            return main
+        role_profile = self.get_role_profile(role, cfg)
+        if role_profile is None or not role_profile.model.strip():
+            return main
+        resolved = self.resolve_profile(role_profile)
+        api_key = resolved.api_key.strip()
+        base_url = resolved.base_url.strip()
+        if main is not None:
+            if not api_key:
+                api_key = main.api_key.strip()
+            if not base_url and resolved.protocol == main.protocol and main.base_url.strip():
+                base_url = main.base_url.strip()
+        return resolved.model_copy(update={'api_key': api_key, 'base_url': base_url})
 
     def get_runtime_summary(self, config: Optional[LLMControlConfig] = None) -> LLMRuntimeSummary:
         profile = self.resolve_active_profile(config)
