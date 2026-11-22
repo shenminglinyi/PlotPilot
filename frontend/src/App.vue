@@ -176,7 +176,7 @@ const themeOverrides = computed<GlobalThemeOverrides>(() => {
       <n-dialog-provider>
         <router-view v-slot="{ Component }">
           <transition name="app-fade" mode="out-in">
-            <component :is="Component" />
+            <component :is="Component" v-if="Component" />
           </transition>
         </router-view>
         <AIInvocationReviewPanel v-if="featureFlags.aiInvocationDebug" />

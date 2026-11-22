@@ -70,6 +70,7 @@
                     @update:current-panel="onSettingsPanelChange"
                     @collapse="toggleRight"
                   />
+                  <div v-else aria-hidden="true" />
                 </template>
               </n-split>
             </div>
