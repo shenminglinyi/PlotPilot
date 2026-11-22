@@ -91,6 +91,7 @@ def register_api_routes(app: FastAPI) -> None:
     from interfaces.api.v1.workbench import (
         llm_control,
         llm_oauth_routes,
+        mod_sandbox_routes,
         monitor,
         sandbox,
         writer_block,
@@ -153,6 +154,7 @@ def register_api_routes(app: FastAPI) -> None:
             RouterRegistration(monitor.router, API_V1_PREFIX),
             RouterRegistration(llm_oauth_routes.router, API_V1_PREFIX),
             RouterRegistration(llm_control.router, API_V1_PREFIX),
+            RouterRegistration(mod_sandbox_routes.router, API_V1_PREFIX),
             RouterRegistration(anti_ai_routes.router, API_V1_PREFIX),
             RouterRegistration(cloud_routes.router, API_V1_PREFIX),
         ),

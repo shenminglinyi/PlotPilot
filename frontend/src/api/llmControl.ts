@@ -184,6 +184,42 @@ export interface ApplyGoldenRolesPayload {
   kg_model: string
 }
 
+export interface ModSandboxOverridePayload {
+  nodeKey: string
+  nodeLabel?: string
+  mode: 'append_protocol' | 'replace_system' | 'standalone_node'
+  systemContent: string
+  userTemplate?: string
+}
+
+export interface ModSandboxAbTrialPayload {
+  pack: {
+    id: string
+    name: string
+    summary?: string
+    overrides: ModSandboxOverridePayload[]
+  }
+  novel_id?: string
+  scenario?: string
+  target_words?: number
+}
+
+export interface ModSandboxAbTrialResponse {
+  pack_id: string
+  target_node_key: string
+  mounted_node_keys: string[]
+  novel_id: string
+  novel_title: string
+  scenario_used: string
+  target_words: number
+  baseline_text: string
+  mod_text: string
+  baseline_char_count: number
+  mod_char_count: number
+  model: string
+  latency_ms: number
+}
+
 export const llmControlApi = {
   getPanel: (signal?: AbortSignal) =>
     apiClient.get<LLMControlPanelData>(
@@ -247,6 +283,17 @@ export const llmControlApi = {
     }) as Promise<GoldenRoleRecommendation>,
   applyGoldenRoles: (payload: ApplyGoldenRolesPayload) =>
     apiClient.post<LLMControlPanelData>('/llm-control/role-routing/apply-golden', payload) as Promise<LLMControlPanelData>,
+
+  runModSandboxAbTrial: (payload: ModSandboxAbTrialPayload, signal?: AbortSignal) =>
+    apiClient.post<ModSandboxAbTrialResponse>(
+      '/llm-control/mods/sandbox-ab-trial',
+      payload,
+      {
+        timeout: runtimePerformance.network.longTaskTimeoutMs,
+        silentGlobalFeedback: true,
+        ...(signal ? { signal } : {}),
+      } as PromptApiCallConfig,
+    ) as Promise<ModSandboxAbTrialResponse>,
 }
 
 // ========== 提示词广场 API (Prompt Plaza) ==========

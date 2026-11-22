@@ -2,13 +2,18 @@
   <teleport to="body">
     <div
       v-if="show && pack"
+      ref="maskRef"
       class="mod-detail-mask"
-      role="dialog"
-      aria-modal="true"
-      :aria-label="pack.name"
       @click.self="$emit('close')"
     >
-      <div class="mod-detail-dialog">
+      <div
+        ref="dialogRef"
+        class="mod-detail-dialog"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="pack.name"
+        tabindex="-1"
+      >
         <!-- 顶栏：印章 + 标题 + 作者源 + 主操作按钮 -->
         <header class="detail-head">
           <div class="detail-glyph" aria-hidden="true">{{ pack.glyph }}</div>
@@ -63,6 +68,7 @@
             </button>
 
             <button
+              ref="closeBtnRef"
               type="button"
               class="detail-close-btn"
               aria-label="关闭详情"
@@ -142,35 +148,167 @@
           </div>
 
           <!-- 内部视图切换：效果样章 vs 节点源码 -->
-          <div class="detail-tabs" role="tablist">
+          <div class="detail-tabs" role="tablist" aria-label="模组详情视图">
             <button
+              id="mod-detail-tab-readme"
+              ref="readmeTabBtnRef"
               type="button"
               role="tab"
               class="detail-tab"
               :class="{ 'is-active': activeTab === 'readme' }"
               :aria-selected="activeTab === 'readme'"
+              aria-controls="mod-detail-panel-readme"
+              :tabindex="activeTab === 'readme' ? 0 : -1"
               @click="activeTab = 'readme'"
+              @keydown="handleTabKeydown($event, 'readme')"
             >
               效果对比与说明
             </button>
             <button
+              id="mod-detail-tab-nodes"
+              ref="nodesTabBtnRef"
               type="button"
               role="tab"
               class="detail-tab"
               :class="{ 'is-active': activeTab === 'nodes' }"
               :aria-selected="activeTab === 'nodes'"
+              aria-controls="mod-detail-panel-nodes"
+              :tabindex="activeTab === 'nodes' ? 0 : -1"
               @click="activeTab = 'nodes'"
+              @keydown="handleTabKeydown($event, 'nodes')"
             >
               接管节点明细 ({{ pack.overrides.length }})
             </button>
           </div>
 
-          <!-- 视图 1：Before/After 样章对比 + Readme -->
-          <div v-if="activeTab === 'readme'" class="tab-pane">
+          <!-- 视图 1：真字 A/B 试写演武场 + 内置样章对比 + Readme -->
+          <div
+            v-if="activeTab === 'readme'"
+            id="mod-detail-panel-readme"
+            role="tabpanel"
+            aria-labelledby="mod-detail-tab-readme"
+            class="tab-pane"
+          >
+            <section class="arena-block" aria-label="真字 A/B 试写演武场">
+              <div class="arena-head">
+                <div class="arena-title-row">
+                  <h4 class="section-heading">真字 A/B 试写演武场</h4>
+                  <span class="arena-zero-write-pill">纯内存拼装 · 零写入 SQLite</span>
+                </div>
+                <p class="arena-sub">
+                  使用当前主力模型并发生成约 300 字对照片段：左侧还原纯净原版基线，右侧在内存中临时挂载本模组，不改动任何已保存提示词节点。
+                </p>
+              </div>
+
+              <div class="arena-controls">
+                <label class="arena-field">
+                  <span class="arena-field-label">对照书目上下文</span>
+                  <select
+                    v-model="selectedNovelId"
+                    class="arena-select"
+                    :disabled="trialRunning || novelsLoading"
+                    @change="handleNovelChange"
+                  >
+                    <option value="">
+                      {{ novelsLoading ? '正在读取书目列表…' : '不绑定书目 · 仅使用下方测试命题' }}
+                    </option>
+                    <option v-for="book in novels" :key="book.id" :value="book.id">
+                      《{{ book.title }}》{{ book.locked_genre ? ` · ${book.locked_genre}` : '' }}
+                    </option>
+                  </select>
+                </label>
+
+                <div class="arena-field">
+                  <div class="arena-field-head">
+                    <label class="arena-field-label" for="mod-arena-scenario-input">试写测试命题</label>
+                    <button
+                      v-if="scenarioDirty"
+                      type="button"
+                      class="arena-reset-link"
+                      :disabled="trialRunning || novelsLoading"
+                      @click="resetScenarioToDefault"
+                    >
+                      恢复默认命题
+                    </button>
+                  </div>
+                  <textarea
+                    id="mod-arena-scenario-input"
+                    v-model="trialScenario"
+                    class="arena-textarea"
+                    rows="2"
+                    maxlength="2000"
+                    :disabled="trialRunning || novelsLoading"
+                    placeholder="输入一段场景冲突或开篇命题，例如：雨夜茶肆对峙，黑衣客递来半枚旧案铜符……"
+                    @input="handleScenarioInput"
+                  />
+                </div>
+
+                <div class="arena-action-bar">
+                  <button
+                    type="button"
+                    class="detail-action-btn is-primary arena-run-btn"
+                    :disabled="trialRunning || novelsLoading || !canRunTrial"
+                    @click="runLiveAbTrial"
+                  >
+                    {{
+                      trialRunning
+                        ? '正在并发试写 300 字对比…'
+                        : novelsLoading
+                          ? '正在准备书目上下文…'
+                          : selectedNovelId
+                            ? '用当前书目试写 300 字对比'
+                            : '实时试写 300 字对比'
+                    }}
+                  </button>
+                  <button
+                    v-if="trialRunning"
+                    type="button"
+                    class="arena-cancel-btn"
+                    @click="cancelLiveAbTrial"
+                  >
+                    取消试写
+                  </button>
+                  <span v-if="trialResult && !trialRunning" class="arena-meta numeric">
+                    模型 {{ trialResult.model }} · 节点 {{ trialResult.target_node_key }} · {{ trialResult.latency_ms }} ms
+                  </span>
+                </div>
+              </div>
+
+              <p v-if="trialError" class="arena-error" role="alert">
+                {{ trialError }}
+              </p>
+
+              <div v-if="trialResult" class="arena-result-wrap">
+                <div class="arena-result-context">
+                  <span>
+                    对照上下文：{{ trialResult.novel_title ? `《${trialResult.novel_title}》` : '未绑定书目' }}
+                  </span>
+                  <span class="origin-sep">·</span>
+                  <span>命题：{{ trialResult.scenario_used }}</span>
+                </div>
+                <div class="showcase-columns arena-result-columns">
+                  <div class="showcase-col is-before">
+                    <div class="arena-col-head">
+                      <span class="col-badge">未装模组 · 原版基线</span>
+                      <span class="arena-char-count numeric">{{ trialResult.baseline_char_count }} 字</span>
+                    </div>
+                    <p class="col-excerpt arena-excerpt">{{ trialResult.baseline_text }}</p>
+                  </div>
+                  <div class="showcase-col is-after">
+                    <div class="arena-col-head">
+                      <span class="col-badge is-good">挂载本模组 · 内存沙盒</span>
+                      <span class="arena-char-count numeric">{{ trialResult.mod_char_count }} 字</span>
+                    </div>
+                    <p class="col-excerpt arena-excerpt">{{ trialResult.mod_text }}</p>
+                  </div>
+                </div>
+              </div>
+            </section>
+
             <section v-if="pack.showcase" class="showcase-block">
               <div class="showcase-head">
-                <h4 class="section-heading">实测样章对比</h4>
-                <span class="showcase-scenario">测试命题：{{ pack.showcase.scenario }}</span>
+                <h4 class="section-heading">内置静态对照样章</h4>
+                <span class="showcase-scenario">示例命题：{{ pack.showcase.scenario }}</span>
               </div>
               <div class="showcase-columns">
                 <div class="showcase-col is-before">
@@ -195,7 +333,13 @@
           </div>
 
           <!-- 视图 2：接管节点技术明细 -->
-          <div v-else class="tab-pane nodes-pane">
+          <div
+            v-else
+            id="mod-detail-panel-nodes"
+            role="tabpanel"
+            aria-labelledby="mod-detail-tab-nodes"
+            class="tab-pane nodes-pane"
+          >
             <div
               v-for="ov in pack.overrides"
               :key="ov.nodeKey"
@@ -233,7 +377,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
+import { llmControlApi, type ModSandboxAbTrialResponse } from '@/api/llmControl'
+import { novelApi, type NovelDTO } from '@/api/novel'
+import { hydrateCloudPackDetail } from '@/domain/modPack/cloudPackAdapter'
 import type { ModNodeOverride, NarrativeModPack } from '@/domain/modPack/types'
 
 const props = defineProps<{
@@ -243,7 +391,7 @@ const props = defineProps<{
   busy?: boolean
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   (e: 'close'): void
   (e: 'install', pack: NarrativeModPack): void
   (e: 'uninstall', pack: NarrativeModPack): void
@@ -251,14 +399,408 @@ defineEmits<{
   (e: 'inspect-node', nodeKey: string): void
 }>()
 
+const route = useRoute()
 const activeTab = ref<'readme' | 'nodes'>('readme')
 
-watch(
-  () => props.pack?.id,
-  () => {
-    activeTab.value = 'readme'
-  },
+const maskRef = ref<HTMLElement | null>(null)
+const dialogRef = ref<HTMLElement | null>(null)
+const closeBtnRef = ref<HTMLButtonElement | null>(null)
+const readmeTabBtnRef = ref<HTMLButtonElement | null>(null)
+const nodesTabBtnRef = ref<HTMLButtonElement | null>(null)
+
+const novels = ref<NovelDTO[]>([])
+const novelsLoading = ref(false)
+const selectedNovelId = ref('')
+const trialScenario = ref('')
+const scenarioDirty = ref(false)
+const trialRunning = ref(false)
+const trialError = ref('')
+const trialResult = ref<ModSandboxAbTrialResponse | null>(null)
+
+let novelsLoadEpoch = 0
+let trialRunEpoch = 0
+let trialAbortController: AbortController | null = null
+let openerElement: HTMLElement | null = null
+let inertRestoreList: Array<{ el: HTMLElement; prevInert: boolean; prevAriaHidden: string | null }> = []
+let modalKeydownListening = false
+
+const FOCUSABLE_SELECTOR = [
+  'button:not([disabled])',
+  '[href]',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(', ')
+
+function getDialogFocusableElements(): HTMLElement[] {
+  const root = dialogRef.value
+  if (!root) return []
+  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+    el => !el.hasAttribute('disabled') && el.getAttribute('aria-hidden') !== 'true',
+  )
+}
+
+function applyBackgroundInertness(): void {
+  if (typeof document === 'undefined') return
+  restoreBackgroundInertness()
+  const maskEl = maskRef.value
+  if (!maskEl) return
+  for (const child of Array.from(document.body.children)) {
+    if (!(child instanceof HTMLElement) || child === maskEl || child.contains(maskEl)) {
+      continue
+    }
+    const htmlChild = child as HTMLElement & { inert?: boolean }
+    inertRestoreList.push({
+      el: htmlChild,
+      prevInert: Boolean(htmlChild.inert),
+      prevAriaHidden: htmlChild.getAttribute('aria-hidden'),
+    })
+    htmlChild.inert = true
+    htmlChild.setAttribute('aria-hidden', 'true')
+  }
+}
+
+function restoreBackgroundInertness(): void {
+  for (const item of inertRestoreList) {
+    const htmlChild = item.el as HTMLElement & { inert?: boolean }
+    htmlChild.inert = item.prevInert
+    if (item.prevAriaHidden === null) {
+      htmlChild.removeAttribute('aria-hidden')
+    } else {
+      htmlChild.setAttribute('aria-hidden', item.prevAriaHidden)
+    }
+  }
+  inertRestoreList = []
+}
+
+function handleGlobalModalKeydown(e: KeyboardEvent): void {
+  if (!props.show || !props.pack) return
+  if (e.key === 'Escape') {
+    e.preventDefault()
+    e.stopPropagation()
+    emit('close')
+    return
+  }
+  if (e.key !== 'Tab') return
+  const root = dialogRef.value
+  if (!root) return
+  const focusables = getDialogFocusableElements()
+  if (focusables.length === 0) {
+    e.preventDefault()
+    root.focus()
+    return
+  }
+  const first = focusables[0]
+  const last = focusables[focusables.length - 1]
+  const active = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  if (!active || !root.contains(active)) {
+    e.preventDefault()
+    ;(e.shiftKey ? last : first).focus()
+    return
+  }
+  if (e.shiftKey && active === first) {
+    e.preventDefault()
+    last.focus()
+  } else if (!e.shiftKey && active === last) {
+    e.preventDefault()
+    first.focus()
+  }
+}
+
+function attachModalA11yLifecycle(): void {
+  if (typeof document === 'undefined') return
+  if (!modalKeydownListening) {
+    openerElement =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null
+    document.addEventListener('keydown', handleGlobalModalKeydown, true)
+    modalKeydownListening = true
+  }
+  void nextTick(() => {
+    if (!props.show || !props.pack) return
+    applyBackgroundInertness()
+    const target = closeBtnRef.value ?? dialogRef.value
+    target?.focus()
+  })
+}
+
+function detachModalA11yLifecycle(restoreFocus = true): void {
+  if (typeof document !== 'undefined' && modalKeydownListening) {
+    document.removeEventListener('keydown', handleGlobalModalKeydown, true)
+    modalKeydownListening = false
+  }
+  restoreBackgroundInertness()
+  const prev = openerElement
+  openerElement = null
+  if (restoreFocus && prev && typeof document !== 'undefined' && document.contains(prev)) {
+    prev.focus()
+  }
+}
+
+function handleTabKeydown(e: KeyboardEvent, current: 'readme' | 'nodes'): void {
+  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+  e.preventDefault()
+  const next = current === 'readme' ? 'nodes' : 'readme'
+  activeTab.value = next
+  void nextTick(() => {
+    ;(next === 'readme' ? readmeTabBtnRef.value : nodesTabBtnRef.value)?.focus()
+  })
+}
+
+const selectedNovel = computed(() =>
+  novels.value.find(item => item.id === selectedNovelId.value) ?? null,
 )
+
+function computeDefaultScenario(pack: NarrativeModPack | null, book: NovelDTO | null): string {
+  if (!pack) return ''
+  const bookPremise = (book?.premise || '').trim()
+  if (bookPremise) {
+    return bookPremise.length > 260 ? `${bookPremise.slice(0, 260)}…` : bookPremise
+  }
+  const showcaseScenario = (pack.showcase?.scenario || '').trim()
+  if (showcaseScenario) return showcaseScenario
+  return (pack.summary || pack.name || '').trim()
+}
+
+function clearTrialOutput(): void {
+  trialResult.value = null
+  trialError.value = ''
+}
+
+function handleScenarioInput(): void {
+  scenarioDirty.value = true
+  clearTrialOutput()
+}
+
+function resetScenarioToDefault(): void {
+  scenarioDirty.value = false
+  trialScenario.value = computeDefaultScenario(props.pack, selectedNovel.value)
+  clearTrialOutput()
+}
+
+function handleNovelChange(): void {
+  if (!scenarioDirty.value) {
+    trialScenario.value = computeDefaultScenario(props.pack, selectedNovel.value)
+  }
+  clearTrialOutput()
+}
+
+function abortActiveTrial(): void {
+  trialRunEpoch += 1
+  if (trialAbortController) {
+    trialAbortController.abort()
+    trialAbortController = null
+  }
+  trialRunning.value = false
+}
+
+function cancelLiveAbTrial(): void {
+  abortActiveTrial()
+  clearTrialOutput()
+}
+
+function resolvePreferredRouteNovelId(): string {
+  const paramId = route.params.novelId ?? route.params.id
+  if (typeof paramId === 'string' && paramId.trim()) return paramId.trim()
+  const queryId = route.query.novelId
+  if (typeof queryId === 'string' && queryId.trim()) return queryId.trim()
+  return ''
+}
+
+async function loadNovelsForArena(): Promise<void> {
+  const epoch = ++novelsLoadEpoch
+  novelsLoading.value = true
+  try {
+    const list = await novelApi.listNovels()
+    if (epoch !== novelsLoadEpoch || !props.show || trialRunning.value) return
+    const safeList = Array.isArray(list) ? list : []
+    novels.value = safeList
+
+    const routeNovelId = resolvePreferredRouteNovelId()
+    if (selectedNovelId.value && safeList.some(b => b.id === selectedNovelId.value)) {
+      // keep valid selection
+    } else if (routeNovelId && safeList.some(b => b.id === routeNovelId)) {
+      selectedNovelId.value = routeNovelId
+    } else if (safeList.length > 0) {
+      selectedNovelId.value = safeList[0].id
+    } else {
+      selectedNovelId.value = ''
+    }
+
+    if (!scenarioDirty.value) {
+      trialScenario.value = computeDefaultScenario(props.pack, selectedNovel.value)
+    }
+  } catch {
+    if (epoch !== novelsLoadEpoch || trialRunning.value) return
+    novels.value = []
+    selectedNovelId.value = ''
+    if (!scenarioDirty.value) {
+      trialScenario.value = computeDefaultScenario(props.pack, null)
+    }
+  } finally {
+    if (epoch === novelsLoadEpoch) {
+      novelsLoading.value = false
+    }
+  }
+}
+
+const canRunTrial = computed(() => {
+  if (!props.pack || props.pack.overrides.length === 0 || novelsLoading.value) return false
+  const hasScenario = Boolean(
+    trialScenario.value.trim() ||
+      selectedNovel.value?.premise?.trim() ||
+      props.pack.summary?.trim(),
+  )
+  return hasScenario
+})
+
+function isCanceledError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  const rec = err as Record<string, unknown>
+  return (
+    rec.name === 'AbortError' ||
+    rec.name === 'CanceledError' ||
+    rec.code === 'ERR_CANCELED'
+  )
+}
+
+function extractTrialErrorMessage(err: unknown): string {
+  if (err && typeof err === 'object') {
+    const rec = err as {
+      response?: { status?: number; data?: { detail?: unknown; message?: unknown } }
+      message?: unknown
+    }
+    const detail = rec.response?.data?.detail ?? rec.response?.data?.message
+    if (typeof detail === 'string' && detail.trim()) {
+      return detail.trim()
+    }
+    if (typeof rec.message === 'string' && rec.message.trim()) {
+      return rec.message.trim()
+    }
+  }
+  return '实时试写请求未完成，请确认主力模型连接正常后重试。'
+}
+
+function clonePackShallow(pack: NarrativeModPack): NarrativeModPack {
+  return {
+    ...pack,
+    overrides: pack.overrides.map(ov => ({ ...ov })),
+    tags: [...pack.tags],
+    readmeSections: pack.readmeSections.map(sec => ({ ...sec })),
+    ...(pack.showcase ? { showcase: { ...pack.showcase } } : {}),
+  }
+}
+
+async function runLiveAbTrial(): Promise<void> {
+  const sourcePack = props.pack
+  if (!sourcePack || trialRunning.value || novelsLoading.value) return
+
+  const submittedNovelId = selectedNovelId.value
+  const submittedScenario = trialScenario.value.trim()
+
+  abortActiveTrial()
+  const epoch = trialRunEpoch
+  const controller = new AbortController()
+  trialAbortController = controller
+  trialRunning.value = true
+  clearTrialOutput()
+
+  try {
+    let candidatePack: NarrativeModPack = clonePackShallow(sourcePack)
+    const needsCloudHydration =
+      Boolean(candidatePack.cloudSourceId) &&
+      candidatePack.overrides.some(ov => !ov.systemContent.trim())
+    if (needsCloudHydration) {
+      candidatePack = await hydrateCloudPackDetail(candidatePack)
+      if (epoch !== trialRunEpoch || controller.signal.aborted) return
+    }
+
+    const validOverrides = candidatePack.overrides
+      .map(ov => ({
+        nodeKey: ov.nodeKey.trim(),
+        nodeLabel: ov.nodeLabel.trim(),
+        mode: ov.mode,
+        systemContent: ov.systemContent.trim(),
+        ...(ov.userTemplate !== undefined ? { userTemplate: ov.userTemplate } : {}),
+      }))
+      .filter(ov => ov.nodeKey.length > 0 && ov.systemContent.length > 0)
+
+    if (validOverrides.length === 0) {
+      trialError.value = '该云端模组暂未返回可用的规则正文，请稍后重试或安装后再查看。'
+      return
+    }
+
+    const res = await llmControlApi.runModSandboxAbTrial(
+      {
+        pack: {
+          id: candidatePack.id,
+          name: candidatePack.name,
+          summary: candidatePack.summary,
+          overrides: validOverrides,
+        },
+        novel_id: submittedNovelId,
+        scenario: submittedScenario,
+        target_words: 300,
+      },
+      controller.signal,
+    )
+
+    if (epoch !== trialRunEpoch || controller.signal.aborted) return
+    trialResult.value = res
+  } catch (err: unknown) {
+    if (epoch !== trialRunEpoch || controller.signal.aborted || isCanceledError(err)) {
+      return
+    }
+    trialError.value = extractTrialErrorMessage(err)
+  } finally {
+    if (epoch === trialRunEpoch) {
+      trialRunning.value = false
+      trialAbortController = null
+    }
+  }
+}
+
+watch(
+  () => [props.show, props.pack] as const,
+  ([isOpen, nextPack], prev) => {
+    const prevOpen = prev?.[0] ?? false
+    const prevPack = prev?.[1] ?? null
+    const currentlyRenderable = Boolean(isOpen && nextPack)
+    const previouslyRenderable = Boolean(prevOpen && prevPack)
+
+    if (!currentlyRenderable) {
+      novelsLoadEpoch += 1
+      novelsLoading.value = false
+      abortActiveTrial()
+      clearTrialOutput()
+      scenarioDirty.value = false
+      if (previouslyRenderable) {
+        detachModalA11yLifecycle(true)
+      }
+      return
+    }
+
+    if (!previouslyRenderable) {
+      attachModalA11yLifecycle()
+    }
+
+    if (!previouslyRenderable || nextPack !== prevPack) {
+      activeTab.value = 'readme'
+      abortActiveTrial()
+      clearTrialOutput()
+      scenarioDirty.value = false
+      trialScenario.value = computeDefaultScenario(nextPack, selectedNovel.value)
+      void loadNovelsForArena()
+    }
+  },
+  { immediate: true },
+)
+
+onBeforeUnmount(() => {
+  novelsLoadEpoch += 1
+  abortActiveTrial()
+  detachModalA11yLifecycle(true)
+})
 
 const scopeSummary = computed(() => {
   if (!props.pack) return ''
@@ -608,6 +1150,201 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
   gap: 18px;
 }
 
+.arena-block {
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--app-surface-subtle);
+  border: 1px solid var(--app-border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.arena-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.arena-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.arena-zero-write-pill {
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.arena-sub {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.58;
+  color: var(--app-text-secondary);
+  max-width: 58ch;
+}
+
+.arena-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.arena-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.arena-field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.arena-field-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--app-text-secondary);
+}
+
+.arena-reset-link {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-brand);
+  cursor: pointer;
+}
+
+.arena-reset-link:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.arena-select,
+.arena-textarea {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid var(--app-border-strong);
+  background: var(--app-surface);
+  color: var(--app-text-primary);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.arena-select {
+  min-height: 36px;
+  padding: 6px 10px;
+}
+
+.arena-textarea {
+  padding: 8px 10px;
+  resize: vertical;
+  min-height: 60px;
+}
+
+.arena-select:focus,
+.arena-textarea:focus {
+  outline: none;
+  border-color: var(--color-brand);
+}
+
+.arena-action-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: 2px;
+}
+
+.arena-run-btn {
+  min-height: 36px;
+}
+
+.arena-cancel-btn {
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 9px;
+  border: 1px solid var(--app-border-strong);
+  background: var(--app-surface);
+  color: var(--app-text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.arena-cancel-btn:hover {
+  color: var(--app-text-primary);
+}
+
+.arena-meta {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  margin-left: auto;
+}
+
+.arena-error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--color-error-light);
+  border: 1px solid color-mix(in srgb, var(--color-error) 30%, var(--app-border));
+  color: var(--color-error);
+  font-size: 13px;
+  line-height: 1.55;
+  max-width: 58ch;
+}
+
+.arena-result-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.arena-result-context {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--app-text-muted);
+  max-width: 58ch;
+}
+
+.arena-result-columns {
+  margin-top: 0;
+}
+
+.arena-col-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.arena-char-count {
+  font-size: 12px;
+  color: var(--app-text-muted);
+}
+
+.arena-excerpt {
+  white-space: pre-line;
+  max-width: 58ch;
+}
+
 .showcase-block {
   display: flex;
   flex-direction: column;
@@ -819,6 +1556,13 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
   }
   .showcase-columns {
     grid-template-columns: 1fr;
+  }
+  .arena-action-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .arena-meta {
+    margin-left: 0;
   }
   .detail-head {
     flex-wrap: wrap;
