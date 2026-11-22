@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 
 ARK_DEFAULT_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
+MAGPIE_DEFAULT_GATEWAY_URL = "http://127.0.0.1:3425/v1"
 
 
 def _env_text(name: str, default: str = "") -> str:
@@ -32,6 +33,10 @@ class LLMEnvironmentSettings:
     ark_api_key: str = ""
     ark_base_url: str = ""
     ark_model: str = ""
+    github_oauth_client_id: str = ""
+    google_oauth_client_id: str = ""
+    google_oauth_client_secret: str = ""
+    magpie_gateway_url: str = ""
 
     @classmethod
     def from_env(cls) -> "LLMEnvironmentSettings":
@@ -52,6 +57,10 @@ class LLMEnvironmentSettings:
             ark_api_key=_env_text("ARK_API_KEY"),
             ark_base_url=_env_text("ARK_BASE_URL"),
             ark_model=_env_text("ARK_MODEL"),
+            github_oauth_client_id=_env_text("PLOTPILOT_GITHUB_OAUTH_CLIENT_ID"),
+            google_oauth_client_id=_env_text("PLOTPILOT_GOOGLE_OAUTH_CLIENT_ID"),
+            google_oauth_client_secret=_env_text("PLOTPILOT_GOOGLE_OAUTH_CLIENT_SECRET"),
+            magpie_gateway_url=_env_text("PLOTPILOT_MAGPIE_GATEWAY_URL"),
         )
 
     @property
@@ -67,3 +76,7 @@ class LLMEnvironmentSettings:
     @property
     def ark_base_url_or_default(self) -> str:
         return self.ark_base_url or ARK_DEFAULT_BASE_URL
+
+    @property
+    def magpie_gateway_url_or_default(self) -> str:
+        return self.magpie_gateway_url or MAGPIE_DEFAULT_GATEWAY_URL

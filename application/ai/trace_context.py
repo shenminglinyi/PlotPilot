@@ -10,12 +10,17 @@ import hashlib
 import json
 import time
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Mapping
+from typing import Any, Iterator, Mapping
 
 _TRACE_CONTEXT: contextvars.ContextVar["TraceContext | None"] = contextvars.ContextVar(
     "plotpilot_ai_trace_context",
     default=None,
+)
+_SCOPED_PROMPT_NODE_KEY: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "plotpilot_scoped_prompt_node_key",
+    default="",
 )
 
 REDACTED = "[已脱敏]"
@@ -91,6 +96,21 @@ def set_current_trace(trace: TraceContext | None) -> contextvars.Token:
 
 def reset_current_trace(token: contextvars.Token) -> None:
     _TRACE_CONTEXT.reset(token)
+
+
+def get_scoped_prompt_node_key() -> str:
+    """获取当前异步作用域内的提示词节点标识（如 DAG 节点 cpms_node_key）。"""
+    return _SCOPED_PROMPT_NODE_KEY.get()
+
+
+@contextmanager
+def scoped_prompt_node_key(node_key: str) -> Iterator[None]:
+    """在当前异步调用栈内绑定提示词 node_key，退出时严格 reset 防止跨调用污染。"""
+    token = _SCOPED_PROMPT_NODE_KEY.set((node_key or "").strip())
+    try:
+        yield
+    finally:
+        _SCOPED_PROMPT_NODE_KEY.reset(token)
 
 
 def ensure_trace(

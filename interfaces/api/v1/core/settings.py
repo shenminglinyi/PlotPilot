@@ -4,14 +4,19 @@ from __future__ import annotations
 import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from application.ai.llm_control_service import LLMControlService, LLMProfile
+from interfaces.api.v1.workbench.llm_control import assert_loopback_request
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/settings/llm-configs", tags=["settings"])
+router = APIRouter(
+    prefix="/settings/llm-configs",
+    tags=["settings"],
+    dependencies=[Depends(assert_loopback_request)],
+)
 
 _service = LLMControlService()
 
@@ -45,16 +50,18 @@ class FetchModelsRequest(BaseModel):
 
 
 def _profile_to_dict(p: LLMProfile) -> dict:
-    """将 LLMProfile 转换为旧接口的 dict 格式。"""
+    """将 LLMProfile 转换为旧接口的 dict 格式（脱敏 api_key）。"""
+    redacted = _service.redact_profile(p)
     return {
-        "id": p.id,
-        "name": p.name,
-        "provider": p.protocol,
-        "api_key": p.api_key,
-        "base_url": p.base_url,
-        "model": p.model,
-        "system_model": p.model,
-        "writing_model": p.model,
+        "id": redacted.id,
+        "name": redacted.name,
+        "provider": redacted.protocol,
+        "api_key": redacted.api_key,
+        "has_secret": redacted.has_secret,
+        "base_url": redacted.base_url,
+        "model": redacted.model,
+        "system_model": redacted.model,
+        "writing_model": redacted.model,
     }
 
 
@@ -94,8 +101,12 @@ def update_config(config_id: str, body: ConfigUpdate):
                 update_data["protocol"] = update_data.pop("provider")
             updated = p.model_copy(update={k: v for k, v in update_data.items() if hasattr(p, k)})
             config.profiles[i] = updated
-            _service.save_config(config)
-            return _profile_to_dict(updated)
+            try:
+                saved = _service.save_config(config)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            saved_profile = next((item for item in saved.profiles if item.id == config_id), updated)
+            return _profile_to_dict(saved_profile)
     raise HTTPException(404, "Config not found")
 
 
@@ -138,7 +149,11 @@ async def fetch_models(body: FetchModelsRequest):
 
 # ── embedding endpoints（数据库持久化）──────────────────
 
-embedding_router = APIRouter(prefix="/settings/embedding", tags=["settings"])
+embedding_router = APIRouter(
+    prefix="/settings/embedding",
+    tags=["settings"],
+    dependencies=[Depends(assert_loopback_request)],
+)
 
 
 class EmbeddingConfigUpdate(BaseModel):

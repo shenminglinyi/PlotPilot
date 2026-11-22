@@ -1,4 +1,5 @@
 """Anthropic LLM 提供商实现"""
+from contextlib import aclosing
 import json
 import logging
 from typing import Any, AsyncIterator
@@ -11,6 +12,10 @@ from domain.ai.value_objects.prompt import Prompt
 from domain.ai.value_objects.token_usage import TokenUsage
 from infrastructure.ai.config.settings import Settings
 from infrastructure.ai.http_timeout import build_httpx_timeout
+from infrastructure.ai.loopback_transport import (
+    LoopbackOnlyAsyncTransport,
+    LoopbackOnlySyncTransport,
+)
 from .base import BaseProvider
 from .model_resolution import require_resolved_model_id
 
@@ -116,8 +121,19 @@ class AnthropicProvider(BaseProvider):
 
         # SDK 内置 httpx 默认 trust_env=True，会走系统 HTTP(S)_PROXY，本机代理 TLS 常导致 ConnectError。
         _sdk_timeout = build_httpx_timeout(settings.http_timeout_settings)
-        self._http_client_sync = httpx.Client(timeout=_sdk_timeout, trust_env=False)
-        self._http_client_async = httpx.AsyncClient(timeout=_sdk_timeout, trust_env=False)
+        _loopback_only = bool(getattr(settings, "loopback_only", False))
+        self._http_client_sync = httpx.Client(
+            timeout=_sdk_timeout,
+            trust_env=False,
+            follow_redirects=False,
+            transport=LoopbackOnlySyncTransport() if _loopback_only else None,
+        )
+        self._http_client_async = httpx.AsyncClient(
+            timeout=_sdk_timeout,
+            trust_env=False,
+            follow_redirects=False,
+            transport=LoopbackOnlyAsyncTransport() if _loopback_only else None,
+        )
         self.client = Anthropic(**official_client_kw, http_client=self._http_client_sync)
         self.async_client = AsyncAnthropic(**official_client_kw, http_client=self._http_client_async)
 
@@ -125,6 +141,8 @@ class AnthropicProvider(BaseProvider):
         self._stream_http_client = httpx.AsyncClient(
             timeout=build_httpx_timeout(self.settings.http_timeout_settings),
             trust_env=False,
+            follow_redirects=False,
+            transport=LoopbackOnlyAsyncTransport() if _loopback_only else None,
         )
 
         # 兼容旧字段：若其他模块引用，保留归一化后的值
@@ -266,22 +284,75 @@ class AnthropicProvider(BaseProvider):
                 )
 
             buffer = ""
+            pending_cr = False
             events_received = 0
+            protocol_mode = "unknown"
+            saw_anthropic_stop = False
+            saw_compat_done = False
+
+            def _consume_event(raw_evt: str) -> str:
+                nonlocal events_received, protocol_mode, saw_anthropic_stop, saw_compat_done
+                events_received += 1
+                text_out, evt_mode, is_complete = self._parse_sse_event_with_state(
+                    raw_evt, protocol_mode
+                )
+                if evt_mode == "anthropic":
+                    protocol_mode = "anthropic"
+                    if is_complete:
+                        saw_anthropic_stop = True
+                elif evt_mode == "compat":
+                    if protocol_mode == "unknown":
+                        protocol_mode = "compat"
+                    if is_complete and protocol_mode == "compat":
+                        saw_compat_done = True
+                if events_received <= 3:
+                    logger.info(
+                        "[Stream] SSE event #%d raw=%s parsed=%s",
+                        events_received,
+                        raw_evt[:500],
+                        text_out[:200] if text_out else "(empty)",
+                    )
+                return text_out
+
             async for chunk in response.aiter_text():
-                buffer += chunk.replace("\r\n", "\n")
+                if not chunk:
+                    continue
+                if pending_cr:
+                    if chunk.startswith("\n"):
+                        chunk = chunk[1:]
+                    pending_cr = False
+                if not chunk:
+                    while "\n\n" in buffer:
+                        event_text, buffer = buffer.split("\n\n", 1)
+                        text_content = _consume_event(event_text)
+                        if text_content:
+                            yield text_content
+                    continue
+                if chunk.endswith("\r"):
+                    pending_cr = True
+                    body = chunk[:-1]
+                    buffer += body.replace("\r\n", "\n").replace("\r", "\n") + "\n"
+                else:
+                    buffer += chunk.replace("\r\n", "\n").replace("\r", "\n")
                 while "\n\n" in buffer:
                     event_text, buffer = buffer.split("\n\n", 1)
-                    events_received += 1
-                    text_content = self._parse_sse_event(event_text)
-                    if events_received <= 3:
-                        logger.info(
-                            "[Stream] SSE event #%d raw=%s parsed=%s",
-                            events_received,
-                            event_text[:500],
-                            text_content[:200] if text_content else "(empty)",
-                        )
+                    text_content = _consume_event(event_text)
                     if text_content:
                         yield text_content
+            if buffer.strip():
+                text_content = _consume_event(buffer)
+                if text_content:
+                    yield text_content
+
+            stream_completed = (
+                saw_anthropic_stop
+                if protocol_mode == "anthropic"
+                else (saw_compat_done if protocol_mode == "compat" else False)
+            )
+            if not stream_completed:
+                raise RuntimeError(
+                    "Upstream SSE stream ended prematurely before protocol completion event"
+                )
 
     async def _stream_via_sdk(
         self,
@@ -310,13 +381,23 @@ class AnthropicProvider(BaseProvider):
         yielded_any = False
 
         try:
-            async for chunk in self._stream_via_httpx(prompt, config):
-                yielded_any = True
-                yield chunk
+            async with aclosing(self._stream_via_httpx(prompt, config)) as httpx_stream:
+                async for chunk in httpx_stream:
+                    yielded_any = True
+                    yield chunk
         except Exception as e:
+            if yielded_any:
+                detail = self._format_stream_error(e)
+                logger.error(
+                    "[Stream] httpx SSE failed after partial output (%s); aborting without SDK replay",
+                    detail,
+                )
+                raise RuntimeError(
+                    f"Stream interrupted after partial output: {detail}"
+                ) from e
             httpx_error = e
             logger.warning(
-                "[Stream] httpx SSE failed (%s), will try SDK fallback",
+                "[Stream] httpx SSE failed before output (%s), will try SDK fallback",
                 self._format_stream_error(e),
             )
 
@@ -325,9 +406,10 @@ class AnthropicProvider(BaseProvider):
 
         sdk_yielded = False
         try:
-            async for chunk in self._stream_via_sdk(prompt, config):
-                sdk_yielded = True
-                yield chunk
+            async with aclosing(self._stream_via_sdk(prompt, config)) as sdk_stream:
+                async for chunk in sdk_stream:
+                    sdk_yielded = True
+                    yield chunk
         except Exception as sdk_error:
             sdk_detail = self._format_stream_error(sdk_error)
             if httpx_error is not None:
@@ -354,63 +436,137 @@ class AnthropicProvider(BaseProvider):
                 f"Both streaming paths produced zero output for model={model_id}: {detail}"
             )
 
-    def _parse_sse_event(self, event_text: str) -> str:
-        """解析单个 SSE 事件，返回文本内容（如果有）。
+    _ANTHROPIC_NATIVE_TYPES: frozenset[str] = frozenset(
+        {
+            "ping",
+            "message_start",
+            "content_block_start",
+            "content_block_delta",
+            "content_block_stop",
+            "message_delta",
+            "message_stop",
+        }
+    )
 
-        兼容多种 SSE 格式：
-        - Anthropic 原生: {"type":"content_block_delta","delta":{"type":"text_delta","text":"..."}}
-        - OpenAI 兼容:  {"choices":[{"delta":{"content":"..."}}]}
-        - 通用 delta:    {"delta":{"text":"..."}} 或 {"text":"..."}
-        """
-        lines = event_text.strip().split("\n")
-        data = None
+    def _parse_sse_event_with_state(
+        self,
+        event_text: str,
+        current_mode: str = "unknown",
+    ) -> tuple[str, str, bool]:
+        """解析单个 SSE 事件，返回 (文本内容, 协议模式, 是否收到显式结束帧)。"""
+        lines = event_text.splitlines()
+        event_type = ""
+        data_lines: list[str] = []
 
         for line in lines:
-            if line.startswith("data:"):
-                data = line[5:].strip()
+            if line.startswith("event:"):
+                event_type = line[6:].strip().lower()
+            elif line.startswith("data:"):
+                raw_data = line[6:] if line.startswith("data: ") else line[5:]
+                data_lines.append(raw_data)
+
+        data = "\n".join(data_lines).strip()
+
+        if event_type == "error":
+            detail: Any = data[:240] if data else "error event received"
+            if data:
+                try:
+                    err_parsed = json.loads(data)
+                    if isinstance(err_parsed, dict):
+                        detail = err_parsed.get("error") or err_parsed
+                    elif err_parsed is not None:
+                        detail = err_parsed
+                except json.JSONDecodeError:
+                    pass
+            raise RuntimeError(f"Upstream SSE error: {detail}")
+
+        next_mode = (
+            "anthropic"
+            if event_type in self._ANTHROPIC_NATIVE_TYPES
+            else current_mode
+        )
+
+        if event_type == "message_stop":
+            if data and data != "[DONE]":
+                try:
+                    stop_parsed = json.loads(data)
+                    if isinstance(stop_parsed, dict) and (
+                        stop_parsed.get("type") == "error" or stop_parsed.get("error")
+                    ):
+                        err_obj = stop_parsed.get("error") or stop_parsed
+                        raise RuntimeError(f"Upstream SSE error: {err_obj}")
+                except json.JSONDecodeError:
+                    pass
+            return ("", "anthropic", True)
 
         if not data:
-            return ""
+            return ("", next_mode, False)
+
+        if data == "[DONE]":
+            if next_mode == "anthropic":
+                return ("", "anthropic", False)
+            return ("", "compat", True)
 
         try:
             parsed = json.loads(data)
         except json.JSONDecodeError:
-            return ""
+            return ("", next_mode, False)
+
+        if not isinstance(parsed, dict):
+            return ("", next_mode, False)
+
+        if parsed.get("type") == "error" or parsed.get("error"):
+            err_obj = parsed.get("error") or parsed
+            raise RuntimeError(f"Upstream SSE error: {err_obj}")
+
+        msg_type = str(parsed.get("type") or "").strip().lower()
+        if msg_type == "message_stop":
+            return ("", "anthropic", True)
+
+        if msg_type in self._ANTHROPIC_NATIVE_TYPES:
+            next_mode = "anthropic"
+        elif next_mode == "unknown":
+            next_mode = "compat"
 
         # Anthropic 原生
-        if parsed.get("type") == "content_block_delta":
+        if msg_type == "content_block_delta":
             delta = parsed.get("delta", {})
-            if delta.get("type") == "text_delta":
-                return delta.get("text", "")
+            if isinstance(delta, dict) and delta.get("type") == "text_delta":
+                return (str(delta.get("text") or ""), "anthropic", False)
 
         # Anthropic content_block_start (某些模型把 text 放在这里)
-        if parsed.get("type") == "content_block_start":
+        if msg_type == "content_block_start":
             block = parsed.get("content_block", {})
-            if block.get("type") == "text" and block.get("text"):
-                return block["text"]
+            if isinstance(block, dict) and block.get("type") == "text" and block.get("text"):
+                return (str(block["text"]), "anthropic", False)
 
         # OpenAI / DeepSeek 兼容格式
         choices = parsed.get("choices", [])
-        if choices:
+        if choices and isinstance(choices, list) and isinstance(choices[0], dict):
             delta = choices[0].get("delta", {})
-            content = delta.get("content", "")
-            if content:
-                return content
-            # 某些变体
-            text = delta.get("text", "")
-            if text:
-                return text
+            if isinstance(delta, dict):
+                content = delta.get("content", "")
+                if content:
+                    return (str(content), next_mode, False)
+                text = delta.get("text", "")
+                if text:
+                    return (str(text), next_mode, False)
 
         # 通用 fallback: 一层 delta.text 或 delta.content
         delta = parsed.get("delta", {})
         if isinstance(delta, dict):
             text = delta.get("text") or delta.get("content")
             if text:
-                return text
+                return (str(text), next_mode, False)
 
         # 最通用: 顶层 text/content 字段
         text = parsed.get("text") or parsed.get("content")
         if isinstance(text, str) and text.strip():
-            return text
+            return (text, next_mode, False)
 
-        return ""
+        return ("", next_mode, False)
+
+    def _parse_sse_event(self, event_text: str) -> str:
+        """解析单个 SSE 事件，返回文本内容（如果有）。"""
+        text_out, _, _ = self._parse_sse_event_with_state(event_text, "unknown")
+        return text_out

@@ -390,6 +390,27 @@ def _apply_bible_props_is_key_migration(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _apply_llm_profiles_oauth_columns(conn: sqlite3.Connection) -> None:
+    """为已存在的 llm_profiles 表补齐 auth_mode / oauth_provider / oauth_session_id 列（幂等）。"""
+    cur = conn.execute("PRAGMA table_info(llm_profiles)")
+    cols = {row[1] for row in cur.fetchall()}
+    if not cols:
+        return
+    migrations = {
+        "auth_mode": "ALTER TABLE llm_profiles ADD COLUMN auth_mode TEXT NOT NULL DEFAULT 'api_key'",
+        "oauth_provider": "ALTER TABLE llm_profiles ADD COLUMN oauth_provider TEXT NOT NULL DEFAULT ''",
+        "oauth_session_id": "ALTER TABLE llm_profiles ADD COLUMN oauth_session_id TEXT NOT NULL DEFAULT ''",
+    }
+    for col, sql in migrations.items():
+        if col not in cols:
+            try:
+                conn.execute(sql)
+                logger.info("llm_profiles migration: added column %s", col)
+            except sqlite3.OperationalError as e:
+                logger.warning("llm_profiles migration skip %s: %s", col, e)
+    conn.commit()
+
+
 def _ensure_triple_provenance_table(conn: sqlite3.Connection) -> None:
     """旧库补齐 triple_provenance 表（schema.sql 对新库已包含）。"""
     conn.execute(
@@ -486,6 +507,7 @@ class DatabaseConnection:
         _apply_chapters_word_count_migration(conn)
         _apply_chapters_generation_hint_migration(conn)
         _apply_bible_props_is_key_migration(conn)
+        _apply_llm_profiles_oauth_columns(conn)
         _ensure_triple_provenance_table(conn)
         _apply_migration_files(conn)
         conn.close()

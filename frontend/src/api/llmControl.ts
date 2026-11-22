@@ -7,6 +7,11 @@ export type PromptApiCallConfig = AxiosRequestConfig & {
 }
 
 export type LLMProtocol = 'openai' | 'anthropic' | 'gemini'
+export type LLMAuthMode = 'api_key' | 'oauth' | 'local_gateway'
+export type LLMOAuthProviderId = 'openrouter' | 'github_models' | 'google_gemini'
+export type LLMRoleKey = 'main' | 'cheap' | 'kg'
+
+export const MASKED_SECRET_SENTINEL = '__plotpilot_stored_secret__'
 
 export interface LLMPreset {
   key: string
@@ -34,6 +39,10 @@ export interface LLMProfile {
   extra_body: Record<string, unknown>
   notes: string
   use_legacy_chat_completions: boolean
+  auth_mode?: LLMAuthMode
+  oauth_provider?: string
+  oauth_session_id?: string
+  has_secret?: boolean
 }
 
 export interface LLMControlConfig {
@@ -41,6 +50,7 @@ export interface LLMControlConfig {
   active_profile_id: string | null
   /** 与后端一致：unified = 共用主力端点；independent = 分角色档案 */
   endpoint_mode?: 'unified' | 'independent'
+  role_bindings?: Partial<Record<LLMRoleKey, string>>
   profiles: LLMProfile[]
 }
 
@@ -86,11 +96,100 @@ export interface FetchModelsPayload {
   protocol: string
   base_url: string
   api_key: string
+  profile_id?: string
   timeout_ms?: number
 }
 
+export interface OAuthProviderStatus {
+  provider: LLMOAuthProviderId
+  title: string
+  flow_type: 'pkce' | 'device_code'
+  configured: boolean
+  connected: boolean
+  account_label: string
+  expires_at: number | null
+  profile_id: string
+  setup_hint: string
+}
+
+export interface OAuthStatusResponse {
+  providers: OAuthProviderStatus[]
+}
+
+export interface OAuthPKCEStartResponse {
+  authorize_url: string
+  state_expires_in: number
+}
+
+export interface OAuthDeviceStartResponse {
+  flow_id: string
+  user_code: string
+  verification_uri: string
+  expires_in: number
+  interval: number
+}
+
+export interface OAuthDevicePollResponse {
+  status: 'pending' | 'slow_down' | 'completed' | 'expired' | 'error'
+  interval: number
+  profile_id?: string
+  message?: string
+}
+
+export interface GoldenRoleRecommendation {
+  main: string
+  cheap: string
+  kg: string
+}
+
+export interface LocalGatewayItem {
+  id: string
+  name: string
+  kind: string
+  base_url: string
+  reachable: boolean
+  latency_ms: number
+  models: string[]
+  recommended_roles: GoldenRoleRecommendation
+  error: string
+}
+
+export interface CLIStatusItem {
+  id: string
+  name: string
+  installed: boolean
+  authenticated_hint: boolean
+  note: string
+}
+
+export interface LocalGatewayProbeResponse {
+  gateways: LocalGatewayItem[]
+  cli_tools: CLIStatusItem[]
+}
+
+export interface ConnectLocalGatewayPayload {
+  base_url: string
+  name?: string
+  main_model: string
+  cheap_model?: string
+  kg_model?: string
+  enable_golden_roles?: boolean
+  use_legacy_chat_completions?: boolean
+}
+
+export interface ApplyGoldenRolesPayload {
+  source_profile_id: string
+  main_model: string
+  cheap_model: string
+  kg_model: string
+}
+
 export const llmControlApi = {
-  getPanel: () => apiClient.get<LLMControlPanelData>('/llm-control') as Promise<LLMControlPanelData>,
+  getPanel: (signal?: AbortSignal) =>
+    apiClient.get<LLMControlPanelData>(
+      '/llm-control',
+      signal ? { signal } : undefined,
+    ) as Promise<LLMControlPanelData>,
   saveConfig: (config: LLMControlConfig) =>
     apiClient.put<LLMControlPanelData>('/llm-control', config) as Promise<LLMControlPanelData>,
   testProfile: (profile: LLMProfile) =>
@@ -101,6 +200,53 @@ export const llmControlApi = {
     apiClient.post<ModelListResponse>('/llm-control/models', payload, {
       timeout: runtimePerformance.network.shortTaskTimeoutMs,
     }) as Promise<ModelListResponse>,
+
+  getOAuthStatus: (signal?: AbortSignal) =>
+    apiClient.get<OAuthStatusResponse>(
+      '/llm-control/oauth/status',
+      signal ? { signal } : undefined,
+    ) as Promise<OAuthStatusResponse>,
+  startOpenRouterOAuth: () =>
+    apiClient.post<OAuthPKCEStartResponse>('/llm-control/oauth/openrouter/start', {
+      callback_origin: typeof window !== 'undefined' ? window.location.origin : '',
+    }) as Promise<OAuthPKCEStartResponse>,
+  startGitHubDeviceOAuth: (clientId = '', signal?: AbortSignal) =>
+    apiClient.post<OAuthDeviceStartResponse>(
+      '/llm-control/oauth/github/device/start',
+      { client_id: clientId },
+      signal ? { signal } : undefined,
+    ) as Promise<OAuthDeviceStartResponse>,
+  pollGitHubDeviceOAuth: (flowId: string, signal?: AbortSignal) =>
+    apiClient.post<OAuthDevicePollResponse>(
+      '/llm-control/oauth/github/device/poll',
+      { flow_id: flowId },
+      signal ? { signal } : undefined,
+    ) as Promise<OAuthDevicePollResponse>,
+  startGoogleOAuth: (clientId = '', clientSecret = '') =>
+    apiClient.post<OAuthPKCEStartResponse>('/llm-control/oauth/google/start', {
+      client_id: clientId,
+      client_secret: clientSecret,
+      callback_origin: typeof window !== 'undefined' ? window.location.origin : '',
+    }) as Promise<OAuthPKCEStartResponse>,
+  disconnectOAuth: (provider: LLMOAuthProviderId) =>
+    apiClient.delete<OAuthStatusResponse>(`/llm-control/oauth/${provider}`) as Promise<OAuthStatusResponse>,
+
+  probeLocalGateways: (customUrl = '') =>
+    apiClient.post<LocalGatewayProbeResponse>(
+      '/llm-control/local-gateways/probe',
+      { custom_url: customUrl },
+      { timeout: runtimePerformance.network.shortTaskTimeoutMs },
+    ) as Promise<LocalGatewayProbeResponse>,
+  connectLocalGateway: (payload: ConnectLocalGatewayPayload) =>
+    apiClient.post<LLMControlPanelData>('/llm-control/local-gateways/connect', payload) as Promise<LLMControlPanelData>,
+
+  recommendRoleModels: (models: string[], sourceProfileId = '') =>
+    apiClient.post<GoldenRoleRecommendation>('/llm-control/role-routing/recommend', {
+      models,
+      source_profile_id: sourceProfileId,
+    }) as Promise<GoldenRoleRecommendation>,
+  applyGoldenRoles: (payload: ApplyGoldenRolesPayload) =>
+    apiClient.post<LLMControlPanelData>('/llm-control/role-routing/apply-golden', payload) as Promise<LLMControlPanelData>,
 }
 
 // ========== 提示词广场 API (Prompt Plaza) ==========

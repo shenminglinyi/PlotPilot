@@ -5,6 +5,7 @@ from domain.ai.value_objects.token_usage import TokenUsage
 
 
 DEFAULT_MAX_OUTPUT_TOKENS = 120000
+VALID_ROLE_HINTS = ("", "main", "cheap", "kg")
 
 
 class GenerationConfig:
@@ -15,11 +16,13 @@ class GenerationConfig:
         max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
         temperature: float = 1.0,
         response_format: Optional[Dict] = None,
+        role_hint: str = "",
     ):
         self.model = model
         self.max_tokens = max_tokens
         self.temperature = temperature
         self.response_format = response_format
+        self.role_hint = (role_hint or "").strip()
         self.__post_init__()
 
     def __post_init__(self):
@@ -28,6 +31,8 @@ class GenerationConfig:
             raise ValueError("Temperature must be between 0.0 and 2.0")
         if self.max_tokens <= 0:
             raise ValueError("max_tokens must be greater than 0")
+        if self.role_hint not in VALID_ROLE_HINTS:
+            raise ValueError(f"role_hint must be one of {VALID_ROLE_HINTS}")
         self.max_tokens = max(int(self.max_tokens), DEFAULT_MAX_OUTPUT_TOKENS)
 
 

@@ -7,15 +7,18 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse, urlunparse
 
 import httpx
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
+from application.ai.local_gateway_probe import validate_loopback_gateway_url
 from application.ai.llm_control_service import (
     LLMControlConfig,
     LLMControlPanelData,
-    LLMProfile,
-    LLMTestResult,
     LLMControlService,
+    LLMProfile,
+    LLMRuntimeSummary,
+    LLMTestResult,
+    MASKED_SECRET_SENTINEL,
 )
 from infrastructure.ai.provider_factory import LLMProviderFactory
 from infrastructure.ai.prompt_manager import get_prompt_manager, BUILTIN_CATEGORIES
@@ -39,6 +42,24 @@ router = APIRouter(prefix='/llm-control', tags=['llm-control'])
 _service = LLMControlService()
 _factory = LLMProviderFactory(_service)
 
+LOOPBACK_HOSTS: frozenset[str] = frozenset(
+    {'127.0.0.1', '::1', '::ffff:127.0.0.1', 'localhost'}
+)
+
+
+def assert_loopback_request(request: Request) -> None:
+    """Restrict LLM credential, OAuth, and local-gateway routes to loopback clients."""
+    host = ((request.client.host if request.client else '') or '').strip().lower()
+    if host not in LOOPBACK_HOSTS:
+        raise HTTPException(
+            status_code=403,
+            detail='LLM credential & gateway control is restricted to loopback clients',
+        )
+
+
+def get_llm_control_service_dep() -> LLMControlService:
+    return _service
+
 
 # ---------- 模型列表拉取 ----------
 
@@ -47,6 +68,7 @@ class ModelListRequest(BaseModel):
     protocol: str = 'openai'
     base_url: str = ''
     api_key: str = ''
+    profile_id: str = ''
     timeout_ms: Optional[int] = None
 
 
@@ -88,38 +110,130 @@ def _openai_compatible_models_base(base_url: str) -> str:
 def _normalize_model_items(data: Dict[str, Any]) -> List[ModelItem]:
     """将不同网关的 /models 响应统一为 ModelItem 列表。"""
     items: List[ModelItem] = []
-    raw_list = data.get('data', [])
-    if not isinstance(raw_list, list):
+    raw_list = data.get('data')
+    if isinstance(raw_list, list):
+        for entry in raw_list:
+            if not isinstance(entry, dict):
+                continue
+            items.append(ModelItem(
+                id=str(entry.get('id', '')),
+                name=str(entry.get('id', '')),  # 多数网关不返回 name，回退到 id
+                owned_by=str(entry.get('owned_by', '')),
+            ))
         return items
-    for entry in raw_list:
-        if not isinstance(entry, dict):
-            continue
-        items.append(ModelItem(
-            id=str(entry.get('id', '')),
-            name=str(entry.get('id', '')),  # 多数网关不返回 name，回退到 id
-            owned_by=str(entry.get('owned_by', '')),
-        ))
+
+    gemini_models = data.get('models')
+    if isinstance(gemini_models, list):
+        for entry in gemini_models:
+            if not isinstance(entry, dict):
+                continue
+            raw_name = str(entry.get('name', '')).strip()
+            model_id = raw_name[7:] if raw_name.startswith('models/') else raw_name
+            if model_id:
+                items.append(ModelItem(
+                    id=model_id,
+                    name=str(entry.get('displayName') or model_id),
+                    owned_by='google',
+                ))
     return items
 
 
-@router.post('/models', response_model=ModelListResponse)
+@router.post(
+    '/models',
+    response_model=ModelListResponse,
+    dependencies=[Depends(assert_loopback_request)],
+)
 async def list_models(payload: ModelListRequest) -> ModelListResponse:
-    """根据当前配置的 endpoint 拉取模型列表（OpenAI / Anthropic 兼容）。"""
-    candidate = payload.model_dump()
-    if not candidate.get('api_key'):
-        # 尝试从当前激活配置中获取 key 作为 fallback
-        active = _service.get_active_profile()
-        if active:
-            candidate['api_key'] = active.api_key
+    """根据当前配置的 endpoint 拉取模型列表（OpenAI / Anthropic / Gemini 兼容）。"""
+    api_format = (payload.protocol or '').strip().lower() or 'openai'
+    raw_api_key = (payload.api_key or '').strip()
+    base_url = (payload.base_url or '').strip()
+    profile_id = (payload.profile_id or '').strip()
+    use_oauth_bearer = False
+    api_key = ''
 
-    api_format = (candidate.get('protocol') or '').strip().lower()
-    api_key = (candidate.get('api_key') or '').strip()
+    if raw_api_key == MASKED_SECRET_SENTINEL or (not raw_api_key and profile_id):
+        stored = (
+            _service._fetch_stored_profiles_map().get(profile_id)
+            if profile_id
+            else _service.get_active_profile()
+        )
+        if stored is None:
+            raise HTTPException(
+                status_code=400,
+                detail='未找到对应的已保存配置，请重新输入 API Key',
+            )
+        if stored.auth_mode == 'oauth':
+            resolved = _service.resolve_profile(stored)
+            if base_url and _service._normalize_base_url(
+                resolved.protocol, base_url
+            ).rstrip('/') != resolved.base_url.rstrip('/'):
+                raise HTTPException(
+                    status_code=400,
+                    detail='OAuth 授权凭证仅可用于官方绑定网关，不可发送到自定义地址',
+                )
+            api_format = resolved.protocol
+            base_url = resolved.base_url
+            api_key = resolved.api_key.strip()
+            use_oauth_bearer = resolved.protocol == 'gemini'
+        elif stored.auth_mode == 'local_gateway':
+            try:
+                base_url = validate_loopback_gateway_url(base_url or stored.base_url)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            api_format = stored.protocol
+            api_key = stored.api_key.strip() or 'local-gateway'
+        else:
+            candidate_profile = stored.model_copy(
+                update={
+                    'protocol': api_format or stored.protocol,
+                    'base_url': base_url if base_url else stored.base_url,
+                }
+            )
+            if not _service._same_credential_target(stored, candidate_profile):
+                raise HTTPException(
+                    status_code=400,
+                    detail='修改网关地址或协议后，请重新输入对应的 API Key',
+                )
+            api_format = candidate_profile.protocol
+            base_url = candidate_profile.base_url
+            api_key = stored.api_key.strip()
+    elif not raw_api_key:
+        active = _service.get_active_profile()
+        if active is not None and (
+            not base_url
+            or _service._same_credential_target(
+                active,
+                active.model_copy(
+                    update={
+                        'protocol': api_format or active.protocol,
+                        'base_url': base_url,
+                    }
+                ),
+            )
+        ):
+            resolved_active = _service.resolve_profile(active)
+            api_format = resolved_active.protocol
+            base_url = base_url or resolved_active.base_url
+            api_key = resolved_active.api_key.strip()
+            use_oauth_bearer = (
+                resolved_active.protocol == 'gemini'
+                and resolved_active.auth_mode == 'oauth'
+            )
+        elif base_url:
+            try:
+                base_url = validate_loopback_gateway_url(base_url)
+                api_key = 'local-gateway'
+            except ValueError:
+                api_key = ''
+    else:
+        api_key = raw_api_key
+
     if not api_key:
         raise HTTPException(status_code=400, detail='API key is required to fetch model list')
 
-    base_url = (candidate.get('base_url') or '').strip()
     runtime_settings = get_llm_control_runtime_settings()
-    timeout_ms = candidate.get('timeout_ms') or runtime_settings.model_list_timeout_ms
+    timeout_ms = payload.timeout_ms or runtime_settings.model_list_timeout_ms
     timeout = max(1.0, timeout_ms / 1000)
 
     if api_format == 'anthropic':
@@ -128,6 +242,14 @@ async def list_models(payload: ModelListRequest) -> ModelListResponse:
             'x-api-key': api_key,
             'anthropic-version': '2023-06-01',
         }
+    elif api_format == 'gemini':
+        gemini_base = (base_url or 'https://generativelanguage.googleapis.com/v1beta').rstrip('/')
+        url = f'{gemini_base}/models'
+        headers = (
+            {'Authorization': f'Bearer {api_key}'}
+            if use_oauth_bearer
+            else {'x-goog-api-key': api_key}
+        )
     else:
         openai_base = _openai_compatible_models_base(base_url)
         url = f'{openai_base}/models'
@@ -190,9 +312,13 @@ def _invalidate_llm_panel_cache() -> None:
     _llm_panel_cache_ts = 0.0
 
 
-@router.get('', response_model=LLMControlPanelData)
+@router.get(
+    '',
+    response_model=LLMControlPanelData,
+    dependencies=[Depends(assert_loopback_request)],
+)
 async def get_llm_control_panel() -> LLMControlPanelData:
-    """获取 LLM 控制面板数据（带短 TTL 进程缓存）。"""
+    """获取 LLM 控制面板数据（带短 TTL 进程缓存，密钥全程脱敏）。"""
     import time
     global _llm_panel_cache, _llm_panel_cache_ts
 
@@ -201,27 +327,50 @@ async def get_llm_control_panel() -> LLMControlPanelData:
     if _llm_panel_cache is not None and (now - _llm_panel_cache_ts) < cache_ttl:
         return _llm_panel_cache
 
-    data = _service.get_control_panel_data()
+    data = _service.get_control_panel_data(redact_secrets=True)
     _llm_panel_cache = data
     _llm_panel_cache_ts = now
     return data
 
 
-@router.put('', response_model=LLMControlPanelData)
+@router.put(
+    '',
+    response_model=LLMControlPanelData,
+    dependencies=[Depends(assert_loopback_request)],
+)
 async def save_llm_control_panel(config: LLMControlConfig) -> LLMControlPanelData:
     _invalidate_llm_panel_cache()
-    saved = _service.save_config(config)
-    return LLMControlPanelData(
+    try:
+        saved = _service.save_config(config)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    panel = LLMControlPanelData(
         config=saved,
         presets=_service.get_presets(),
         runtime=_service.get_runtime_summary(saved),
     )
+    return _service.redact_panel_data(panel)
 
 
-@router.post('/test', response_model=LLMTestResult)
+@router.get(
+    '/runtime',
+    response_model=LLMRuntimeSummary,
+    dependencies=[Depends(assert_loopback_request)],
+)
+async def get_llm_runtime_summary() -> LLMRuntimeSummary:
+    return _service.get_runtime_summary()
+
+
+@router.post(
+    '/test',
+    response_model=LLMTestResult,
+    dependencies=[Depends(assert_loopback_request)],
+)
 async def test_llm_profile(profile: LLMProfile) -> LLMTestResult:
     try:
         return await _service.test_profile_model(profile, _factory.create_from_profile)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.error('测试 LLM 配置失败: %s', exc, exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc)) from exc

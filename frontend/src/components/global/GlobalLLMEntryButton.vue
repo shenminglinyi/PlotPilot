@@ -55,20 +55,19 @@
               <div class="modal-header-left">
                 <span class="modal-header-icon modal-header-icon-llm" aria-hidden="true">AI</span>
                 <span class="modal-header-title">AI 控制台</span>
-                <n-tag
+                <span
                   v-if="drawerTab === 'llm'"
-                  size="small"
-                  :type="runtimeSummary?.using_mock ? 'warning' : 'info'"
-                  :bordered="false"
+                  class="modal-protocol-chip"
+                  :class="{ 'is-mock': runtimeSummary?.using_mock }"
                 >
                   {{
                     runtimeLoading
                       ? '读取中…'
                       : runtimeSummary?.using_mock
-                        ? 'Mock'
+                        ? '待接入'
                         : (runtimeSummary?.protocol || '未连接')
                   }}
-                </n-tag>
+                </span>
               </div>
             </div>
 
@@ -93,24 +92,7 @@
                 </button>
               </div>
 
-              <div v-if="drawerTab === 'llm'" class="global-llm-runtime-bar" :class="{ 'is-mock': runtimeSummary?.using_mock }">
-                <div class="global-llm-runtime-main">
-                  <span class="global-llm-runtime-label">当前激活模型</span>
-                  <span class="global-llm-runtime-model">
-                    {{ runtimeSummary?.model || (runtimeLoading ? '读取中…' : '未配置') }}
-                  </span>
-                </div>
-                <div class="global-llm-runtime-meta">
-                  <span class="global-llm-runtime-chip">
-                    {{ runtimeSummary?.protocol || (runtimeLoading ? 'loading' : 'mock') }}
-                  </span>
-                  <span class="global-llm-runtime-name">
-                    {{ runtimeSummary?.active_profile_name || runtimeSummary?.reason || '未激活任何配置' }}
-                  </span>
-                </div>
-              </div>
-
-              <div v-else class="embedding-header-info">
+              <div v-if="drawerTab === 'embedding'" class="embedding-header-info">
                 <div class="embedding-header-title">向量检索使用的嵌入模型配置</div>
                 <div class="embedding-header-desc">
                   每本书的向量索引与嵌入模型绑定，一旦开始写作后切换模型将导致已有索引不可用。如需更换，请先删除对应书籍的向量数据（data/chromadb/）再重新生成。
@@ -128,6 +110,7 @@
               <div v-show="drawerTab === 'llm'">
                 <LLMControlPanel
                   v-if="llmPanelInitialized"
+                  :active="showPanel && drawerTab === 'llm'"
                   scroll-state-key="global-modal"
                   @panel-updated="handlePanelUpdated"
                 />
@@ -758,7 +741,6 @@ watch(drawerTab, (tab) => {
   background: var(--tab-track-bg);
   border-radius: calc(var(--app-radius-lg) - 5px);
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: var(--tab-track-shadow);
   z-index: 0;
   pointer-events: none;
 }
@@ -779,14 +761,13 @@ watch(drawerTab, (tab) => {
   letter-spacing: 0.02em;
   border-radius: calc(var(--app-radius-lg) - 5px);
   cursor: pointer;
-  transition: color 0.22s ease, background 0.22s ease;
+  transition: color 0.22s ease, background-color 0.22s ease;
   white-space: nowrap;
   user-select: none;
 }
 
 .drawer-tab-btn.active {
   color: var(--tab-active-color, var(--app-text-inverse));
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
 }
 
 .drawer-tab-btn:not(.active) {
@@ -975,7 +956,7 @@ watch(drawerTab, (tab) => {
   max-height: 160px;
   overflow-y: auto;
   margin-top: 8px;
-  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace; /* taste-skill-ignore: literal pip install log output */
   font-size: 11.5px;
   line-height: 1.6;
   user-select: text;
@@ -989,6 +970,28 @@ watch(drawerTab, (tab) => {
 .ext-log-dim {
   color: var(--app-text-muted);
   font-style: italic;
+}
+
+.modal-protocol-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  background: var(--app-surface-subtle, #ecece9);
+  color: var(--color-brand, #1f5e5b);
+}
+
+.modal-protocol-chip.is-mock {
+  color: var(--color-gold, #7a5510);
+}
+
+@media (max-width: 640px) {
+  .drawer-scroll-content {
+    padding-right: 0;
+  }
 }
 
 .model-row {

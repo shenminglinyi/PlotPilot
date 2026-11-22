@@ -12,6 +12,7 @@ from domain.ai.value_objects.prompt import Prompt
 from domain.ai.value_objects.token_usage import TokenUsage
 from infrastructure.ai.config.settings import Settings
 from infrastructure.ai.http_timeout import build_httpx_timeout
+from infrastructure.ai.loopback_transport import LoopbackOnlyAsyncTransport
 from .base import BaseProvider
 from .model_resolution import require_resolved_model_id
 
@@ -30,6 +31,12 @@ class GeminiProvider(BaseProvider):
         self._http_client = httpx.AsyncClient(
             timeout=build_httpx_timeout(settings.http_timeout_settings),
             trust_env=False,
+            follow_redirects=False,
+            transport=(
+                LoopbackOnlyAsyncTransport()
+                if getattr(settings, 'loopback_only', False)
+                else None
+            ),
         )
 
     async def generate(self, prompt: Prompt, config: GenerationConfig) -> GenerationResult:
@@ -50,6 +57,7 @@ class GeminiProvider(BaseProvider):
         )
         response.raise_for_status()
         data = response.json()
+        self._raise_if_payload_error(data, prefix='Gemini error')
 
         content = self._extract_text(data)
         if not content.strip():
@@ -81,13 +89,36 @@ class GeminiProvider(BaseProvider):
         ) as response:
             response.raise_for_status()
             buffer = ''
+            pending_cr = False
             async for chunk in response.aiter_text():
-                buffer += chunk.replace('\r\n', '\n')
+                if not chunk:
+                    continue
+                if pending_cr:
+                    if chunk.startswith('\n'):
+                        chunk = chunk[1:]
+                    pending_cr = False
+                if not chunk:
+                    while '\n\n' in buffer:
+                        event_text, buffer = buffer.split('\n\n', 1)
+                        text = self._parse_sse_event(event_text)
+                        if text:
+                            yield text
+                    continue
+                if chunk.endswith('\r'):
+                    pending_cr = True
+                    body = chunk[:-1]
+                    buffer += body.replace('\r\n', '\n').replace('\r', '\n') + '\n'
+                else:
+                    buffer += chunk.replace('\r\n', '\n').replace('\r', '\n')
                 while '\n\n' in buffer:
                     event_text, buffer = buffer.split('\n\n', 1)
                     text = self._parse_sse_event(event_text)
                     if text:
                         yield text
+            if buffer.strip():
+                text = self._parse_sse_event(buffer)
+                if text:
+                    yield text
 
     def _build_url(self, model: str, action: str) -> str:
         model_name = model.strip()
@@ -95,18 +126,49 @@ class GeminiProvider(BaseProvider):
             raise ValueError('Gemini: 构建请求 URL 时模型名为空')
         return f'{self.base_url}/models/{model_name}:{action}'
 
+    _OAUTH_RESERVED_QUERY_KEYS = frozenset({'key', 'api_key', 'apikey', 'access_token'})
+    _OAUTH_RESERVED_HEADERS = frozenset(
+        {
+            'authorization',
+            'proxy-authorization',
+            'x-goog-api-key',
+            'x-api-key',
+            'api-key',
+        }
+    )
+
     def _build_query(self, extra: dict[str, Any] | None = None) -> dict[str, Any]:
-        query: dict[str, Any] = {'key': self.settings.api_key}
-        query.update(self.settings.extra_query or {})
-        if extra:
-            query.update(extra)
+        oauth_mode = bool(getattr(self.settings, 'use_oauth_bearer', False))
+        query: dict[str, Any] = {}
+        for source in (self.settings.extra_query or {}, extra or {}):
+            for raw_key, val in source.items():
+                key_str = str(raw_key)
+                if oauth_mode and key_str.strip().lower() in self._OAUTH_RESERVED_QUERY_KEYS:
+                    raise ValueError(
+                        f'Gemini OAuth bearer mode forbids query credential parameter: {raw_key!r}'
+                    )
+                query[key_str] = val
+        if not oauth_mode:
+            query['key'] = self.settings.api_key
         return query
 
     def _build_headers(self, *, stream: bool) -> dict[str, str]:
-        headers = {'Content-Type': 'application/json'}
+        oauth_mode = bool(getattr(self.settings, 'use_oauth_bearer', False))
+        headers: dict[str, str] = {}
+        for raw_name, raw_val in (self.settings.extra_headers or {}).items():
+            name_str = str(raw_name).strip()
+            if not name_str:
+                continue
+            if oauth_mode and name_str.lower() in self._OAUTH_RESERVED_HEADERS:
+                raise ValueError(
+                    f'Gemini OAuth bearer mode forbids authentication header override: {raw_name!r}'
+                )
+            headers[name_str] = str(raw_val)
+        headers['Content-Type'] = 'application/json'
         if stream:
             headers['Accept'] = 'text/event-stream'
-        headers.update(self.settings.extra_headers or {})
+        if oauth_mode:
+            headers['Authorization'] = f'Bearer {self.settings.api_key}'
         return headers
 
     def _build_payload(self, prompt: Prompt, config: GenerationConfig) -> dict[str, Any]:
@@ -149,7 +211,21 @@ class GeminiProvider(BaseProvider):
         payload.update(extra_body)
         return payload
 
+    @staticmethod
+    def _raise_if_payload_error(payload: Any, *, prefix: str = 'Gemini SSE error') -> None:
+        if isinstance(payload, dict):
+            if 'error' in payload and payload.get('error') is not None:
+                detail = payload.get('error')
+                raise RuntimeError(f'{prefix}: {detail if detail != "" else payload}')
+            return
+        if isinstance(payload, list):
+            for item in payload:
+                if isinstance(item, dict) and 'error' in item and item.get('error') is not None:
+                    detail = item.get('error')
+                    raise RuntimeError(f'{prefix}: {detail if detail != "" else item}')
+
     def _extract_text(self, data: dict[str, Any]) -> str:
+        self._raise_if_payload_error(data)
         pieces: list[str] = []
         for candidate in data.get('candidates') or []:
             content = candidate.get('content') or {}
@@ -163,14 +239,29 @@ class GeminiProvider(BaseProvider):
 
     def _parse_sse_event(self, event_text: str) -> str:
         data_lines: list[str] = []
+        event_type = ''
         for line in event_text.splitlines():
-            if line.startswith('data:'):
-                data_lines.append(line[5:].strip())
+            if line.startswith('event:'):
+                event_type = line[6:].strip().lower()
+            elif line.startswith('data:'):
+                raw_data = line[6:] if line.startswith('data: ') else line[5:]
+                data_lines.append(raw_data)
 
-        if not data_lines:
-            return ''
+        raw_payload = '\n'.join(data_lines).strip()
 
-        raw_payload = ''.join(data_lines).strip()
+        if event_type == 'error':
+            detail: Any = raw_payload[:240] if raw_payload else 'error event received'
+            if raw_payload:
+                try:
+                    err_parsed = json.loads(raw_payload)
+                    if isinstance(err_parsed, dict):
+                        detail = err_parsed.get('error') or err_parsed
+                    elif err_parsed is not None:
+                        detail = err_parsed
+                except json.JSONDecodeError:
+                    pass
+            raise RuntimeError(f'Gemini SSE error: {detail}')
+
         if not raw_payload or raw_payload == '[DONE]':
             return ''
 
@@ -179,6 +270,8 @@ class GeminiProvider(BaseProvider):
         except json.JSONDecodeError:
             logger.debug('Gemini SSE parse skip: %s', raw_payload[:120])
             return ''
+
+        self._raise_if_payload_error(payload, prefix='Gemini SSE error')
 
         if isinstance(payload, list):
             return ''.join(self._extract_text(item) for item in payload if isinstance(item, dict))

@@ -315,7 +315,7 @@ class PromptGateway:
             )
         if not system.strip() or not user.strip():
             raise PromptGatewayValidationError(f"Node {node_key} rendered prompt is empty")
-        return Prompt(system=system.strip(), user=user.strip())
+        return Prompt(system=system.strip(), user=user.strip(), node_key=node_key)
 
 
 _prompt_gateway: PromptGateway | None = None

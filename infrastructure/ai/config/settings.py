@@ -34,6 +34,8 @@ class Settings:
     provider_name: Optional[str] = None
     protocol: Optional[str] = None
     use_legacy_chat_completions: bool = False
+    use_oauth_bearer: bool = False
+    loopback_only: bool = False
 
     def __post_init__(self):
         """验证配置参数"""
@@ -54,6 +56,26 @@ class Settings:
             raise ValueError("write_timeout must be positive")
         if self.pool_timeout <= 0:
             raise ValueError("pool_timeout must be positive")
+
+        if self.use_oauth_bearer:
+            forbidden_query_keys = {"key", "api_key", "apikey", "access_token"}
+            for raw_qk in (self.extra_query or {}).keys():
+                if str(raw_qk).strip().lower() in forbidden_query_keys:
+                    raise ValueError(
+                        f"extra_query cannot include reserved authentication parameter {raw_qk!r} when use_oauth_bearer=True"
+                    )
+            forbidden_header_names = {
+                "authorization",
+                "proxy-authorization",
+                "x-goog-api-key",
+                "x-api-key",
+                "api-key",
+            }
+            for raw_hk in (self.extra_headers or {}).keys():
+                if str(raw_hk).strip().lower() in forbidden_header_names:
+                    raise ValueError(
+                        f"extra_headers cannot override authentication header {raw_hk!r} when use_oauth_bearer=True"
+                    )
 
     @property
     def http_timeout_settings(self) -> HttpTimeoutSettings:

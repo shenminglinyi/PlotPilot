@@ -1,5 +1,6 @@
 """OpenAI LLM 提供商实现"""
 import asyncio
+import inspect
 import logging
 import openai
 import httpx
@@ -13,10 +14,19 @@ from domain.ai.value_objects.token_usage import TokenUsage
 from application.ai.llm_retry_policy import LLM_MAX_TOTAL_ATTEMPTS, is_retryable_llm_error
 from infrastructure.ai.config.settings import Settings
 from infrastructure.ai.http_timeout import build_httpx_timeout
+from infrastructure.ai.loopback_transport import LoopbackOnlyAsyncTransport
 from .base import BaseProvider
 from .model_resolution import require_resolved_model_id
 
 logger = logging.getLogger(__name__)
+
+
+class _ResponsesTerminalError(RuntimeError):
+    """Raised when an OpenAI Responses response or stream explicitly reports failure or incomplete termination."""
+
+
+class _StreamCleanupError(RuntimeError):
+    """Raised when closing an acquired OpenAI stream fails after normal stream completion."""
 
 
 class OpenAIProvider(BaseProvider):
@@ -50,6 +60,12 @@ class OpenAIProvider(BaseProvider):
         self._http_client = httpx.AsyncClient(
             timeout=build_httpx_timeout(settings.http_timeout_settings),
             trust_env=False,
+            follow_redirects=False if getattr(settings, "loopback_only", False) else False,
+            transport=(
+                LoopbackOnlyAsyncTransport()
+                if getattr(settings, "loopback_only", False)
+                else None
+            ),
         )
         client_kwargs["http_client"] = self._http_client
         self.async_client = AsyncOpenAI(**client_kwargs)
@@ -66,12 +82,14 @@ class OpenAIProvider(BaseProvider):
             if use_responses:
                 try:
                     return await self._generate_via_responses(prompt, config)
+                except _ResponsesTerminalError:
+                    raise
                 except (openai.NotFoundError, openai.BadRequestError) as e:
                     logger.info(f"Responses API unsupported for {base_url}, falling back to chat completions: {str(e)}")
                     self.__class__._fallback_to_chat_cache.add(base_url)
                 except Exception as e:
                     # 某些网关在路径错误时可能不抛严格的 404 而是抛出其他错误，如果消息含有明确路径错误也尝试降级
-                    if "404" in str(e) or "Not Found" in str(e) or "400" in str(e) or "Account invalid" in str(e) or "INVALID_ARGUMENT" in str(e):
+                    if self._is_responses_fallback_error(e):
                         logger.info(f"Gateway returned error for Responses API ({base_url}), falling back: {str(e)}")
                         self.__class__._fallback_to_chat_cache.add(base_url)
                     else:
@@ -163,20 +181,41 @@ class OpenAIProvider(BaseProvider):
             use_responses = not self._use_legacy and base_url not in self.__class__._fallback_to_chat_cache
 
             if use_responses:
+                yielded_any = False
                 try:
                     # 尝试走 Responses 流式 API
                     request_kwargs = self._build_responses_request_kwargs(prompt, config, stream=True)
                     stream = await self.async_client.responses.create(**request_kwargs)
-                    async for chunk in stream:
-                        content = self._extract_text_from_responses_chunk(chunk)
-                        if content:
-                            yield content
+                    stream_exc: BaseException | None = None
+                    try:
+                        async for chunk in stream:
+                            content = self._extract_text_from_responses_chunk(chunk)
+                            if content:
+                                yielded_any = True
+                                yield content
+                    except BaseException as exc:
+                        stream_exc = exc
+                        raise
+                    finally:
+                        await self._close_stream(stream, suppress_errors=stream_exc is not None)
                     return  # 正常完成则结束 generator
-                except (openai.NotFoundError, openai.BadRequestError):
+                except (_ResponsesTerminalError, _StreamCleanupError):
+                    raise
+                except (openai.NotFoundError, openai.BadRequestError) as e:
+                    if yielded_any:
+                        logger.error(f"[Responses Stream] Interrupted after partial output: {e}")
+                        raise RuntimeError(
+                            f"Responses stream interrupted after partial output: {e}"
+                        ) from e
                     self.__class__._fallback_to_chat_cache.add(base_url)
                     logger.info(f"Stream: Responses API unsupported for {base_url}, falling back.")
                 except Exception as e:
-                    if "404" in str(e) or "Not Found" in str(e) or "400" in str(e) or "Account invalid" in str(e) or "INVALID_ARGUMENT" in str(e):
+                    if yielded_any:
+                        logger.error(f"[Responses Stream] Interrupted after partial output: {e}")
+                        raise RuntimeError(
+                            f"Responses stream interrupted after partial output: {e}"
+                        ) from e
+                    if self._is_responses_fallback_error(e):
                         self.__class__._fallback_to_chat_cache.add(base_url)
                         logger.info(f"Stream: Gateway returned error for Responses API ({base_url}), falling back.")
                     else:
@@ -187,13 +226,33 @@ class OpenAIProvider(BaseProvider):
             messages = self._build_messages(prompt)
             request_kwargs = self._build_chat_request_kwargs(messages, config, stream=True)
             stream = await self.async_client.chat.completions.create(**request_kwargs)
-            async for chunk in stream:
-                content = self._extract_text_from_stream_chunk(chunk)
-                if content:
-                    yield content
+            chat_stream_exc: BaseException | None = None
+            try:
+                async for chunk in stream:
+                    content = self._extract_text_from_stream_chunk(chunk)
+                    if content:
+                        yield content
+            except BaseException as exc:
+                chat_stream_exc = exc
+                raise
+            finally:
+                await self._close_stream(stream, suppress_errors=chat_stream_exc is not None)
+        except (RuntimeError, ValueError):
+            raise
         except Exception as e:
             logger.error(f"[Stream] Failed: {e}")
             raise RuntimeError(f"Failed to stream text: {str(e)}") from e
+
+    @staticmethod
+    def _is_responses_fallback_error(exc: Exception) -> bool:
+        msg = str(exc)
+        return (
+            "404" in msg
+            or "Not Found" in msg
+            or "400" in msg
+            or "Account invalid" in msg
+            or "INVALID_ARGUMENT" in msg
+        )
 
     @staticmethod
     def _build_messages(prompt: Prompt) -> list[dict[str, str]]:
@@ -268,9 +327,11 @@ class OpenAIProvider(BaseProvider):
             "input": [{"role": "user", "content": prompt.user}],
             "temperature": config.temperature,
             "max_output_tokens": config.max_tokens,
+            "extra_headers": dict(self.settings.extra_headers) if self.settings.extra_headers else None,
+            "extra_query": dict(self.settings.extra_query) if self.settings.extra_query else None,
+            "extra_body": dict(self.settings.extra_body) if self.settings.extra_body else None,
+            "timeout": self.settings.timeout_seconds,
         }
-        if self.settings.extra_body:
-             kwargs.update(self.settings.extra_body)
 
         if stream:
             kwargs["stream"] = True
@@ -280,6 +341,7 @@ class OpenAIProvider(BaseProvider):
         """Responses API 非流式生成"""
         request_kwargs = self._build_responses_request_kwargs(prompt, config)
         response = await self.async_client.responses.create(**request_kwargs)
+        self._raise_if_responses_terminal_error(response)
 
         content = self._extract_text_from_responses_response(response)
         if not content:
@@ -305,6 +367,96 @@ class OpenAIProvider(BaseProvider):
         if isinstance(value, dict):
             return value.get(name, default)
         return getattr(value, name, default)
+
+    @classmethod
+    def _raise_if_responses_terminal_error(cls, payload: Any) -> None:
+        """Explicitly fail on Responses terminal failure, incomplete, cancelled, or error events/objects."""
+        if payload is None:
+            return
+
+        event_type = str(cls._response_field(payload, "type", "") or "").strip()
+        resp_obj = cls._response_field(payload, "response", None)
+        item_obj = cls._response_field(payload, "item", None)
+        part_obj = cls._response_field(payload, "part", None)
+
+        top_err = cls._response_field(payload, "error", None)
+        resp_err = cls._response_field(resp_obj, "error", None) if resp_obj is not None else None
+        item_err = cls._response_field(item_obj, "error", None) if item_obj is not None else None
+        part_err = cls._response_field(part_obj, "error", None) if part_obj is not None else None
+
+        bad_statuses = {"failed", "incomplete", "cancelled", "canceled"}
+        resp_status = (
+            str(cls._response_field(resp_obj, "status", "") or "").strip().lower()
+            if resp_obj is not None
+            else str(cls._response_field(payload, "status", "") or "").strip().lower()
+        )
+        item_status = (
+            str(cls._response_field(item_obj, "status", "") or "").strip().lower()
+            if item_obj is not None
+            else ""
+        )
+        part_status = (
+            str(cls._response_field(part_obj, "status", "") or "").strip().lower()
+            if part_obj is not None
+            else ""
+        )
+
+        terminal_error_events = {
+            "response.failed",
+            "response.incomplete",
+            "response.cancelled",
+            "response.canceled",
+            "error",
+        }
+        effective_err = next(
+            (e for e in (top_err, resp_err, item_err, part_err) if e is not None),
+            None,
+        )
+        effective_bad_status = next(
+            (s for s in (resp_status, item_status, part_status) if s in bad_statuses),
+            "",
+        )
+
+        if (
+            event_type not in terminal_error_events
+            and effective_err is None
+            and not effective_bad_status
+        ):
+            return
+
+        status_source = resp_obj if resp_obj is not None else payload
+        incomplete = (
+            cls._response_field(status_source, "incomplete_details", None)
+            or cls._response_field(payload, "incomplete_details", None)
+        )
+        reason = cls._response_field(incomplete, "reason", None) if incomplete is not None else None
+        err_msg = (
+            cls._response_field(effective_err, "message", None)
+            if effective_err is not None
+            else cls._response_field(payload, "message", None)
+        )
+        err_code = (
+            cls._response_field(effective_err, "code", None)
+            if effective_err is not None
+            else cls._response_field(payload, "code", None)
+        )
+
+        details: list[str] = []
+        if event_type:
+            details.append(f"event={event_type}")
+        if effective_bad_status:
+            details.append(f"status={effective_bad_status}")
+        if reason:
+            details.append(f"incomplete_reason={reason}")
+        if err_code:
+            details.append(f"code={err_code}")
+        if err_msg:
+            details.append(f"message={err_msg}")
+        elif effective_err is not None:
+            details.append(f"error={effective_err}")
+
+        summary = ", ".join(details) if details else "terminal error"
+        raise _ResponsesTerminalError(f"OpenAI Responses generation failed ({summary})")
 
     @classmethod
     def _extract_text_from_responses_response(cls, response: Any) -> str:
@@ -342,28 +494,30 @@ class OpenAIProvider(BaseProvider):
         except (TypeError, ValueError):
             return 0
 
-    @staticmethod
-    def _extract_text_from_responses_chunk(chunk: Any) -> str:
-        """原生 Responses stream 解析封装"""
+    @classmethod
+    def _extract_text_from_responses_chunk(cls, chunk: Any) -> str:
+        """原生 Responses stream 解析封装（终态失败/截断事件显式抛错，绝不静默吞除）"""
+        cls._raise_if_responses_terminal_error(chunk)
         try:
-            event_type = getattr(chunk, "type", "")
+            event_type = cls._response_field(chunk, "type", "")
             if event_type == "response.output_text.delta":
-                delta = getattr(chunk, "delta", None)
+                delta = cls._response_field(chunk, "delta", None)
                 if isinstance(delta, str):
                     return delta
             elif event_type in ("response.content_part.added", "response.content_part.delta"):
-                part = getattr(chunk, "part", None)
-                if part and getattr(part, "type", "") in {"output_text", "text"}:
-                    return getattr(part, "text", "")
-                delta = getattr(chunk, "delta", None)
+                part = cls._response_field(chunk, "part", None)
+                if part and cls._response_field(part, "type", "") in {"output_text", "text"}:
+                    text_val = cls._response_field(part, "text", "")
+                    return text_val if isinstance(text_val, str) else ""
+                delta = cls._response_field(chunk, "delta", None)
                 if isinstance(delta, str):
                     return delta
             elif event_type == "message.delta":
-                delta = getattr(chunk, "delta", None)
+                delta = cls._response_field(chunk, "delta", None)
                 if delta:
-                     content = getattr(delta, "content", None)
-                     if isinstance(content, str):
-                         return content
+                    content = cls._response_field(delta, "content", None)
+                    if isinstance(content, str):
+                        return content
         except Exception:
             pass
         return ""
@@ -407,6 +561,10 @@ class OpenAIProvider(BaseProvider):
 
     @staticmethod
     def _extract_text_from_response(response: Any) -> str:
+        resp_err = OpenAIProvider._response_field(response, "error", None)
+        if resp_err is not None:
+            err_msg = OpenAIProvider._response_field(resp_err, "message", None) or resp_err
+            raise RuntimeError(f"OpenAI Chat Completions error: {err_msg}")
         if not getattr(response, "choices", None):
             return ""
 
@@ -425,27 +583,32 @@ class OpenAIProvider(BaseProvider):
         return result
 
     @staticmethod
+    async def _close_stream(stream: Any, *, suppress_errors: bool = False) -> None:
+        close_fn = getattr(stream, "close", None)
+        if not callable(close_fn):
+            return
+        try:
+            result = close_fn()
+            if inspect.isawaitable(result):
+                await result
+        except Exception as exc:
+            if suppress_errors:
+                logger.warning("Failed to close OpenAI stream during unwind: %s", exc)
+                return
+            raise _StreamCleanupError(f"OpenAI stream cleanup failed: {exc}") from exc
+
+    @staticmethod
     def _extract_text_from_stream_chunk(chunk: Any) -> str:
+        chunk_err = OpenAIProvider._response_field(chunk, "error", None)
+        if chunk_err is not None:
+            err_msg = OpenAIProvider._response_field(chunk_err, "message", None) or chunk_err
+            raise RuntimeError(f"OpenAI Chat Completions stream error: {err_msg}")
         if not getattr(chunk, "choices", None):
-            # 🔥 容错：部分网关返回的流式 chunk 没有 choices 字段
-            # 例如 DeepSeek-R1 的 reasoning_content 字段在顶层
+            # 容错：部分网关返回的流式 chunk 没有 choices 字段
             return ""
 
         choice = chunk.choices[0]
         delta = getattr(choice, "delta", None)
-        content = getattr(delta, "content", None)
-        if isinstance(content, str):
-            return content
-        if isinstance(content, list):
-            return OpenAIProvider._normalize_chat_completion_content(content)
-        return ""
-
-    @staticmethod
-    def _extract_text_from_stream_chunk(chunk: Any) -> str:
-        if not getattr(chunk, "choices", None):
-            return ""
-
-        delta = getattr(chunk.choices[0], "delta", None)
         content = getattr(delta, "content", None)
         if isinstance(content, str):
             return content
@@ -461,16 +624,23 @@ class OpenAIProvider(BaseProvider):
         parts: list[str] = []
         input_tokens = 0
         output_tokens = 0
+        stream_exc: BaseException | None = None
 
-        async for chunk in stream:
-            content = self._extract_text_from_stream_chunk(chunk)
-            if content:
-                parts.append(content)
+        try:
+            async for chunk in stream:
+                content = self._extract_text_from_stream_chunk(chunk)
+                if content:
+                    parts.append(content)
 
-            usage = getattr(chunk, "usage", None)
-            if usage is not None:
-                input_tokens = getattr(usage, "prompt_tokens", 0) or 0
-                output_tokens = getattr(usage, "completion_tokens", 0) or 0
+                usage = getattr(chunk, "usage", None)
+                if usage is not None:
+                    input_tokens = getattr(usage, "prompt_tokens", 0) or 0
+                    output_tokens = getattr(usage, "completion_tokens", 0) or 0
+        except BaseException as exc:
+            stream_exc = exc
+            raise
+        finally:
+            await self._close_stream(stream, suppress_errors=stream_exc is not None)
 
         content = "".join(parts).strip()
         if not content:

@@ -8,6 +8,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, List, Optional, Set, Type
 
+from application.ai.trace_context import scoped_prompt_node_key
 from application.engine.dag.models import (
     CPMSInjectionPoint,
     NodeCategory,
@@ -312,8 +313,9 @@ class NodeRegistry:
                 "config_overrides": config_overrides,
             }
 
-            # 执行
-            result = await instance.execute(inputs, context)
+            # 执行（自动绑定当前 DAG 节点的 cpms_node_key 供 L3 角色路由识别，退出时严格 reset）
+            with scoped_prompt_node_key((meta.cpms_node_key or "") if meta else ""):
+                result = await instance.execute(inputs, context)
 
             # 返回输出（扁平化到 state）
             return result.outputs

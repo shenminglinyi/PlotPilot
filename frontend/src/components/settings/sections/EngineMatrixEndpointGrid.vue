@@ -16,12 +16,12 @@
       <label class="em-field">
         <span class="em-label">API Key</span>
         <n-input
-          :value="apiKey"
+          :value="displayApiKey"
           type="password"
           show-password-on="click"
           size="small"
-          placeholder="留空表示不修改已保存的密钥"
-          @update:value="emit('update:apiKey', $event)"
+          :placeholder="isMasked ? '已安全保存在本机后端（保持为空则不修改）' : '留空表示不修改已保存的密钥'"
+          @update:value="handleApiKeyInput"
         />
       </label>
     </n-gi>
@@ -51,7 +51,10 @@
 </template>
 
 <script setup lang="ts">
-defineProps<{
+import { computed, ref, watch } from 'vue'
+import { MASKED_SECRET_SENTINEL } from '@/api/llmControl'
+
+const props = defineProps<{
   provider: string
   apiKey: string
   baseUrl: string
@@ -66,6 +69,33 @@ const emit = defineEmits<{
   'update:baseUrl': [string]
   'update:model': [string]
 }>()
+
+let lastEmittedValue: string | null = null
+const hadMaskedSecret = ref(props.apiKey === MASKED_SECRET_SENTINEL)
+watch(
+  () => props.apiKey,
+  (val) => {
+    if (val === MASKED_SECRET_SENTINEL) {
+      hadMaskedSecret.value = true
+    } else if (val !== lastEmittedValue) {
+      hadMaskedSecret.value = false
+    }
+    lastEmittedValue = null
+  },
+)
+
+const isMasked = computed(() => props.apiKey === MASKED_SECRET_SENTINEL)
+const displayApiKey = computed(() => (props.apiKey === MASKED_SECRET_SENTINEL ? '' : props.apiKey))
+
+function handleApiKeyInput(nextVal: string) {
+  if (!nextVal && hadMaskedSecret.value) {
+    lastEmittedValue = MASKED_SECRET_SENTINEL
+    emit('update:apiKey', MASKED_SECRET_SENTINEL)
+    return
+  }
+  lastEmittedValue = nextVal
+  emit('update:apiKey', nextVal)
+}
 
 const providerOptions = [
   { label: 'OpenAI 兼容', value: 'openai' },

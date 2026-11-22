@@ -71,10 +71,16 @@ def test_embedding_services_use_environment_settings_object():
 
 
 def test_llm_control_service_uses_environment_settings_object():
-    source = Path("application/ai/llm_control_service.py").read_text(encoding="utf-8")
-
-    assert "os.getenv(" not in source
-    assert "LLMEnvironmentSettings" in source
+    paths = [
+        Path("application/ai/llm_control_service.py"),
+        Path("application/ai/llm_oauth_service.py"),
+        Path("application/ai/local_gateway_probe.py"),
+    ]
+    for path in paths:
+        source = path.read_text(encoding="utf-8")
+        assert "os.getenv(" not in source
+        assert "os.environ" not in source
+        assert "LLMEnvironmentSettings" in source
 
 
 def test_application_model_services_use_environment_settings_object():

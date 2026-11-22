@@ -88,7 +88,13 @@ def register_api_routes(app: FastAPI) -> None:
     from interfaces.api.v1.engine.trace_routes import router as trace_router
     from interfaces.api.v1.meta import taxonomy_routes
     from interfaces.api.v1.prop import prop_routes
-    from interfaces.api.v1.workbench import llm_control, monitor, sandbox, writer_block
+    from interfaces.api.v1.workbench import (
+        llm_control,
+        llm_oauth_routes,
+        monitor,
+        sandbox,
+        writer_block,
+    )
     from interfaces.api.v1.world import (
         bible,
         cast,
@@ -145,6 +151,7 @@ def register_api_routes(app: FastAPI) -> None:
             RouterRegistration(writer_block.router, API_V1_PREFIX),
             RouterRegistration(sandbox.router, API_V1_PREFIX),
             RouterRegistration(monitor.router, API_V1_PREFIX),
+            RouterRegistration(llm_oauth_routes.router, API_V1_PREFIX),
             RouterRegistration(llm_control.router, API_V1_PREFIX),
             RouterRegistration(anti_ai_routes.router, API_V1_PREFIX),
             RouterRegistration(cloud_routes.router, API_V1_PREFIX),

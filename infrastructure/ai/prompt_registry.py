@@ -213,7 +213,7 @@ class PromptRegistry:
             logger.warning("节点 %s 的 user prompt 渲染结果为空", node_key)
             return None
 
-        return Prompt(system=system, user=user)
+        return Prompt(system=system, user=user, node_key=node_key)
 
     def mock_render(self, node_key: str) -> Optional[RenderResult]:
         """沙盒渲染（保存前校验）。
