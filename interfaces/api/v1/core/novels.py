@@ -15,7 +15,7 @@ from interfaces.api.dependencies import (
     get_auto_knowledge_generator
 )
 from interfaces.api.urls import bible_generation_status_url
-from domain.shared.exceptions import EntityNotFoundError
+from domain.shared.exceptions import EntityConflictError, EntityNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -134,22 +134,25 @@ async def create_novel(
     Returns:
         创建的小说 DTO
     """
-    # 只创建小说实体，不生成 Bible
-    novel_dto = service.create_novel(
-        novel_id=request.novel_id,
-        title=request.title,
-        author=request.author,
-        target_chapters=request.target_chapters,
-        premise=request.premise,
-        genre=request.genre,
-        world_preset=request.world_preset,
-        story_structure=request.story_structure,
-        pacing_control=request.pacing_control,
-        writing_style=request.writing_style,
-        special_requirements=request.special_requirements,
-        length_tier=request.length_tier,
-        target_words_per_chapter=request.target_words_per_chapter,
-    )
+    # 只创建小说实体，不生成 Bible；同 novel_id 且属性一致的重试幂等返回，属性冲突返回 409
+    try:
+        novel_dto = service.create_novel(
+            novel_id=request.novel_id,
+            title=request.title,
+            author=request.author,
+            target_chapters=request.target_chapters,
+            premise=request.premise,
+            genre=request.genre,
+            world_preset=request.world_preset,
+            story_structure=request.story_structure,
+            pacing_control=request.pacing_control,
+            writing_style=request.writing_style,
+            special_requirements=request.special_requirements,
+            length_tier=request.length_tier,
+            target_words_per_chapter=request.target_words_per_chapter,
+        )
+    except EntityConflictError as e:
+        raise HTTPException(status_code=409, detail=str(e))
 
     return novel_dto
 

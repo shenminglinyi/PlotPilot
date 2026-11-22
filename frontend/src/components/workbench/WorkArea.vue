@@ -2,10 +2,10 @@
   <div class="work-area">
     <header class="work-header">
       <div class="work-title-wrap">
-        <h2 class="work-title">{{ bookTitle || slug }}</h2>
+        <h1 class="work-title">{{ bookTitle || slug }}</h1>
         <n-text depth="3" class="work-sub">{{ slug }}</n-text>
       </div>
-      <div v-if="!proseOnlyWorkbench" class="work-mode-switch" role="group" aria-label="创作模式">
+      <div v-if="!proseOnlyWorkbench && !zenMode" class="work-mode-switch" role="group" aria-label="创作模式">
         <n-switch
           v-model:value="workMode"
           checked-value="managed"
@@ -37,7 +37,7 @@
         <ChapterWorkbenchShell
           class="chapter-desk-shell"
           :stacked="desk.stacked"
-          :rail-enabled="!proseOnlyWorkbench"
+          :rail-enabled="!proseOnlyWorkbench && !zenMode"
           v-model:rail-expanded="desk.railExpanded"
           rail-drawer-title="本章任务与状态"
         >
@@ -61,8 +61,8 @@
               <n-space v-if="!proseOnlyWorkbench" align="center" :size="6" wrap justify="end">
                 <n-button size="tiny" quaternary @click="showGuardrailModal = true">护栏详情</n-button>
                 <n-button size="tiny" quaternary @click="showTraceModal = true">引擎溯源</n-button>
-                <n-text depth="3" style="font-size: 11px">元素用主栏标签切换</n-text>
-                <n-button size="tiny" secondary @click="desk.toggleRail()">
+                <n-text v-if="!zenMode" depth="3" style="font-size: 11px">元素用主栏标签切换</n-text>
+                <n-button v-if="!zenMode" size="tiny" secondary @click="desk.toggleRail()">
                   {{ desk.railExpanded ? '收起侧栏' : '任务与状态' }}
                 </n-button>
               </n-space>
@@ -166,7 +166,7 @@
                         <span v-if="isAutopilotRunning && streamingChapterNumber === currentChapter?.number && streamingContent" class="streaming-indicator">生成中▋</span>
                       </template>
                     </n-text>
-                    <n-text v-if="!proseOnlyWorkbench" depth="3" style="font-size: 11px; max-width: 56ch; line-height: 1.45">
+                    <n-text v-if="!proseOnlyWorkbench && !zenMode" depth="3" style="font-size: 11px; max-width: 56ch; line-height: 1.45">
                       实体标记（可选）：
                       <code>[[char:id|人名]] [[loc:id|地名]] [[faction:id|势力]] [[prop:id|道具]]</code>
                       · 保存后自动索引本章实体，侧栏「手稿道具」可查看。
@@ -182,7 +182,7 @@
                             :loading="generating || generateInProgress"
                             :disabled="proseOnlyWorkbench ? generateInProgress : (isAutopilotRunning || isAssistedReadOnly)"
                           >
-                            {{ prosePrimaryActionLabel }}
+                            {{ zenMode ? prosePrimaryActionLabel.replace(/^[^\p{L}\p{N}]+/u, '') : prosePrimaryActionLabel }}
                           </n-button>
                         </template>
                         <span>{{ isAssistedReadOnly ? '托管运行中不可手动生成' : 'Autopilot 运行时禁用手动生成' }}</span>
@@ -201,11 +201,11 @@
                             :loading="generating"
                             :disabled="isAutopilotRunning || isAssistedReadOnly"
                           >
-                            🔄 重新生成
+                            {{ zenMode ? '重新生成' : '🔄 重新生成' }}
                           </n-button>
                         </template>
                       </n-tooltip>
-                      <n-button v-if="!proseOnlyWorkbench" size="small" secondary :disabled="isAssistedReadOnly" @click="openTensionModal" title="诊断当前章节张力缺口">
+                      <n-button v-if="!proseOnlyWorkbench && !zenMode" size="small" secondary :disabled="isAssistedReadOnly" @click="openTensionModal" title="诊断当前章节张力缺口">
                         🔍 张力诊断
                       </n-button>
                     </n-space>
@@ -315,9 +315,9 @@
         </ChapterWorkbenchShell>
       </div>
 
-      <!-- 托管撰稿：驾驶舱 / 仪表盘 / 监控·DAG；组件内 v-show 保持 SSE -->
+      <!-- 托管撰稿：驾驶舱 / 仪表盘 / 监控·DAG；非专注模式或托管运行中保持挂载以维持 SSE -->
       <AutopilotWorkspace
-        v-if="!proseOnlyWorkbench"
+        v-if="!proseOnlyWorkbench && (!zenMode || isAutopilotRunning)"
         v-show="workMode === 'managed'"
         class="managed-stack"
         :novel-id="slug"
@@ -895,6 +895,8 @@ interface WorkAreaProps {
   chapterContent?: string
   chapterLoading?: boolean
   generationPrefs?: GenerationPrefsDTO | null
+  zenMode?: boolean
+  initialMode?: 'assisted' | 'managed'
 }
 
 const props = withDefaults(defineProps<WorkAreaProps>(), {
@@ -903,6 +905,8 @@ const props = withDefaults(defineProps<WorkAreaProps>(), {
   chapterContent: '',
   chapterLoading: false,
   generationPrefs: null,
+  zenMode: false,
+  initialMode: undefined,
 })
 
 function ordinalUnit(n: number) {
@@ -950,7 +954,24 @@ function auxPaneIcon(id: ChapterDeskAuxPaneId): Component {
 }
 
 /** 辅助撰稿：编辑与章级工具；托管撰稿：驾驶舱 + 监控大盘 */
-const workMode = ref<'assisted' | 'managed'>(managedWorkbenchEnabled ? 'managed' : 'assisted')
+const workMode = ref<'assisted' | 'managed'>(
+  props.zenMode || props.initialMode === 'assisted' || !managedWorkbenchEnabled ? 'assisted' : 'managed',
+)
+
+watch(
+  [() => props.zenMode, () => props.initialMode, workMode] as const,
+  ([isZen, initMode, currentMode], prev) => {
+    const prevZen = prev?.[0]
+    const prevInit = prev?.[1]
+    if (isZen && currentMode !== 'assisted') {
+      workMode.value = 'assisted'
+      return
+    }
+    if ((!prevZen && isZen) || (prevInit !== 'assisted' && initMode === 'assisted')) {
+      workMode.value = 'assisted'
+    }
+  },
+)
 
 const showGenerateModal = ref(false)
 const generateOutline = ref('')
@@ -2006,7 +2027,7 @@ function ensureAssistedMode() {
   workMode.value = 'assisted'
 }
 
-defineExpose({ ensureAssistedMode, streamingChapterNumber, writingPipelineStep })
+defineExpose({ ensureAssistedMode, streamingChapterNumber, writingPipelineStep, editorDisplayContent, guardrailSnapshot })
 </script>
 
 <style scoped>

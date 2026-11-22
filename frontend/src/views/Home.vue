@@ -1,5 +1,5 @@
 <template>
-  <div class="home">
+  <div ref="homeRootRef" class="home">
     <StatsSidebar
       @create-book="openCreateModal"
       @refresh-list="handleRefreshList"
@@ -47,6 +47,7 @@
               <span class="book-count" v-if="!loading">{{ filteredBooks.length }} 本</span>
             </div>
             <div class="section-right">
+              <div v-if="books.length >= 1 || loading" class="cold-entry"><button ref="headerColdTriggerRef" type="button" class="cold-trigger" @click="coldStartOpen = true">三分钟极速开书</button><span class="cold-entry-note">连模型 · 挂模组 · 入首章</span></div>
               <n-button tertiary round @click="showLibrary = true" class="library-btn">
                 <template #icon>
                   <n-icon><IconLibrary /></n-icon>
@@ -81,17 +82,9 @@
 
           <!-- Empty State -->
           <div v-else-if="books.length === 0" class="empty-state">
-            <div class="empty-illustration">
-              <n-icon :size="36"><IconLibrary /></n-icon>
-            </div>
-            <h3 class="empty-title">还没有书目</h3>
-            <p class="empty-desc">点「新建书目」，用一段梗概开启创作之旅</p>
-            <n-button type="primary" size="large" round @click="openCreateModal">
-              <template #icon>
-                <n-icon><IconSpark /></n-icon>
-              </template>
-              创建第一本书
-            </n-button>
+            <h3 class="empty-title">案头已净，三分钟立卷开篇</h3>
+            <p class="empty-desc">无需繁琐配置。接通创作模型、择定流派模组、落定首章叙事节拍，即可直入正文试写。</p>
+            <div class="empty-actions"><button ref="emptyColdTriggerRef" type="button" class="cold-trigger is-primary" @click="coldStartOpen = true">三分钟极速开书</button><button type="button" class="cold-trigger" @click="openCreateModal">手动新建空白书卷</button></div>
           </div>
 
           <!-- No Results State -->
@@ -131,6 +124,13 @@
         </footer>
       </div>
     </div>
+
+    <ColdStartWizardModal
+      v-model:show="coldStartOpen"
+      @created="fetchBooks"
+      @initialized="fetchBooks"
+      @restore-focus="restoreColdStartLauncherFocus"
+    />
 
     <!-- 新建书目弹层：大表单从主页搬进对话框，主页面保持一屏（header + 书目网格） -->
     <n-modal
@@ -201,7 +201,7 @@
           </div>
 
           <div v-show="showAdvanced" class="advanced-settings">
-            <n-alert type="info" :show-icon="true" style="margin-bottom: 12px; font-size: 12px">
+            <n-alert type="info" :show-icon="true" style="margin-bottom: 12px; font-size: 14px">
               自定义章数与每章字数时，不再使用「目标篇幅」档位推导；结构提示仍会在后台写入梗概供模型使用。
             </n-alert>
             <n-grid :cols="2" :x-gap="16" :y-gap="16" responsive="screen">
@@ -321,6 +321,31 @@ import {
   type NovelLengthTier,
 } from '@/domain/novel'
 
+import ColdStartWizardModal, {
+  clearColdStartRecovery,
+  confirmColdStartNovelFromList,
+  readColdStartRecovery,
+  withColdStartStorageLock,
+} from '@/components/onboarding/ColdStartWizardModal.vue'
+const coldStartOpen = ref(false)
+const homeRootRef = ref<HTMLElement | null>(null)
+const headerColdTriggerRef = ref<HTMLButtonElement | null>(null)
+const emptyColdTriggerRef = ref<HTMLButtonElement | null>(null)
+
+function restoreColdStartLauncherFocus() {
+  void nextTick(() => {
+    const candidates = [
+      headerColdTriggerRef.value,
+      emptyColdTriggerRef.value,
+      homeRootRef.value?.querySelector<HTMLElement>('.new-book-btn, .header-theme-btn') ?? null,
+    ]
+    const target = candidates.find(
+      el => el && el.isConnected && el.getClientRects().length > 0,
+    )
+    target?.focus()
+  })
+}
+
 const MarketTaxonomyPicker = defineAsyncComponent(
   () => import('@/components/taxonomy/MarketTaxonomyPicker.vue'),
 )
@@ -420,10 +445,16 @@ const filteredBooks = computed(() => {
   )
 })
 
+let fetchBooksEpoch = 0
+
 const fetchBooks = async () => {
+  const epoch = ++fetchBooksEpoch
   loading.value = true
   try {
     const novels = await novelApi.listNovels()
+    if (epoch !== fetchBooksEpoch) return
+    await confirmColdStartNovelFromList(new Set(novels.map(novel => novel.id)))
+    if (epoch !== fetchBooksEpoch) return
     books.value = novels.map((novel: NovelDTO) => {
       const fromPrefix = parseGenreWorldFromPremise(novel.premise || '').genre
       const g = novel.locked_genre?.trim() || fromPrefix || ''
@@ -440,9 +471,18 @@ const fetchBooks = async () => {
       }
     })
   } catch {
-    message.error('加载失败')
+    if (epoch === fetchBooksEpoch) {
+      message.error('加载失败')
+    }
   } finally {
-    loading.value = false
+    if (epoch === fetchBooksEpoch) {
+      const preserveColdTriggerFocus =
+        typeof document !== 'undefined' && document.activeElement === headerColdTriggerRef.value
+      loading.value = false
+      if (preserveColdTriggerFocus) {
+        restoreColdStartLauncherFocus()
+      }
+    }
   }
 }
 
@@ -522,6 +562,11 @@ const handleSetupSkip = () => {
 }
 
 const navigateToBook = (novelId: string) => {
+  const pendingColdStart = readColdStartRecovery()
+  if (pendingColdStart && pendingColdStart.novelId === novelId && !isWizardCompleted(novelId)) {
+    coldStartOpen.value = true
+    return
+  }
   // 未完成向导的书重新打开向导
   if (!isWizardCompleted(novelId)) {
     setupWizard.value = {
@@ -561,6 +606,15 @@ const confirmDeleteBooks = async () => {
   }
   // 2. 本地列表只移走删成功的；失败的留在架上（防止误清整个书架）
   const failedSlugs = new Set(failed.map(b => b.slug))
+  for (const slug of pendingSlugs) {
+    if (!failedSlugs.has(slug)) {
+      try {
+        await withColdStartStorageLock(() => clearColdStartRecovery(slug))
+      } catch {
+        /* Keep book deletion resilient when cross-tab Web Locks is unavailable. */
+      }
+    }
+  }
   if (successCount) {
     books.value = books.value.filter(
       b => failedSlugs.has(b.slug) || !pendingSlugs.has(b.slug)
@@ -586,6 +640,15 @@ watch(createModalOpen, (open) => {
   nextTick(() => {
     createInputRef.value?.focus()
   })
+})
+
+watch(coldStartOpen, (open, wasOpen) => {
+  if (!open && wasOpen) {
+    const pendingColdStart = readColdStartRecovery()
+    if (pendingColdStart && !pendingColdStart.novelConfirmed) {
+      void fetchBooks()
+    }
+  }
 })
 
 const handleRefreshList = async () => {
@@ -675,7 +738,7 @@ onMounted(() => {
 .brand-title {
   margin: 0;
   font-family: var(--font-serif);
-  font-size: clamp(24px, 2.4vw, 30px);
+  font-size: 24px;
   font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 1.1;
@@ -688,11 +751,11 @@ onMounted(() => {
   justify-content: center;
   min-height: 26px;
   padding: 0 12px;
-  border: 1px solid var(--app-border);
+  border: none;
   border-radius: 999px;
   background: var(--app-surface-subtle);
   color: var(--app-text-secondary);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   letter-spacing: 0.14em;
   text-indent: 0.14em;
@@ -721,14 +784,14 @@ onMounted(() => {
 
 .create-title {
   margin: 0;
-  font-size: 17px;
+  font-size: 18px;
   font-weight: 600;
 }
 
 /* 新建书目弹层（表单从主页搬入，主页保持一屏） */
 .create-modal {
   border-radius: 14px;
-  border: 1px solid var(--app-border);
+  border: none;
 }
 
 .create-modal-body {
@@ -763,7 +826,7 @@ onMounted(() => {
   padding: 14px 16px;
   border-radius: 12px;
   background: var(--app-surface-subtle);
-  border: 1px solid var(--app-border);
+  border: none;
 }
 .taxonomy-block-head {
   display: flex;
@@ -772,13 +835,13 @@ onMounted(() => {
   margin-bottom: 12px;
 }
 .taxonomy-block-title {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--app-text-primary);
   letter-spacing: 0.04em;
 }
 .taxonomy-block-sub {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--app-text-muted);
   line-height: 1.45;
 }
@@ -789,7 +852,7 @@ onMounted(() => {
 }
 
 .length-tier-label {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--app-text-secondary);
   margin-bottom: 10px;
 }
@@ -821,7 +884,7 @@ onMounted(() => {
 }
 
 .length-tier-hint {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--app-text-muted);
   line-height: 1.45;
 }
@@ -830,7 +893,7 @@ onMounted(() => {
   padding: 16px;
   background: var(--app-surface-subtle);
   border-radius: 12px;
-  border: 1px solid var(--app-border);
+  border: none;
 }
 
 .w-full {
@@ -838,10 +901,10 @@ onMounted(() => {
 }
 
 .books-section {
-  background: var(--app-surface);
+  background: var(--app-page-bg, #f4f4f2);
   border-radius: 14px;
   padding: 24px 28px 28px;
-  border: 1px solid var(--app-border);
+  border: none;
   animation: fade-up 0.45s ease 0.08s both;
 }
 
@@ -868,7 +931,7 @@ onMounted(() => {
 }
 
 .book-count {
-  font-size: 13px;
+  font-size: 14px;
   font-variant-numeric: tabular-nums;
   color: var(--app-text-secondary);
   background: var(--app-surface-subtle);
@@ -883,13 +946,14 @@ onMounted(() => {
 }
 
 .section-right {
+  flex-wrap: wrap;
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
 .search-input {
-  width: 240px;
+  width: 180px;
 }
 
 .loading-state,
@@ -908,15 +972,21 @@ onMounted(() => {
   font-size: 14px;
 }
 
-.empty-state {
-  gap: 14px;
-}
+.empty-state { gap: 18px; max-width: 640px; margin: 24px auto; box-sizing: border-box; background: var(--app-surface, #ffffff); border: none; text-align: center; }
+.empty-state .empty-desc { font-size: 15px; color: var(--app-text-secondary, #4a4a46); max-width: 58ch; line-height: 1.75; }
+.empty-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; }
+.cold-entry { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cold-trigger { min-height: 44px; padding: 10px 14px; border: none; border-radius: 3px; background: var(--app-surface-subtle, #ecece8); color: var(--app-text-secondary, #4a4a46); font-family: 'Noto Sans SC', 'PingFang SC', -apple-system, BlinkMacSystemFont, sans-serif; font-size: 14px; cursor: pointer; }
+.cold-trigger.is-primary { background: var(--color-brand, #1f5e5b); color: var(--app-text-inverse, #ffffff); max-width: 168px; }
+.cold-trigger:focus-visible { outline: 1.5px solid var(--color-brand, #1f5e5b); outline-offset: 2px; }
+.cold-entry-note { display: none; font-size: 14px; color: var(--app-text-muted, #595953); }
+@media (min-width: 1180px) { .cold-entry-note { display: inline; } }
 
 .empty-illustration {
   width: 80px;
   height: 80px;
   background: var(--app-surface-subtle);
-  border: 1px solid var(--app-border);
+  border: none;
   border-radius: 18px;
   color: var(--color-brand);
   display: flex;
@@ -926,9 +996,10 @@ onMounted(() => {
 
 .empty-title {
   margin: 0;
-  font-size: 18px;
+  font-size: 24px;
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', serif;
   font-weight: 600;
-  color: var(--app-text-primary);
+  color: var(--app-text-primary, #161615);
 }
 
 .empty-desc {
@@ -984,7 +1055,7 @@ onMounted(() => {
   justify-content: center;
   gap: 6px;
   flex-wrap: wrap;
-  font-size: 12px;
+  font-size: 14px;
   color: var(--app-text-muted);
   line-height: 1.6;
 }
@@ -1034,7 +1105,7 @@ onMounted(() => {
     right: 12px;
     z-index: 32;
     background: var(--app-surface);
-    border: 1px solid var(--app-border);
+    border: none;
   }
 
   .header-content {

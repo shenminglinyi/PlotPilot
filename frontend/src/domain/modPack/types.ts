@@ -1,5 +1,30 @@
 export type ModTrustLevel = 'official' | 'cloud-verified' | 'community-unreviewed' | 'local'
 
+export type ModRecommendedModelTier = 'flagship' | 'balanced' | 'economy'
+
+export type PlotPilotModSchemaVersion = 'plotpilot-mod/v1' | 'plotpilot-mod/v1.1'
+
+export const MOD_RECOMMENDED_MODEL_TIER_META: Record<
+  ModRecommendedModelTier,
+  { label: string; shortBadge: string; hint: string }
+> = {
+  flagship: {
+    label: '旗舰主写档',
+    shortBadge: '推荐旗舰档',
+    hint: '适合复杂潜台词、长线草蛇灰线与冷峻文风控制，建议挂载主力高阶创作模型',
+  },
+  balanced: {
+    label: '均衡主力档',
+    shortBadge: '推荐均衡档',
+    hint: '兼顾叙事张力与吞吐速度，主流均衡创作模型即可稳定发挥模组效果',
+  },
+  economy: {
+    label: '轻量省额档',
+    shortBadge: '推荐省额档',
+    hint: '规则边界明确，使用高性价比轻量模型即可完成高频审校或节拍拆解',
+  },
+}
+
 export type ModRoleCategory =
   | 'all'
   | 'style-anti-ai'
@@ -79,6 +104,14 @@ export interface NarrativeModPack {
   tags: string[]
   /** 若来自云端书元或社区资产，保留源 ID 便于溯源 */
   cloudSourceId?: string
+  /** plotpilot-mod/v1.1：开篇黄金三章/首幕节拍支架模板 */
+  openingBeatTemplate?: string
+  /** plotpilot-mod/v1.1：商业连载毒点与人设崩塌审稿红线清单 */
+  reviewRedlines?: string[]
+  /** plotpilot-mod/v1.1：高频 AI 套话与禁用词巡检词表 */
+  antiAiWordlist?: string[]
+  /** plotpilot-mod/v1.1：模组作者建议挂载的模型能力档位 */
+  recommendedModelTier?: ModRecommendedModelTier
 }
 
 export interface ReplacedNodeBackup {
@@ -128,7 +161,7 @@ export interface InstalledModRecord {
 }
 
 export interface PlotPilotModManifest {
-  schema: 'plotpilot-mod/v1'
+  schema: PlotPilotModSchemaVersion
   exportedAt: string
   pack: NarrativeModPack
 }

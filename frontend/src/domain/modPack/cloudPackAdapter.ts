@@ -6,9 +6,12 @@ import {
 } from '@/api/cloudSquare'
 import {
   SAFE_NODE_KEY_RE,
+  canonicalizeModPackForExport,
+  hasModPackV11Extensions,
   inferRoleFromZone,
   sanitizeModIdAtom,
   stripModDelimiterComments,
+  validatePackInvariants,
 } from '@/domain/modPack/modProtocol'
 import type {
   ModNodeOverride,
@@ -152,9 +155,11 @@ export async function hydrateCloudPackDetail(pack: NarrativeModPack): Promise<Na
 }
 
 export function createManifestFromPack(pack: NarrativeModPack): PlotPilotModManifest {
+  const canonicalPack = canonicalizeModPackForExport(pack)
+  validatePackInvariants(canonicalPack)
   return {
-    schema: 'plotpilot-mod/v1',
+    schema: hasModPackV11Extensions(canonicalPack) ? 'plotpilot-mod/v1.1' : 'plotpilot-mod/v1',
     exportedAt: new Date().toISOString(),
-    pack,
+    pack: canonicalPack,
   }
 }

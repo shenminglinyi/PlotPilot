@@ -89,6 +89,10 @@
         <!-- 主体滚动区 -->
         <div class="detail-scroll">
           <p class="detail-lead">{{ pack.summary }}</p>
+          <div v-if="tierMeta" class="tier-strip" :class="{ 'is-flagship': pack.recommendedModelTier === 'flagship' }">
+            <strong>{{ tierMeta.shortBadge }} · {{ tierMeta.label }}</strong>
+            <span>{{ tierMeta.hint }}</span>
+          </div>
 
           <!-- 对标 Magpie 详情页的四宫格契约条 -->
           <div class="contract-grid">
@@ -112,6 +116,7 @@
 
           <!-- 来源与分享芯片 -->
           <div class="chip-toolbar">
+            <span v-if="hasV11" class="protocol-version">协议版本 plotpilot-mod/v1.1</span>
             <span class="origin-badge">{{ pack.roleLabel }}</span>
             <span v-for="tag in pack.tags" :key="tag" class="tag-badge">{{ tag }}</span>
             <button type="button" class="export-pack-btn" @click="$emit('export-pack', pack)">
@@ -322,6 +327,22 @@
               </div>
             </section>
 
+            <section v-if="pack.openingBeatTemplate?.trim()" class="extension-block">
+              <div class="extension-head"><h4>开篇节拍支架</h4><button type="button" class="quiet-action" @click="copyScaffold">{{ scaffoldCopied ? '已收入剪贴板' : '复制支架' }}</button></div>
+              <p class="extension-note">可在三分钟极速开书第三步自动带入，亦可复制至任意新章充当起笔骨架</p>
+              <p v-if="copyError" class="extension-note" role="status">{{ copyError }}</p>
+              <div class="beat-sheet">{{ pack.openingBeatTemplate }}</div>
+            </section>
+            <section v-if="pack.reviewRedlines?.length" class="extension-block">
+              <div class="extension-head"><h4>审稿红线清单</h4><span class="extension-note numeric">共 {{ pack.reviewRedlines.length }} 条</span></div>
+              <p class="extension-note">挂载后联动审校节点与禅意卷边，拦截人设失真、战力崩塌与叙事断层</p>
+              <div class="redline-ledger"><div v-for="(rule, idx) in pack.reviewRedlines" :key="idx" class="redline-row"><span class="rule-counter numeric">第 {{ idx + 1 }} 条</span><span>{{ rule }}</span></div></div>
+            </section>
+            <section v-if="pack.antiAiWordlist?.length" class="extension-block">
+              <div class="extension-head"><h4>去套话巡检词表</h4><span class="extension-note numeric">共 {{ pack.antiAiWordlist.length }} 词</span></div>
+              <p class="extension-note">正文中出现以下高频套话时，将在禅意模式卷边静默计数提醒</p>
+              <div class="word-sheet"><span v-for="word in visibleWords" :key="word" class="word-slip">{{ word }}</span><button v-if="pack.antiAiWordlist.length > 36" type="button" class="quiet-action" :aria-expanded="wordsExpanded" @click="wordsExpanded = !wordsExpanded">{{ wordsExpanded ? '收起词表' : `展开其余 ${pack.antiAiWordlist.length - 36} 词` }}</button></div>
+            </section>
             <section
               v-for="(sec, idx) in pack.readmeSections"
               :key="idx"
@@ -382,7 +403,7 @@ import { useRoute } from 'vue-router'
 import { llmControlApi, type ModSandboxAbTrialResponse } from '@/api/llmControl'
 import { novelApi, type NovelDTO } from '@/api/novel'
 import { hydrateCloudPackDetail } from '@/domain/modPack/cloudPackAdapter'
-import type { ModNodeOverride, NarrativeModPack } from '@/domain/modPack/types'
+import { MOD_RECOMMENDED_MODEL_TIER_META, type ModNodeOverride, type NarrativeModPack } from '@/domain/modPack/types'
 
 const props = defineProps<{
   show: boolean
@@ -400,6 +421,37 @@ const emit = defineEmits<{
 }>()
 
 const route = useRoute()
+const wordsExpanded = ref(false)
+const scaffoldCopied = ref(false)
+const copyError = ref('')
+const tierMeta = computed(() => props.pack?.recommendedModelTier
+  ? MOD_RECOMMENDED_MODEL_TIER_META[props.pack.recommendedModelTier] : undefined)
+const hasV11 = computed(() => Boolean(props.pack && (props.pack.recommendedModelTier || props.pack.openingBeatTemplate?.trim() || props.pack.reviewRedlines?.length || props.pack.antiAiWordlist?.length)))
+const visibleWords = computed(() => wordsExpanded.value ? props.pack?.antiAiWordlist : props.pack?.antiAiWordlist?.slice(0, 36))
+let copyEpoch = 0
+function resetExtensionSessionState(): void {
+  wordsExpanded.value = false
+  scaffoldCopied.value = false
+  copyError.value = ''
+  copyEpoch += 1
+}
+async function copyScaffold() {
+  const targetPack = props.pack
+  const text = targetPack?.openingBeatTemplate
+  if (!props.show || !targetPack || !text) return
+  const epoch = ++copyEpoch
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error('剪贴板不可用，请选中支架正文手动复制')
+    await navigator.clipboard.writeText(text)
+    if (epoch !== copyEpoch || !props.show || props.pack !== targetPack) return
+    scaffoldCopied.value = true
+    copyError.value = ''
+  } catch {
+    if (epoch === copyEpoch && props.show && props.pack === targetPack) {
+      copyError.value = '未能访问剪贴板，请选中支架正文手动复制'
+    }
+  }
+}
 const activeTab = ref<'readme' | 'nodes'>('readme')
 
 const maskRef = ref<HTMLElement | null>(null)
@@ -771,6 +823,7 @@ watch(
     if (!currentlyRenderable) {
       novelsLoadEpoch += 1
       novelsLoading.value = false
+      resetExtensionSessionState()
       abortActiveTrial()
       clearTrialOutput()
       scenarioDirty.value = false
@@ -786,6 +839,7 @@ watch(
 
     if (!previouslyRenderable || nextPack !== prevPack) {
       activeTab.value = 'readme'
+      resetExtensionSessionState()
       abortActiveTrial()
       clearTrialOutput()
       scenarioDirty.value = false
@@ -798,6 +852,7 @@ watch(
 
 onBeforeUnmount(() => {
   novelsLoadEpoch += 1
+  resetExtensionSessionState()
   abortActiveTrial()
   detachModalA11yLifecycle(true)
 })
@@ -823,6 +878,25 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
 </script>
 
 <style scoped>
+.mod-detail-dialog { font-family: 'Noto Sans SC', 'PingFang SC', -apple-system, BlinkMacSystemFont, sans-serif; }
+.mod-detail-dialog :focus-visible { outline: 1.5px solid var(--color-brand, #1f5e5b); outline-offset: 2px; }
+.protocol-version, .extension-note { font-size: 14px; color: var(--app-text-muted, #595953); margin: 0; line-height: 1.65; }
+.tier-strip { display: flex; flex-direction: column; gap: 4px; background: var(--app-surface, #ffffff); padding: 12px 16px; border-radius: 3px; border-left: 2px solid var(--app-border-strong, rgba(22,22,21,0.28)); font-size: 14px; color: var(--app-text-secondary, #4a4a46); }
+.tier-strip strong { font-size: 14px; font-weight: 500; color: var(--app-text-primary, #161615); }
+.tier-strip.is-flagship { border-left-color: var(--color-brand, #1f5e5b); }
+.extension-block { display: flex; flex-direction: column; gap: 10px; }
+.extension-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.extension-head h4 { margin: 0; font-size: 18px; color: var(--app-text-primary, #161615); font-family: 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', serif; }
+.quiet-action { min-height: 44px; border: none; border-radius: 3px; padding: 8px 12px; font-size: 14px; background: var(--app-surface-subtle, #ecece8); color: var(--app-text-secondary, #4a4a46); cursor: pointer; }
+.beat-sheet { background: var(--app-surface, #ffffff); padding: 20px 24px; border-left: 2px solid var(--app-border-strong, rgba(22,22,21,0.18)); font-size: 16px; color: var(--app-text-primary, #161615); font-family: 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', serif; line-height: 1.75; max-width: 58ch; white-space: pre-wrap; overflow-wrap: anywhere; }
+.redline-ledger, .word-sheet { background: var(--app-surface, #ffffff); }
+.redline-row { display: flex; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--app-divider, rgba(22,22,21,0.06)); font-size: 15px; color: var(--app-text-primary, #161615); line-height: 1.65; }
+.redline-row:last-child { border-bottom: none; }
+.redline-row > :last-child { max-width: 54ch; overflow-wrap: anywhere; }
+.rule-counter { flex: 0 0 64px; font-size: 14px; color: var(--app-text-muted, #595953); }
+.word-sheet { display: flex; flex-wrap: wrap; gap: 8px; padding: 16px; }
+.word-slip { background: var(--app-page-bg, #f4f4f2); padding: 4px 12px; font-size: 14px; color: var(--app-text-primary, #161615); border: none; overflow-wrap: anywhere; }
+
 .mod-detail-mask {
   position: fixed;
   inset: 0;
@@ -838,8 +912,8 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
   width: 100%;
   max-width: 720px;
   max-height: 86vh;
-  background: var(--app-surface);
-  border: 1px solid var(--app-border-strong);
+  background: var(--app-page-bg, #f4f4f2);
+  border: none;
   border-radius: 16px;
   display: flex;
   flex-direction: column;
@@ -860,7 +934,7 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
   height: 44px;
   border-radius: 11px;
   background: var(--app-surface-subtle);
-  border: 1px solid var(--app-border);
+  border: none;
   color: var(--app-text-primary);
   font-size: 18px;
   font-weight: 700;
@@ -889,13 +963,16 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--app-text-muted);
 }
 
 .origin-sep {
   opacity: 0.6;
 }
+
+.detail-head-actions .detail-action-btn.is-primary { background: var(--app-surface-subtle, #ecece8); color: var(--app-text-primary, #161615); }
+.detail-head-actions .detail-action-btn.is-primary:hover:not(:disabled) { background: var(--color-brand-hover, #1f5e5b); color: var(--app-text-inverse, #ffffff); border-color: var(--color-brand-hover, #1f5e5b); }
 
 .detail-head-actions {
   display: flex;
@@ -911,9 +988,9 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
   height: 32px;
   padding: 0 10px;
   border-radius: 8px;
-  background: var(--color-success-light);
-  color: var(--color-success);
-  font-size: 13px;
+  background: var(--app-surface-subtle, #ecece8);
+  color: var(--app-text-secondary, #4a4a46);
+  font-size: 14px;
   font-weight: 600;
 }
 
@@ -924,26 +1001,26 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
   height: 34px;
   padding: 0 14px;
   border-radius: 9px;
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .detail-action-btn.is-primary {
-  background: var(--color-brand);
-  border: 1px solid var(--color-brand);
+  background: var(--color-brand, #1f5e5b);
+  border: none;
   color: var(--app-text-inverse);
 }
 
 .detail-action-btn.is-primary:hover:not(:disabled) {
-  background: var(--color-brand-hover);
+  background: var(--color-brand-hover, #1f5e5b);
   border-color: var(--color-brand-hover);
 }
 
 .detail-action-btn.is-uninstall {
   background: var(--app-surface);
-  border: 1px solid var(--app-border-strong);
+  border: none;
   color: var(--app-text-secondary);
 }
 
@@ -964,10 +1041,10 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
 }
 
 .detail-close-btn {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
   border-radius: 8px;
-  border: 1px solid transparent;
+  border: none;
   background: transparent;
   color: var(--app-text-muted);
   display: inline-flex;
@@ -992,7 +1069,7 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
 
 .detail-lead {
   margin: 0;
-  font-size: 14.5px;
+  font-size: 14px;
   line-height: 1.65;
   color: var(--app-text-primary);
   max-width: 58ch;
@@ -1001,7 +1078,7 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
 .contract-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  border: 1px solid var(--app-border);
+  border: none;
   border-radius: 10px;
   background: var(--app-surface-subtle);
   overflow: hidden;
@@ -1012,7 +1089,7 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  border-right: 1px solid var(--app-border);
+  border-right: none;
 }
 
 .contract-cell:last-child {
@@ -1020,12 +1097,12 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
 }
 
 .contract-label {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--app-text-muted);
 }
 
 .contract-val {
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--app-text-primary);
   overflow: hidden;
@@ -1047,9 +1124,9 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
 .origin-badge {
   padding: 3px 9px;
   border-radius: 6px;
-  background: var(--color-brand-light);
-  color: var(--color-brand);
-  font-size: 12px;
+  background: var(--app-surface-subtle, #ecece8);
+  color: var(--app-text-secondary, #4a4a46);
+  font-size: 14px;
   font-weight: 600;
 }
 
@@ -1057,26 +1134,26 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
   padding: 3px 9px;
   border-radius: 6px;
   background: var(--app-surface-subtle);
-  border: 1px solid var(--app-border);
+  border: none;
   color: var(--app-text-secondary);
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .export-pack-btn {
   margin-left: auto;
   padding: 4px 10px;
   border-radius: 6px;
-  border: 1px solid var(--app-border);
+  border: none;
   background: var(--app-surface);
   color: var(--app-text-secondary);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 500;
   cursor: pointer;
 }
 
 .export-pack-btn:hover {
-  border-color: var(--color-brand);
-  color: var(--color-brand);
+  background: var(--app-surface-subtle, #ecece8);
+  color: var(--app-text-primary, #161615);
 }
 
 .safety-banner {
@@ -1086,7 +1163,7 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
   padding: 12px 14px;
   border-radius: 10px;
   background: var(--app-surface-subtle);
-  border: 1px solid var(--app-border);
+  border: none;
   color: var(--app-text-secondary);
 }
 
@@ -1101,7 +1178,7 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
   height: 18px;
   flex-shrink: 0;
   margin-top: 2px;
-  color: var(--color-brand);
+  color: var(--app-text-secondary, #4a4a46);
 }
 
 .safety-banner.is-unreviewed .safety-icon {
@@ -1110,7 +1187,7 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
 
 .safety-text {
   margin: 0;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.55;
   max-width: 58ch;
 }
@@ -1139,8 +1216,8 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
 }
 
 .detail-tab.is-active {
-  color: var(--color-brand);
-  border-bottom-color: var(--color-brand);
+  color: var(--app-text-primary, #161615);
+  border-bottom-color: var(--color-brand, #1f5e5b);
   font-weight: 600;
 }
 
@@ -1154,7 +1231,7 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
   padding: 16px;
   border-radius: 12px;
   background: var(--app-surface-subtle);
-  border: 1px solid var(--app-border);
+  border: none;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -1178,15 +1255,15 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
   padding: 2px 8px;
   border-radius: 6px;
   background: var(--app-surface);
-  border: 1px solid var(--app-border);
+  border: none;
   color: var(--app-text-secondary);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
 }
 
 .arena-sub {
   margin: 0;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.58;
   color: var(--app-text-secondary);
   max-width: 58ch;
@@ -1212,7 +1289,7 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
 }
 
 .arena-field-label {
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--app-text-secondary);
 }
@@ -1221,9 +1298,9 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
   border: none;
   background: transparent;
   padding: 0;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 500;
-  color: var(--color-brand);
+  color: var(--app-text-secondary, #4a4a46);
   cursor: pointer;
 }
 
@@ -1235,7 +1312,7 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
 .arena-textarea {
   width: 100%;
   border-radius: 8px;
-  border: 1px solid var(--app-border-strong);
+  border: none;
   background: var(--app-surface);
   color: var(--app-text-primary);
   font-family: inherit;
@@ -1254,10 +1331,10 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
   min-height: 60px;
 }
 
-.arena-select:focus,
-.arena-textarea:focus {
-  outline: none;
-  border-color: var(--color-brand);
+.arena-select:focus-visible,
+.arena-textarea:focus-visible {
+  outline: 1.5px solid var(--color-brand, #1f5e5b);
+  outline-offset: 2px;
 }
 
 .arena-action-bar {
@@ -1269,17 +1346,20 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
 }
 
 .arena-run-btn {
-  min-height: 36px;
+  max-width: 144px;
+  white-space: normal;
+  height: auto;
+  min-height: 44px;
 }
 
 .arena-cancel-btn {
   min-height: 36px;
   padding: 0 12px;
   border-radius: 9px;
-  border: 1px solid var(--app-border-strong);
+  border: none;
   background: var(--app-surface);
   color: var(--app-text-secondary);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   cursor: pointer;
 }
@@ -1289,7 +1369,7 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
 }
 
 .arena-meta {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--app-text-muted);
   margin-left: auto;
 }
@@ -1299,9 +1379,9 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
   padding: 10px 12px;
   border-radius: 8px;
   background: var(--color-error-light);
-  border: 1px solid color-mix(in srgb, var(--color-error) 30%, var(--app-border));
+  border: none;
   color: var(--color-error);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.55;
   max-width: 58ch;
 }
@@ -1318,7 +1398,7 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
   align-items: baseline;
   flex-wrap: wrap;
   gap: 6px;
-  font-size: 12.5px;
+  font-size: 14px;
   line-height: 1.5;
   color: var(--app-text-muted);
   max-width: 58ch;
@@ -1336,7 +1416,7 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
 }
 
 .arena-char-count {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--app-text-muted);
 }
 
@@ -1367,7 +1447,7 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
 }
 
 .showcase-scenario {
-  font-size: 12.5px;
+  font-size: 14px;
   color: var(--app-text-muted);
 }
 
@@ -1381,7 +1461,7 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
   padding: 14px;
   border-radius: 10px;
   background: var(--app-surface-subtle);
-  border: 1px solid var(--app-border);
+  border: none;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1397,16 +1477,16 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
   padding: 2px 8px;
   border-radius: 5px;
   background: var(--app-surface);
-  border: 1px solid var(--app-border);
+  border: none;
   color: var(--app-text-muted);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
 }
 
 .col-badge.is-good {
-  background: var(--color-brand-light);
+  background: var(--app-surface-subtle, #ecece8);
   border-color: transparent;
-  color: var(--color-brand);
+  color: var(--app-text-secondary, #4a4a46);
 }
 
 .col-excerpt {
@@ -1436,7 +1516,7 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
 }
 
 .override-card {
-  border: 1px solid var(--app-border);
+  border: none;
   border-radius: 10px;
   background: var(--app-surface-subtle);
   overflow: hidden;
@@ -1461,13 +1541,13 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
 }
 
 .override-label {
-  font-size: 13.5px;
+  font-size: 14px;
   color: var(--app-text-primary);
 }
 
 .override-key {
-  font-size: 12px;
-  font-family: var(--font-mono);
+  font-size: 14px;
+  font-family: inherit;
   padding: 1px 6px;
   border-radius: 4px;
   background: var(--app-surface-subtle);
@@ -1475,19 +1555,19 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
 }
 
 .override-mode {
-  font-size: 11.5px;
+  font-size: 14px;
   padding: 1px 7px;
   border-radius: 999px;
-  background: var(--color-brand-light);
-  color: var(--color-brand);
+  background: var(--app-surface-subtle, #ecece8);
+  color: var(--app-text-secondary, #4a4a46);
   font-weight: 500;
 }
 
 .inspect-node-btn {
   border: none;
   background: transparent;
-  color: var(--color-brand);
-  font-size: 12.5px;
+  color: var(--app-text-secondary, #4a4a46);
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   padding: 2px 4px;
@@ -1500,8 +1580,8 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
 .override-code {
   margin: 0;
   padding: 12px 14px;
-  font-family: var(--font-mono);
-  font-size: 12.5px;
+  font-family: inherit;
+  font-size: 14px;
   line-height: 1.6;
   color: var(--app-text-secondary);
   white-space: pre-wrap;
@@ -1516,13 +1596,13 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
   justify-content: space-between;
   gap: 12px;
   padding: 12px 22px;
-  border-top: 1px solid var(--app-border);
+  border-top: none;
   background: var(--app-surface-subtle);
   flex-shrink: 0;
 }
 
 .foot-note {
-  font-size: 12.5px;
+  font-size: 14px;
   color: var(--app-text-muted);
 }
 
@@ -1530,10 +1610,10 @@ function modeLabel(mode: ModNodeOverride['mode']): string {
   height: 32px;
   padding: 0 16px;
   border-radius: 8px;
-  border: 1px solid var(--app-border);
+  border: none;
   background: var(--app-surface);
   color: var(--app-text-secondary);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   cursor: pointer;
 }

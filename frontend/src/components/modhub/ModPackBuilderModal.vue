@@ -2,21 +2,23 @@
   <teleport to="body">
     <div
       v-if="show"
+      ref="maskRef"
       class="builder-mask"
       role="dialog"
       aria-modal="true"
       aria-label="打包制作叙事模组"
-      @click.self="$emit('close')"
+      :aria-busy="submitting"
+      @click.self="requestClose"
     >
-      <div class="builder-dialog">
+      <div ref="dialogRef" class="builder-dialog" tabindex="-1">
         <header class="builder-head">
           <div>
             <h3 class="builder-title">打包制作叙事模组</h3>
             <p class="builder-sub">
-              将你调优过的提示词节点封装为标准 <code>plotpilot-mod/v1</code> 清单，一键分享至 GitHub 社区。
+              将你调优过的提示词节点封装为标准 <code>plotpilot-mod/v1.1</code> 清单（兼容 <code>plotpilot-mod/v1</code>），一键分享至 GitHub 社区。
             </p>
           </div>
-          <button type="button" class="builder-close" aria-label="关闭" @click="$emit('close')">
+          <button ref="closeBtnRef" type="button" class="builder-close" aria-label="关闭" :disabled="submitting" @click="requestClose">
             <svg viewBox="0 0 24 24" fill="none" width="18" height="18" aria-hidden="true">
               <path
                 d="M18 6 6 18M6 6l12 12"
@@ -29,6 +31,8 @@
         </header>
 
         <div class="builder-body">
+          <fieldset class="builder-fieldset" :disabled="submitting">
+            <div class="builder-stack">
           <!-- 基本元数据 -->
           <div class="form-grid">
             <label class="field-item">
@@ -116,6 +120,19 @@
             </div>
           </div>
 
+          <section class="extension-editor" aria-label="叙事护栏与开局能力">
+            <h4>叙事护栏与开局能力（v1.1 扩展，可选）</h4>
+            <div class="tier-options" aria-label="建议模型档位"><button v-for="tier in tierOptions" :key="tier.value" type="button" :aria-pressed="form.recommendedModelTier === tier.value" :class="{ 'is-selected': form.recommendedModelTier === tier.value }" @click="form.recommendedModelTier = tier.value">{{ tier.label }}</button></div>
+            <p class="extension-hint">{{ selectedTierHint }}</p>
+            <label class="field-item"><span class="field-label">开篇节拍支架</span><textarea v-model="form.openingBeatTemplate" class="beat-input" rows="6" maxlength="4000" /></label>
+            <button type="button" class="quiet-btn" @click="loadStarter">载入三幕范例</button>
+            <h4>审稿红线清单</h4>
+            <div class="rules-ledger"><div v-for="(rule, i) in form.reviewRedlines" :key="rule" class="rule-entry"><span class="numeric">第 {{ i + 1 }} 条</span><p>{{ rule }}</p><button type="button" class="quiet-btn" :aria-label="`移除第 ${i + 1} 条红线`" @click="form.reviewRedlines.splice(i, 1)">移除</button></div></div>
+            <div class="entry-controls"><textarea v-model="ruleDraft" aria-label="新增审稿红线，可粘贴多行" maxlength="240" rows="2" class="field-textarea" /><button type="button" class="quiet-btn" @click="addEntries('rules')">添入</button></div>
+            <h4>去套话巡检词表</h4>
+            <div class="words-pool"><span v-for="(word, i) in form.antiAiWordlist" :key="word" class="word-token">{{ word }}<button type="button" :aria-label="`移除词汇 ${word}`" @click="form.antiAiWordlist.splice(i, 1)">×</button></span><span v-if="!form.antiAiWordlist.length" class="extension-hint">尚未添入巡检词汇</span></div>
+            <div class="entry-controls"><input v-model="wordDraft" class="field-input" maxlength="64" aria-label="新增巡检词汇，可用逗号分隔" @keydown.enter.prevent="addEntries('words')" /><button type="button" class="quiet-btn" @click="addEntries('words')">添入</button><button type="button" class="quiet-btn" @click="form.antiAiWordlist = []; wordDraft = ''">清空词表</button></div>
+          </section>
           <!-- 可选样章对比 -->
           <details class="showcase-details">
             <summary class="showcase-summary">附带实测样章对比（选填，强烈推荐填写以提升社区安装率）</summary>
@@ -142,6 +159,8 @@
               </div>
             </div>
           </details>
+            </div>
+          </fieldset>
         </div>
 
         <footer class="builder-foot">
@@ -161,7 +180,7 @@
               :disabled="submitting || !canSubmit"
               @click="handleExportFile"
             >
-              {{ submitting ? '正在打包…' : '导出 plotpilot-mod.json' }}
+              {{ submitting ? '正在打包…' : '导出模组清单' }}
             </button>
           </div>
         </footer>
@@ -171,11 +190,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import { promptPlazaApi, type PromptNode, type PromptNodeDetail } from '@/api/llmControl'
 import {
   MOD_ROLE_CATEGORIES,
+  MOD_RECOMMENDED_MODEL_TIER_META,
+  type ModRecommendedModelTier,
   type ModNodeOverride,
   type ModRoleCategory,
   type NarrativeModPack,
@@ -184,6 +205,8 @@ import {
   stripModDelimiterComments,
   useModHubStore,
 } from '@/stores/modHubStore'
+
+import { assertSafeProtocolBody, canonicalizeModPackForExport, validatePackInvariants } from '@/domain/modPack/modProtocol'
 
 const props = defineProps<{
   show: boolean
@@ -212,21 +235,164 @@ const form = reactive({
   scenario: '',
   beforeExcerpt: '',
   afterExcerpt: '',
+  recommendedModelTier: '' as ModRecommendedModelTier | '',
+  openingBeatTemplate: '',
+  reviewRedlines: [] as string[],
+  antiAiWordlist: [] as string[],
 })
 
+const maskRef = ref<HTMLElement | null>(null)
+const dialogRef = ref<HTMLElement | null>(null)
+const closeBtnRef = ref<HTMLButtonElement | null>(null)
+let opener: HTMLElement | null = null
+let inertNodes: Array<{ el: HTMLElement; inert: boolean }> = []
+let sessionEpoch = 0
+let unmounted = false
 const nodeFilter = ref('')
 const selectedKeys = ref<string[]>([])
 const submitting = ref(false)
+const ruleDraft = ref('')
+const wordDraft = ref('')
+const tierOptions: Array<{ value: ModRecommendedModelTier | ''; label: string }> = [
+  { value: '', label: '不限档位' }, { value: 'flagship', label: '旗舰主写档' },
+  { value: 'balanced', label: '均衡主力档' }, { value: 'economy', label: '轻量省额档' },
+]
+const selectedTierHint = computed(() => form.recommendedModelTier ? MOD_RECOMMENDED_MODEL_TIER_META[form.recommendedModelTier].hint : '不限定模型档位，按当前创作配置运行')
+
+function isSessionActive(epoch: number): boolean {
+  return !unmounted && props.show && sessionEpoch === epoch
+}
+
+function requestClose(): void {
+  if (submitting.value) return
+  emit('close')
+}
+
+function loadStarter() {
+  if (submitting.value) return
+  form.openingBeatTemplate = '【起笔意象】以一处具象时辰、气候或器物细节切入，点出主角眼下的处境：\n【骤然失衡】一桩无法推脱的来客、旧账或异变逼近，迫使主角当场做出应对：\n【首章留钩】表面风波暂歇，却在末句动作或物件上翻出更深一层的悬念：'
+}
+
+function addEntries(kind: 'rules' | 'words'): boolean {
+  const draft = kind === 'rules' ? ruleDraft : wordDraft
+  const entries = draft.value.split(kind === 'rules' ? /[\r\n]+/ : /[\r\n,，、;；]+/).map(v => v.trim()).filter(Boolean)
+  if (!entries.length) return true
+  const limit = kind === 'rules' ? 24 : 64
+  const maxLength = kind === 'rules' ? 240 : 64
+  try {
+    for (const entry of entries) {
+      assertSafeProtocolBody(entry, kind === 'rules' ? '审稿红线' : '巡检词汇')
+      if (entry.length > maxLength) throw new Error(`每项最多 ${maxLength} 字，请缩短后添入`)
+    }
+    const current = kind === 'rules' ? form.reviewRedlines : form.antiAiWordlist
+    const merged = [...new Set([...current, ...entries])]
+    if (merged.length > limit) throw new Error(`最多可添入 ${limit} 项，请先精简清单`)
+    if (kind === 'rules') form.reviewRedlines = merged
+    else form.antiAiWordlist = merged
+    draft.value = ''
+    return true
+  } catch (error) {
+    message.warning(error instanceof Error ? error.message : '输入内容无效')
+    return false
+  }
+}
+
+function resetBuilderForm(seedDefaultNodes = false): void {
+  form.name = ''
+  form.glyph = ''
+  form.author = ''
+  form.roleCategory = 'style-anti-ai'
+  form.summary = ''
+  form.scenario = ''
+  form.beforeExcerpt = ''
+  form.afterExcerpt = ''
+  form.recommendedModelTier = ''
+  form.openingBeatTemplate = ''
+  form.reviewRedlines = []
+  form.antiAiWordlist = []
+  ruleDraft.value = ''
+  wordDraft.value = ''
+  nodeFilter.value = ''
+  selectedKeys.value = seedDefaultNodes
+    ? props.nodes.filter(n => n.has_user_edit).map(n => n.node_key).slice(0, 6)
+    : []
+}
+
+function restoreModalBackground(): void {
+  document.removeEventListener('keydown', handleKeys, true)
+  for (const node of inertNodes) {
+    node.el.inert = node.inert
+  }
+  inertNodes = []
+  if (opener?.isConnected) opener.focus()
+  opener = null
+}
+
+function handleKeys(event: KeyboardEvent) {
+  if (!props.show) return
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    event.stopPropagation()
+    requestClose()
+    return
+  }
+  if (event.key !== 'Tab') return
+  const selector = submitting.value
+    ? 'button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled)'
+    : 'button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), summary'
+  const items = Array.from(dialogRef.value?.querySelectorAll<HTMLElement>(selector) ?? []).filter(
+    el => el.getClientRects().length > 0 && window.getComputedStyle(el).visibility !== 'hidden',
+  )
+  const first = items[0]
+  const last = items[items.length - 1]
+  if (!first || !last) {
+    event.preventDefault()
+    dialogRef.value?.focus()
+    return
+  }
+  const active = document.activeElement
+  const outsideOrContainer = active === dialogRef.value || !dialogRef.value?.contains(active)
+  if (event.shiftKey && (active === first || outsideOrContainer)) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && (active === last || outsideOrContainer)) {
+    event.preventDefault()
+    first.focus()
+  }
+}
 
 watch(
   () => props.show,
-  (open) => {
-    if (!open) return
-    // 默认自动勾选用户已修改过的节点，降低打包操作成本
-    const edited = props.nodes.filter(n => n.has_user_edit).map(n => n.node_key)
-    selectedKeys.value = edited.slice(0, 6)
+  async (open) => {
+    sessionEpoch += 1
+    submitting.value = false
+    if (!open) {
+      resetBuilderForm(false)
+      restoreModalBackground()
+      return
+    }
+    const openEpoch = sessionEpoch
+    opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    resetBuilderForm(true)
+    document.addEventListener('keydown', handleKeys, true)
+    await nextTick()
+    if (!isSessionActive(openEpoch)) return
+    for (const child of Array.from(document.body.children)) {
+      if (child instanceof HTMLElement && child !== maskRef.value && !child.contains(maskRef.value)) {
+        inertNodes.push({ el: child, inert: child.inert })
+        child.inert = true
+      }
+    }
+    closeBtnRef.value?.focus() ?? dialogRef.value?.focus()
   },
+  { immediate: true },
 )
+
+onBeforeUnmount(() => {
+  unmounted = true
+  sessionEpoch += 1
+  restoreModalBackground()
+})
 
 const sortedNodes = computed(() => {
   const q = nodeFilter.value.trim().toLowerCase()
@@ -247,46 +413,159 @@ const canSubmit = computed(
   () => form.name.trim().length > 0 && selectedKeys.value.length > 0,
 )
 
-async function assemblePack(forLocalInstall = false): Promise<NarrativeModPack> {
+interface BuilderSubmissionSnapshot {
+  epoch: number
+  packId: string
+  keys: string[]
+  name: string
+  glyph: string
+  author: string
+  roleCategory: Exclude<ModRoleCategory, 'all'>
+  summary: string
+  scenario: string
+  beforeExcerpt: string
+  afterExcerpt: string
+  recommendedModelTier: ModRecommendedModelTier | ''
+  openingBeatTemplate: string
+  reviewRedlines: string[]
+  antiAiWordlist: string[]
+  nodesSnapshot: PromptNode[]
+}
+
+function clonePromptNodeSnapshot(node: PromptNode): PromptNode {
+  return {
+    ...node,
+    tags: Array.isArray(node.tags) ? [...node.tags] : [],
+    variable_names: Array.isArray(node.variable_names) ? [...node.variable_names] : [],
+    variables: Array.isArray(node.variables)
+      ? node.variables.map(v => ({
+          ...v,
+          default:
+            v.default !== undefined && typeof v.default === 'object' && v.default !== null
+              ? JSON.parse(JSON.stringify(v.default))
+              : v.default,
+        }))
+      : [],
+  }
+}
+
+function captureSubmissionSnapshot(epoch: number): BuilderSubmissionSnapshot {
+  const cleanName = form.name.trim()
+  const keys = [...selectedKeys.value]
+  if (!cleanName || keys.length === 0) {
+    throw new Error('请填写模组名称并至少选择一个引擎节点')
+  }
+  if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(form.openingBeatTemplate)) {
+    throw new Error('开篇节拍支架包含非法控制字符')
+  }
+  const normalizedBeat = form.openingBeatTemplate.replace(/\r\n?/g, '\n').trim()
+  if (form.openingBeatTemplate.length > 0 && !normalizedBeat) {
+    throw new Error('开篇节拍支架不能为空白字符串；不使用时请清空输入框')
+  }
+  if (normalizedBeat) {
+    assertSafeProtocolBody(normalizedBeat, '开篇节拍支架')
+    if (normalizedBeat.length > 4000) {
+      throw new Error('开篇节拍支架超出 4000 字符上限')
+    }
+  }
   const packId = `mod-custom-${Date.now().toString(36)}`
+  const glyph = (form.glyph.trim() || cleanName.charAt(0) || '模').slice(0, 2)
+  const author = form.author.trim() || '本地创作者'
+  const reviewRedlines = [...form.reviewRedlines]
+  const antiAiWordlist = [...form.antiAiWordlist]
+  validatePackInvariants({
+    id: packId,
+    name: cleanName,
+    glyph,
+    author,
+    repoOrOrigin: '本地打包工坊',
+    trustLevel: 'local',
+    roleCategory: form.roleCategory,
+    roleLabel: '自定义模组',
+    summary: cleanName,
+    readmeSections: [{ heading: '模组说明', body: cleanName }],
+    version: 'v1.0.0',
+    license: 'MIT',
+    updatedAt: '2026-01-01',
+    usageLabel: '本地自制',
+    replacesBuiltin: false,
+    overrides: keys.map(k => ({
+      nodeKey: k,
+      nodeLabel: k,
+      mode: 'append_protocol' as const,
+      systemContent: 'preflight',
+    })),
+    tags: [],
+    ...(form.recommendedModelTier ? { recommendedModelTier: form.recommendedModelTier } : {}),
+    ...(normalizedBeat ? { openingBeatTemplate: normalizedBeat } : {}),
+    ...(reviewRedlines.length ? { reviewRedlines } : {}),
+    ...(antiAiWordlist.length ? { antiAiWordlist } : {}),
+  })
+  return {
+    epoch,
+    packId,
+    keys,
+    name: cleanName,
+    glyph,
+    author,
+    roleCategory: form.roleCategory,
+    summary: form.summary.trim(),
+    scenario: form.scenario.trim(),
+    beforeExcerpt: form.beforeExcerpt.trim(),
+    afterExcerpt: form.afterExcerpt.trim(),
+    recommendedModelTier: form.recommendedModelTier,
+    openingBeatTemplate: normalizedBeat,
+    reviewRedlines,
+    antiAiWordlist,
+    nodesSnapshot: props.nodes.map(clonePromptNodeSnapshot),
+  }
+}
+
+async function assemblePack(
+  snapshot: BuilderSubmissionSnapshot,
+  forLocalInstall = false,
+): Promise<NarrativeModPack | null> {
   const overrides: ModNodeOverride[] = []
-  for (const key of selectedKeys.value) {
+  for (const key of snapshot.keys) {
     const detail = (await promptPlazaApi.getNodeDetail(key)) as unknown as PromptNodeDetail
+    if (!isSessionActive(snapshot.epoch)) return null
     const cleanedSystem = stripModDelimiterComments(detail.system || '').trim()
     overrides.push({
       nodeKey:
         !detail.is_builtin && forLocalInstall
-          ? `${packId}-${detail.node_key}`.slice(0, 120)
+          ? `${snapshot.packId}-${detail.node_key}`.slice(0, 120)
           : detail.node_key,
       nodeLabel: detail.name,
       mode: detail.is_builtin ? 'replace_system' : 'standalone_node',
-      systemContent: cleanedSystem || `### ${detail.name}\n${detail.description || form.name.trim()}`,
+      systemContent: cleanedSystem || `### ${detail.name}\n${detail.description || snapshot.name}`,
       userTemplate: detail.user_template || undefined,
       backendCategory: detail.category,
     })
   }
 
-  const roleMeta = roleOptions.find(r => r.key === form.roleCategory)
-  const cleanName = form.name.trim()
-  const cleanAuthor = form.author.trim() || '本地创作者'
+  const roleMeta = roleOptions.find(r => r.key === snapshot.roleCategory)
 
-  return {
-    id: packId,
-    name: cleanName,
-    glyph: (form.glyph.trim() || cleanName.charAt(0) || '模').slice(0, 2),
-    author: cleanAuthor,
+  const rawPack: NarrativeModPack = {
+    ...(snapshot.recommendedModelTier ? { recommendedModelTier: snapshot.recommendedModelTier } : {}),
+    ...(snapshot.openingBeatTemplate ? { openingBeatTemplate: snapshot.openingBeatTemplate } : {}),
+    ...(snapshot.reviewRedlines.length ? { reviewRedlines: [...snapshot.reviewRedlines] } : {}),
+    ...(snapshot.antiAiWordlist.length ? { antiAiWordlist: [...snapshot.antiAiWordlist] } : {}),
+    id: snapshot.packId,
+    name: snapshot.name,
+    glyph: snapshot.glyph,
+    author: snapshot.author,
     repoOrOrigin: '本地打包工坊',
     trustLevel: 'local',
-    roleCategory: form.roleCategory,
+    roleCategory: snapshot.roleCategory,
     roleLabel: roleMeta?.label || '自定义模组',
     summary:
-      form.summary.trim() ||
-      `由 ${cleanAuthor} 封装的叙事模组，包含 ${overrides.length} 个引擎节点配置。`,
+      snapshot.summary ||
+      `由 ${snapshot.author} 封装的叙事模组，包含 ${overrides.length} 个引擎节点配置。`,
     readmeSections: [
       {
         heading: '模组说明',
         body:
-          form.summary.trim() ||
+          snapshot.summary ||
           `包含对 ${overrides.map(o => o.nodeLabel).join('、')} 的定制化提示词调优。`,
       },
     ],
@@ -297,22 +576,35 @@ async function assemblePack(forLocalInstall = false): Promise<NarrativeModPack> 
     replacesBuiltin: overrides.some(o => o.mode !== 'standalone_node'),
     overrides,
     showcase:
-      form.beforeExcerpt.trim() && form.afterExcerpt.trim()
+      snapshot.beforeExcerpt && snapshot.afterExcerpt
         ? {
-            scenario: form.scenario.trim() || '创作实测片段',
-            beforeExcerpt: form.beforeExcerpt.trim(),
-            afterExcerpt: form.afterExcerpt.trim(),
+            scenario: snapshot.scenario || '创作实测片段',
+            beforeExcerpt: snapshot.beforeExcerpt,
+            afterExcerpt: snapshot.afterExcerpt,
           }
         : undefined,
     tags: [roleMeta?.label || '自定义', `${overrides.length} 节点`],
   }
+  const canonicalPack = canonicalizeModPackForExport(rawPack)
+  validatePackInvariants(canonicalPack)
+  return canonicalPack
 }
 
 async function handleExportFile(): Promise<void> {
-  if (!canSubmit.value) return
+  if (!canSubmit.value || submitting.value) return
+  if (!addEntries('rules') || !addEntries('words')) return
+  const submitEpoch = sessionEpoch
+  let snapshot: BuilderSubmissionSnapshot
+  try {
+    snapshot = captureSubmissionSnapshot(submitEpoch)
+  } catch (e) {
+    message.warning(e instanceof Error ? e.message : '打包失败')
+    return
+  }
   submitting.value = true
   try {
-    const pack = await assemblePack()
+    const pack = await assemblePack(snapshot, false)
+    if (!pack || !isSessionActive(submitEpoch)) return
     const manifest = modHubStore.createManifestFromPack(pack)
     const blob = new Blob([JSON.stringify(manifest, null, 2)], {
       type: 'application/json',
@@ -324,306 +616,100 @@ async function handleExportFile(): Promise<void> {
     a.click()
     URL.revokeObjectURL(url)
     message.success('已导出 plotpilot-mod.json 清单文件')
+    resetBuilderForm(false)
     emit('created', pack)
     emit('close')
   } catch (e) {
-    message.error(e instanceof Error ? e.message : '打包失败')
+    if (isSessionActive(submitEpoch)) {
+      message.warning(e instanceof Error ? e.message : '打包失败')
+    }
   } finally {
-    submitting.value = false
+    if (sessionEpoch === submitEpoch) {
+      submitting.value = false
+    }
   }
 }
 
 async function handleSaveLocal(): Promise<void> {
-  if (!canSubmit.value) return
+  if (!canSubmit.value || submitting.value) return
+  if (!addEntries('rules') || !addEntries('words')) return
+  const submitEpoch = sessionEpoch
+  let snapshot: BuilderSubmissionSnapshot
+  try {
+    snapshot = captureSubmissionSnapshot(submitEpoch)
+  } catch (e) {
+    message.warning(e instanceof Error ? e.message : '保存失败')
+    return
+  }
   submitting.value = true
   try {
-    const pack = await assemblePack(true)
-    await modHubStore.installModPack(pack, props.nodes)
+    const pack = await assemblePack(snapshot, true)
+    if (!pack || !isSessionActive(submitEpoch)) return
+    await modHubStore.installModPack(pack, snapshot.nodesSnapshot)
+    if (!isSessionActive(submitEpoch)) return
     message.success(`已保存并启用「${pack.name}」`)
+    resetBuilderForm(false)
     emit('created', pack)
     emit('close')
   } catch (e) {
-    message.error(e instanceof Error ? e.message : '保存失败')
+    if (isSessionActive(submitEpoch)) {
+      message.warning(e instanceof Error ? e.message : '保存失败')
+    }
   } finally {
-    submitting.value = false
+    if (sessionEpoch === submitEpoch) {
+      submitting.value = false
+    }
   }
 }
 </script>
 
 <style scoped>
-.builder-mask {
-  position: fixed;
-  inset: 0;
-  z-index: 3150;
-  background: rgba(15, 15, 14, 0.48);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-}
-
-.builder-dialog {
-  width: 100%;
-  max-width: 680px;
-  max-height: 86vh;
-  background: var(--app-surface);
-  border: 1px solid var(--app-border-strong);
-  border-radius: 16px;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.builder-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 18px 22px 14px;
-  border-bottom: 1px solid var(--app-border);
-}
-
-.builder-title {
-  margin: 0;
-  font-size: 17px;
-  font-weight: 700;
-  color: var(--app-text-primary);
-}
-
-.builder-sub {
-  margin: 4px 0 0;
-  font-size: 13px;
-  color: var(--app-text-muted);
-}
-
-.builder-sub code,
-.foot-hint code {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: var(--app-surface-subtle);
-}
-
-.builder-close {
-  width: 30px;
-  height: 30px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--app-text-muted);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-}
-
-.builder-close:hover {
-  background: var(--app-surface-subtle);
-  color: var(--app-text-primary);
-}
-
-.builder-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 18px 22px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.form-grid {
-  display: grid;
-  grid-template-columns: 1fr 92px 1fr 1fr;
-  gap: 10px;
-}
-
-.field-item {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.field-label {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--app-text-secondary);
-}
-
-.field-input,
-.field-textarea,
-.picker-search {
-  border: 1px solid var(--app-border);
-  border-radius: 8px;
-  background: var(--app-surface);
-  color: var(--app-text-primary);
-  font-size: 13.5px;
-  padding: 8px 10px;
-  font-family: inherit;
-  outline: none;
-}
-
-.field-input:focus,
-.field-textarea:focus,
-.picker-search:focus {
-  border-color: var(--color-brand);
-}
-
-.node-picker-block {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.picker-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.picker-search {
-  width: 190px;
-  padding: 5px 10px;
-  font-size: 12.5px;
-}
-
-.picker-list {
-  max-height: 190px;
-  overflow-y: auto;
-  border: 1px solid var(--app-border);
-  border-radius: 10px;
-  background: var(--app-surface-subtle);
-  padding: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.picker-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border-radius: 7px;
-  cursor: pointer;
-  font-size: 13px;
-  color: var(--app-text-primary);
-}
-
-.picker-row:hover {
-  background: var(--app-surface);
-}
-
-.picker-row.is-checked {
-  background: var(--color-brand-light);
-}
-
-.picker-node-name {
-  font-weight: 500;
-}
-
-.picker-node-key {
-  font-size: 11.5px;
-  font-family: var(--font-mono);
-  color: var(--app-text-muted);
-}
-
-.edited-pill {
-  margin-left: auto;
-  font-size: 11px;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: var(--color-warning-light);
-  color: var(--color-warning);
-  font-weight: 600;
-}
-
-.showcase-details {
-  border: 1px solid var(--app-border);
-  border-radius: 10px;
-  padding: 10px 12px;
-  background: var(--app-surface-subtle);
-}
-
-.showcase-summary {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--app-text-secondary);
-  cursor: pointer;
-}
-
-.showcase-fields {
-  margin-top: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.showcase-pair {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-
-.builder-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 12px;
-  padding: 12px 22px;
-  border-top: 1px solid var(--app-border);
-  background: var(--app-surface-subtle);
-}
-
-.foot-hint {
-  font-size: 12px;
-  color: var(--app-text-muted);
-  max-width: 340px;
-  line-height: 1.45;
-}
-
-.foot-btns {
-  display: flex;
-  gap: 8px;
-  margin-left: auto;
-}
-
-.builder-btn {
-  height: 34px;
-  padding: 0 14px;
-  border-radius: 8px;
-  border: 1px solid var(--app-border-strong);
-  background: var(--app-surface);
-  color: var(--app-text-primary);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.builder-btn.is-primary {
-  background: var(--color-brand);
-  border-color: var(--color-brand);
-  color: var(--app-text-inverse);
-}
-
-.builder-btn:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.numeric {
-  font-variant-numeric: tabular-nums;
-}
-
-@media (max-width: 640px) {
-  .form-grid {
-    grid-template-columns: 1fr 1fr;
-  }
-  .showcase-pair {
-    grid-template-columns: 1fr;
-  }
-}
+.builder-mask { position: fixed; inset: 0; z-index: 3150; background: rgba(22,22,21,0.48); display: flex; align-items: center; justify-content: center; padding: 20px; }
+.builder-dialog { width: 100%; max-width: 760px; max-height: 90dvh; background: var(--app-page-bg, #f4f4f2); color: var(--app-text-primary, #161615); border: none; border-radius: 3px; display: flex; flex-direction: column; overflow: hidden; font-family: 'Noto Sans SC', 'PingFang SC', -apple-system, BlinkMacSystemFont, sans-serif; font-size: 14px; }
+.builder-dialog :focus-visible { outline: 1.5px solid var(--color-brand, #1f5e5b); outline-offset: 2px; }
+.builder-head, .builder-foot { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 20px 24px; }
+.builder-head { border-bottom: 1px solid var(--app-divider, rgba(22,22,21,0.08)); }
+.builder-title { margin: 0; font-size: 24px; font-family: 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', serif; }
+.builder-sub, .foot-hint, .extension-hint { margin: 6px 0 0; font-size: 14px; line-height: 1.65; color: var(--app-text-muted, #595953); max-width: 58ch; }
+.builder-fieldset { border: none; margin: 0; padding: 0; min-width: 0; }
+.builder-body { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 24px; }
+.builder-stack { display: flex; flex-direction: column; gap: 24px; }
+.form-grid { display: grid; grid-template-columns: 1fr 92px; gap: 16px; }
+.field-item, .node-picker-block, .showcase-fields, .extension-editor { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.field-label { font-size: 14px; font-weight: 500; color: var(--app-text-secondary, #4a4a46); }
+.field-input, .field-textarea, .picker-search, .beat-input { box-sizing: border-box; min-width: 0; width: 100%; border: none; border-radius: 3px; background: var(--app-surface-subtle, #ecece8); color: var(--app-text-primary, #161615); font-size: 15px; padding: 12px; font-family: inherit; }
+.field-textarea, .beat-input { resize: vertical; }
+.beat-input { background: var(--app-page-bg, #f4f4f2); font-size: 16px; font-family: 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', serif; max-width: 58ch; line-height: 1.75; }
+.extension-editor { background: var(--app-surface, #ffffff); padding: 20px; }
+.extension-editor h4 { margin: 12px 0 0; font-size: 18px; font-family: 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', serif; }
+.picker-head, .entry-controls, .tier-options, .foot-btns { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.picker-search { max-width: 240px; }
+.picker-list { max-height: 220px; overflow-y: auto; background: var(--app-surface, #ffffff); padding: 8px; }
+.picker-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px; font-size: 14px; cursor: pointer; }
+.picker-row.is-checked { background: var(--app-surface-subtle, #ecece8); }
+.picker-node-key { color: var(--app-text-muted, #595953); font-size: 14px; overflow-wrap: anywhere; }
+.edited-pill { margin-left: auto; color: var(--app-text-secondary, #4a4a46); font-size: 14px; }
+.showcase-details { background: var(--app-surface, #ffffff); padding: 16px; }
+.showcase-summary { cursor: pointer; font-size: 14px; }
+.showcase-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.builder-close, .builder-btn, .quiet-btn, .tier-options button, .word-token button { min-height: 44px; padding: 8px 12px; border: none; border-radius: 3px; background: var(--app-surface-subtle, #ecece8); color: var(--app-text-secondary, #4a4a46); font-family: inherit; font-size: 14px; cursor: pointer; }
+.builder-close { min-width: 44px; flex-shrink: 0; background: transparent; }
+.builder-btn.is-primary { background: var(--color-brand, #1f5e5b); color: var(--app-text-inverse, #ffffff); max-width: 168px; }
+.builder-btn:disabled { opacity: 0.56; cursor: not-allowed; }
+.builder-foot { flex-wrap: wrap; background: var(--app-surface-subtle, #ecece8); }
+.foot-btns { margin-left: auto; }
+.foot-hint { max-width: 58ch; }
+.quiet-btn { align-self: flex-start; }
+.tier-options button { border-bottom: 2px solid transparent; }
+.tier-options button.is-selected { border-bottom-color: var(--color-brand, #1f5e5b); color: var(--app-text-primary, #161615); }
+.rule-entry { display: flex; align-items: flex-start; gap: 8px; border-bottom: 1px solid var(--app-divider, rgba(22,22,21,0.08)); padding: 12px 0; }
+.rule-entry:last-child { border-bottom: none; }
+.rule-entry > span { flex: 0 0 64px; font-size: 14px; color: var(--app-text-muted, #595953); }
+.rule-entry p { margin: 0; flex: 1; font-size: 15px; line-height: 1.65; overflow-wrap: anywhere; }
+.entry-controls > input, .entry-controls > textarea { flex: 1 1 180px; }
+.words-pool { padding: 12px; background: var(--app-page-bg, #f4f4f2); display: flex; flex-wrap: wrap; gap: 8px; }
+.word-token { padding-left: 12px; display: inline-flex; align-items: center; background: var(--app-surface, #ffffff); font-size: 14px; overflow-wrap: anywhere; }
+.word-token button { min-width: 44px; background: transparent; }
+.numeric { font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) { .builder-mask { padding: 12px; } .builder-head, .builder-body, .builder-foot { padding: 16px; } .extension-editor { padding: 12px; } .form-grid, .showcase-pair { grid-template-columns: 1fr; } .foot-btns { margin-left: 0; flex-wrap: nowrap; } }
 </style>

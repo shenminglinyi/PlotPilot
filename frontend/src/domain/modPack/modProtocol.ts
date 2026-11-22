@@ -1,11 +1,17 @@
 import type {
   ModNodeOverride,
+  ModRecommendedModelTier,
   ModRoleCategory,
   ModTrustLevel,
   NarrativeModPack,
 } from '@/domain/modPack/types'
 
 export const MOD_MANIFEST_MAX_BYTES = 1_048_576
+export const MOD_OPENING_BEAT_MAX_CHARS = 4_000
+export const MOD_REVIEW_REDLINES_MAX_ITEMS = 24
+export const MOD_REVIEW_REDLINE_ITEM_MAX_CHARS = 240
+export const MOD_ANTI_AI_WORDLIST_MAX_ITEMS = 64
+export const MOD_ANTI_AI_WORD_MAX_CHARS = 64
 const LEGACY_FALLBACK_TIMEOUT_MS = 10_000
 const DEFAULT_MANIFEST_FILENAMES = ['plotpilot-mod.json', 'mod.json', 'manifest.json'] as const
 const TRUSTED_BROWSER_FALLBACK_HOSTS = new Set(['raw.githubusercontent.com'])
@@ -16,6 +22,20 @@ const SAFE_REPO_ATOM_RE = /^[A-Za-z0-9_.-]+$/
 const SAFE_ORIGIN_TOKEN_RE = /^[0-9a-f]{32}$/
 const RESERVED_MARKER_RE = /PlotPilot-Mod:/i
 const ASCII_CONTROL_CHAR_RE = /[\u0000-\u001f\u007f]/
+const NON_WS_ASCII_CONTROL_RE = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/
+const VALID_RECOMMENDED_MODEL_TIERS = new Set<ModRecommendedModelTier>([
+  'flagship',
+  'balanced',
+  'economy',
+])
+const VALID_MOD_ROLE_CATEGORIES = new Set<Exclude<ModRoleCategory, 'all'>>([
+  'style-anti-ai',
+  'opening-hook',
+  'pacing-plot',
+  'dialogue-voice',
+  'review-guard',
+  'worldbuilding',
+])
 
 export type ModBlockMode = 'standalone' | 'appended' | 'replaced'
 
@@ -1162,6 +1182,152 @@ export function inferRoleFromZone(zone?: string): {
   }
 }
 
+export function hasModPackV11Extensions(pack: Partial<NarrativeModPack>): boolean {
+  return Boolean(
+    (typeof pack.openingBeatTemplate === 'string' && pack.openingBeatTemplate.trim().length > 0) ||
+      (Array.isArray(pack.reviewRedlines) && pack.reviewRedlines.some(r => typeof r === 'string' && r.trim().length > 0)) ||
+      (Array.isArray(pack.antiAiWordlist) && pack.antiAiWordlist.some(w => typeof w === 'string' && w.trim().length > 0)) ||
+      (typeof pack.recommendedModelTier === 'string' &&
+        VALID_RECOMMENDED_MODEL_TIERS.has(pack.recommendedModelTier as ModRecommendedModelTier)),
+  )
+}
+
+function normalizeAndValidateV11Extensions(raw: Partial<NarrativeModPack>): {
+  openingBeatTemplate?: string
+  reviewRedlines?: string[]
+  antiAiWordlist?: string[]
+  recommendedModelTier?: ModRecommendedModelTier
+} {
+  const rawRecord = raw as Record<string, unknown>
+
+  let openingBeatTemplate: string | undefined
+  if (Object.prototype.hasOwnProperty.call(rawRecord, 'openingBeatTemplate') && rawRecord.openingBeatTemplate !== undefined) {
+    const rawBeat = rawRecord.openingBeatTemplate
+    if (typeof rawBeat !== 'string') {
+      throw new Error('开篇节拍模板（openingBeatTemplate）必须为字符串')
+    }
+    if (NON_WS_ASCII_CONTROL_RE.test(rawBeat)) {
+      throw new Error('开篇节拍模板（openingBeatTemplate）包含非法控制字符')
+    }
+    const normalizedBeat = rawBeat.replace(/\r\n?/g, '\n').trim()
+    if (!normalizedBeat.length) {
+      throw new Error('开篇节拍模板（openingBeatTemplate）不能为空白字符串；不使用时请省略该字段')
+    }
+    assertSafeProtocolBody(normalizedBeat, '开篇节拍模板（openingBeatTemplate）')
+    if (normalizedBeat.length > MOD_OPENING_BEAT_MAX_CHARS) {
+      throw new Error(
+        `开篇节拍模板（openingBeatTemplate）超出 ${MOD_OPENING_BEAT_MAX_CHARS} 字符上限`,
+      )
+    }
+    openingBeatTemplate = normalizedBeat
+  }
+
+  let reviewRedlines: string[] | undefined
+  if (Object.prototype.hasOwnProperty.call(rawRecord, 'reviewRedlines') && rawRecord.reviewRedlines !== undefined) {
+    const rawRedlines = rawRecord.reviewRedlines
+    if (!Array.isArray(rawRedlines)) {
+      throw new Error('审稿红线清单（reviewRedlines）必须为字符串数组')
+    }
+    if (rawRedlines.length === 0) {
+      throw new Error('审稿红线清单（reviewRedlines）不能为空数组；不使用时请省略该字段')
+    }
+    if (rawRedlines.length > MOD_REVIEW_REDLINES_MAX_ITEMS) {
+      throw new Error(`审稿红线清单超出 ${MOD_REVIEW_REDLINES_MAX_ITEMS} 条上限`)
+    }
+    const deduped: string[] = []
+    const seen = new Set<string>()
+    for (let i = 0; i < rawRedlines.length; i += 1) {
+      const item = rawRedlines[i]
+      if (typeof item !== 'string') {
+        throw new Error(`审稿红线清单第 ${i + 1} 项必须为字符串`)
+      }
+      if (ASCII_CONTROL_CHAR_RE.test(item)) {
+        throw new Error(`审稿红线清单第 ${i + 1} 项包含非法控制字符或换行符`)
+      }
+      const trimmed = item.trim()
+      if (!trimmed) {
+        throw new Error(`审稿红线清单第 ${i + 1} 项不能为空白字符串`)
+      }
+      assertSafeProtocolBody(trimmed, `审稿红线清单第 ${i + 1} 项`)
+      if (trimmed.length > MOD_REVIEW_REDLINE_ITEM_MAX_CHARS) {
+        throw new Error(
+          `审稿红线清单第 ${i + 1} 项超出 ${MOD_REVIEW_REDLINE_ITEM_MAX_CHARS} 字符上限`,
+        )
+      }
+      if (!seen.has(trimmed)) {
+        seen.add(trimmed)
+        deduped.push(trimmed)
+      }
+      if (deduped.length > MOD_REVIEW_REDLINES_MAX_ITEMS) {
+        throw new Error(`审稿红线清单超出 ${MOD_REVIEW_REDLINES_MAX_ITEMS} 条上限`)
+      }
+    }
+    reviewRedlines = deduped
+  }
+
+  let antiAiWordlist: string[] | undefined
+  if (Object.prototype.hasOwnProperty.call(rawRecord, 'antiAiWordlist') && rawRecord.antiAiWordlist !== undefined) {
+    const rawWords = rawRecord.antiAiWordlist
+    if (!Array.isArray(rawWords)) {
+      throw new Error('去 AI 味巡检词表（antiAiWordlist）必须为字符串数组')
+    }
+    if (rawWords.length === 0) {
+      throw new Error('去 AI 味巡检词表（antiAiWordlist）不能为空数组；不使用时请省略该字段')
+    }
+    if (rawWords.length > MOD_ANTI_AI_WORDLIST_MAX_ITEMS) {
+      throw new Error(`去 AI 味巡检词表超出 ${MOD_ANTI_AI_WORDLIST_MAX_ITEMS} 项上限`)
+    }
+    const dedupedWords: string[] = []
+    const seenWords = new Set<string>()
+    for (let i = 0; i < rawWords.length; i += 1) {
+      const item = rawWords[i]
+      if (typeof item !== 'string') {
+        throw new Error(`去 AI 味巡检词表第 ${i + 1} 项必须为字符串`)
+      }
+      if (ASCII_CONTROL_CHAR_RE.test(item)) {
+        throw new Error(`去 AI 味巡检词表第 ${i + 1} 项包含非法控制字符或换行符`)
+      }
+      const trimmed = item.trim()
+      if (!trimmed) {
+        throw new Error(`去 AI 味巡检词表第 ${i + 1} 项不能为空白字符串`)
+      }
+      assertSafeProtocolBody(trimmed, `去 AI 味巡检词表第 ${i + 1} 项`)
+      if (trimmed.length > MOD_ANTI_AI_WORD_MAX_CHARS) {
+        throw new Error(`去 AI 味巡检词表第 ${i + 1} 项超出 ${MOD_ANTI_AI_WORD_MAX_CHARS} 字符上限`)
+      }
+      if (!seenWords.has(trimmed)) {
+        seenWords.add(trimmed)
+        dedupedWords.push(trimmed)
+      }
+      if (dedupedWords.length > MOD_ANTI_AI_WORDLIST_MAX_ITEMS) {
+        throw new Error(`去 AI 味巡检词表超出 ${MOD_ANTI_AI_WORDLIST_MAX_ITEMS} 项上限`)
+      }
+    }
+    antiAiWordlist = dedupedWords
+  }
+
+  let recommendedModelTier: ModRecommendedModelTier | undefined
+  if (Object.prototype.hasOwnProperty.call(rawRecord, 'recommendedModelTier') && rawRecord.recommendedModelTier !== undefined) {
+    const rawTier = rawRecord.recommendedModelTier
+    if (
+      typeof rawTier !== 'string' ||
+      !VALID_RECOMMENDED_MODEL_TIERS.has(rawTier as ModRecommendedModelTier)
+    ) {
+      throw new Error(
+        `模组推荐模型档位（recommendedModelTier: "${String(rawTier)}"）非法：仅允许 flagship、balanced 或 economy`,
+      )
+    }
+    recommendedModelTier = rawTier as ModRecommendedModelTier
+  }
+
+  return {
+    openingBeatTemplate,
+    reviewRedlines,
+    antiAiWordlist,
+    recommendedModelTier,
+  }
+}
+
 export function parseAnyModJson(
   rawObj: unknown,
   originLabel = '本地导入',
@@ -1172,9 +1338,17 @@ export function parseAnyModJson(
   }
   const obj = rawObj as Record<string, unknown>
 
-  if (obj.schema === 'plotpilot-mod/v1' && obj.pack && typeof obj.pack === 'object') {
-    const pack = obj.pack as Partial<NarrativeModPack>
-    return normalizePackObject(pack, originLabel, defaultTrust)
+  if (obj.schema !== undefined) {
+    if (obj.schema === 'plotpilot-mod/v1' || obj.schema === 'plotpilot-mod/v1.1') {
+      if (!obj.pack || typeof obj.pack !== 'object' || Array.isArray(obj.pack)) {
+        throw new Error(`${obj.schema} 清单缺少有效的 pack 对象`)
+      }
+      const pack = obj.pack as Partial<NarrativeModPack>
+      return normalizePackObject(pack, originLabel, defaultTrust)
+    }
+    throw new Error(
+      `不支持的模组清单协议版本（schema: "${String(obj.schema)}"）：当前仅支持 plotpilot-mod/v1 与 plotpilot-mod/v1.1`,
+    )
   }
 
   if (typeof obj.name === 'string' && Array.isArray(obj.overrides)) {
@@ -1256,7 +1430,7 @@ export function parseAnyModJson(
   }
 
   throw new Error(
-    '无法识别的模组 JSON 结构：请提供 plotpilot-mod/v1 清单或包含 prompts 数组的备份文件',
+    '无法识别的模组 JSON 结构：请提供 plotpilot-mod/v1 / v1.1 清单或包含 prompts 数组的备份文件',
   )
 }
 
@@ -1265,9 +1439,12 @@ function normalizePackObject(
   originLabel: string,
   defaultTrust: ModTrustLevel,
 ): NarrativeModPack {
-  const name = (raw.name || '').trim()
+  const name = typeof raw.name === 'string' ? raw.name.trim() : ''
   if (!name) {
     throw new Error('模组缺少名称（name）字段')
+  }
+  if (ASCII_CONTROL_CHAR_RE.test(name)) {
+    throw new Error('模组名称包含非法控制字符')
   }
   const rawOverrides = Array.isArray(raw.overrides) ? raw.overrides : []
   const seenKeys = new Set<string>()
@@ -1309,31 +1486,122 @@ function normalizePackObject(
 
   const id = assertValidModId(raw.id ? raw.id.trim() : `mod-${Date.now().toString(36)}`)
   const trustLevel: ModTrustLevel = raw.trustLevel === 'local' ? 'local' : defaultTrust
+  const roleCategory: Exclude<ModRoleCategory, 'all'> =
+    typeof raw.roleCategory === 'string' &&
+    VALID_MOD_ROLE_CATEGORIES.has(raw.roleCategory as Exclude<ModRoleCategory, 'all'>)
+      ? (raw.roleCategory as Exclude<ModRoleCategory, 'all'>)
+      : 'style-anti-ai'
+  const v11 = normalizeAndValidateV11Extensions(raw)
+  const cleanSummary =
+    typeof raw.summary === 'string' && raw.summary.trim()
+      ? raw.summary.trim().slice(0, 600)
+      : `安装后接管 ${overrides.length} 个叙事节点。`
+
+  const cleanReadmeSections = Array.isArray(raw.readmeSections)
+    ? raw.readmeSections
+        .slice(0, 16)
+        .filter(
+          (sec): sec is { heading: string; body: string } =>
+            Boolean(
+              sec &&
+                typeof sec === 'object' &&
+                typeof sec.heading === 'string' &&
+                typeof sec.body === 'string' &&
+                sec.heading.trim() &&
+                sec.body.trim(),
+            ),
+        )
+        .map(sec => ({
+          heading: sec.heading.trim().slice(0, 120),
+          body: sec.body.trim().slice(0, 4000),
+        }))
+    : []
+
+  const cleanTags = Array.isArray(raw.tags)
+    ? raw.tags
+        .slice(0, 24)
+        .filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
+        .map(t => t.trim().slice(0, 32))
+        .slice(0, 6)
+    : []
+
+  const rawShow = raw.showcase
+  const cleanShowcase =
+    rawShow &&
+    typeof rawShow === 'object' &&
+    !Array.isArray(rawShow) &&
+    typeof rawShow.scenario === 'string' &&
+    typeof rawShow.beforeExcerpt === 'string' &&
+    typeof rawShow.afterExcerpt === 'string'
+      ? {
+          scenario: rawShow.scenario.trim().slice(0, 200),
+          ...(typeof rawShow.beforeLabel === 'string' && rawShow.beforeLabel.trim()
+            ? { beforeLabel: rawShow.beforeLabel.trim().slice(0, 80) }
+            : {}),
+          beforeExcerpt: rawShow.beforeExcerpt.trim().slice(0, 2000),
+          ...(typeof rawShow.afterLabel === 'string' && rawShow.afterLabel.trim()
+            ? { afterLabel: rawShow.afterLabel.trim().slice(0, 80) }
+            : {}),
+          afterExcerpt: rawShow.afterExcerpt.trim().slice(0, 2000),
+        }
+      : undefined
 
   return {
     id,
     name,
-    glyph: (raw.glyph || name.charAt(0) || '模').slice(0, 2),
-    author: (raw.author || '社区作者').trim(),
-    repoOrOrigin: (raw.repoOrOrigin || originLabel).trim(),
+    glyph: (typeof raw.glyph === 'string' && raw.glyph.trim() ? raw.glyph.trim() : name.charAt(0) || '模').slice(0, 2),
+    author: (typeof raw.author === 'string' && raw.author.trim() ? raw.author.trim() : '社区作者').slice(0, 80),
+    repoOrOrigin: (typeof raw.repoOrOrigin === 'string' && raw.repoOrOrigin.trim() ? raw.repoOrOrigin.trim() : originLabel).slice(0, 240),
     trustLevel,
-    roleCategory: raw.roleCategory || 'style-anti-ai',
-    roleLabel: (raw.roleLabel || '社区模组').trim(),
-    summary: (raw.summary || `安装后接管 ${overrides.length} 个叙事节点。`).trim(),
+    roleCategory,
+    roleLabel: (typeof raw.roleLabel === 'string' && raw.roleLabel.trim() ? raw.roleLabel.trim() : '社区模组').slice(0, 40),
+    summary: cleanSummary,
     readmeSections:
-      Array.isArray(raw.readmeSections) && raw.readmeSections.length > 0
-        ? raw.readmeSections
-        : [{ heading: '模组说明', body: raw.summary || name }],
-    version: (raw.version || 'v1.0.0').trim(),
-    license: (raw.license || 'MIT').trim(),
-    updatedAt: (raw.updatedAt || new Date().toISOString().slice(0, 10)).trim(),
-    usageLabel: (raw.usageLabel || (trustLevel === 'local' ? '本地自制' : '社区仓库')).trim(),
+      cleanReadmeSections.length > 0
+        ? cleanReadmeSections
+        : [{ heading: '模组说明', body: cleanSummary }],
+    version: (typeof raw.version === 'string' && raw.version.trim() ? raw.version.trim() : 'v1.0.0').slice(0, 32),
+    license: (typeof raw.license === 'string' && raw.license.trim() ? raw.license.trim() : 'MIT').slice(0, 48),
+    updatedAt: (typeof raw.updatedAt === 'string' && raw.updatedAt.trim() ? raw.updatedAt.trim() : new Date().toISOString().slice(0, 10)).slice(0, 32),
+    usageLabel: (typeof raw.usageLabel === 'string' && raw.usageLabel.trim() ? raw.usageLabel.trim() : (trustLevel === 'local' ? '本地自制' : '社区仓库')).slice(0, 32),
     replacesBuiltin:
-      raw.replacesBuiltin ?? overrides.some(o => o.mode !== 'standalone_node'),
+      typeof raw.replacesBuiltin === 'boolean'
+        ? raw.replacesBuiltin
+        : overrides.some(o => o.mode !== 'standalone_node'),
     overrides,
-    showcase: raw.showcase,
-    tags: Array.isArray(raw.tags) ? raw.tags.slice(0, 6) : [],
-    cloudSourceId: raw.cloudSourceId,
+    ...(cleanShowcase ? { showcase: cleanShowcase } : {}),
+    tags: cleanTags,
+    ...(typeof raw.cloudSourceId === 'string' && raw.cloudSourceId.trim()
+      ? { cloudSourceId: raw.cloudSourceId.trim().slice(0, 128) }
+      : {}),
+    ...(v11.openingBeatTemplate !== undefined
+      ? { openingBeatTemplate: v11.openingBeatTemplate }
+      : {}),
+    ...(v11.reviewRedlines !== undefined ? { reviewRedlines: v11.reviewRedlines } : {}),
+    ...(v11.antiAiWordlist !== undefined ? { antiAiWordlist: v11.antiAiWordlist } : {}),
+    ...(v11.recommendedModelTier !== undefined
+      ? { recommendedModelTier: v11.recommendedModelTier }
+      : {}),
+  }
+}
+
+export function canonicalizeModPackForExport(pack: NarrativeModPack): NarrativeModPack {
+  const v11 = normalizeAndValidateV11Extensions(pack)
+  const rest: NarrativeModPack = { ...pack }
+  delete rest.openingBeatTemplate
+  delete rest.reviewRedlines
+  delete rest.antiAiWordlist
+  delete rest.recommendedModelTier
+  return {
+    ...rest,
+    ...(v11.openingBeatTemplate !== undefined
+      ? { openingBeatTemplate: v11.openingBeatTemplate }
+      : {}),
+    ...(v11.reviewRedlines !== undefined ? { reviewRedlines: v11.reviewRedlines } : {}),
+    ...(v11.antiAiWordlist !== undefined ? { antiAiWordlist: v11.antiAiWordlist } : {}),
+    ...(v11.recommendedModelTier !== undefined
+      ? { recommendedModelTier: v11.recommendedModelTier }
+      : {}),
   }
 }
 
@@ -1355,6 +1623,41 @@ export function validatePackInvariants(pack: NarrativeModPack): void {
     assertSafeProtocolBody(ov.systemContent, `模组节点「${cleanKey}」`)
     if (ov.userTemplate !== undefined) {
       assertSafeProtocolBody(ov.userTemplate, `模组节点「${cleanKey}」User 模板`)
+    }
+  }
+  const v11 = normalizeAndValidateV11Extensions(pack)
+  const rawRecord = pack as unknown as Record<string, unknown>
+  if (
+    Object.prototype.hasOwnProperty.call(rawRecord, 'openingBeatTemplate') &&
+    rawRecord.openingBeatTemplate !== undefined &&
+    rawRecord.openingBeatTemplate !== v11.openingBeatTemplate
+  ) {
+    throw new Error('开篇节拍模板（openingBeatTemplate）包含未归一化的首尾空白或回车符')
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(rawRecord, 'reviewRedlines') &&
+    rawRecord.reviewRedlines !== undefined
+  ) {
+    const rawList = rawRecord.reviewRedlines as string[]
+    if (
+      !v11.reviewRedlines ||
+      rawList.length !== v11.reviewRedlines.length ||
+      rawList.some((item, idx) => item !== v11.reviewRedlines![idx])
+    ) {
+      throw new Error('审稿红线清单（reviewRedlines）包含空项、重复项或未修剪的首尾空白')
+    }
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(rawRecord, 'antiAiWordlist') &&
+    rawRecord.antiAiWordlist !== undefined
+  ) {
+    const rawWords = rawRecord.antiAiWordlist as string[]
+    if (
+      !v11.antiAiWordlist ||
+      rawWords.length !== v11.antiAiWordlist.length ||
+      rawWords.some((item, idx) => item !== v11.antiAiWordlist![idx])
+    ) {
+      throw new Error('去 AI 味巡检词表（antiAiWordlist）包含空项、重复项或未修剪的首尾空白')
     }
   }
 }

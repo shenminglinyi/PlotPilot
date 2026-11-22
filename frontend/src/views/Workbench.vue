@@ -17,6 +17,7 @@
         >
           <template #1>
             <ChapterList
+              v-show="!zenMode"
               ref="chapterListRef"
               :slug="slug"
               :chapters="chapters"
@@ -49,17 +50,19 @@
                     :chapter-content="chapterContent"
                     :chapter-loading="chapterLoading"
                     :generation-prefs="generationPrefs"
+                    :zen-mode="zenMode"
+                    :initial-mode="route.query.mode === 'assisted' ? 'assisted' : undefined"
                     @chapter-updated="handleChapterUpdated"
                     @select-chapter="handleChapterSelect"
                   />
                 </template>
 
                 <template #2>
-                  <div v-if="rightCollapsed" class="wb-right-strip" @click="toggleRight">
+                  <div v-if="rightCollapsed && !zenMode" class="wb-right-strip" @click="toggleRight">
                     <span class="wb-strip-icon">◀</span>
                   </div>
                   <SettingsPanel
-                    v-else
+                    v-else-if="!zenMode"
                     :slug="slug"
                     :current-panel="rightPanel"
                     :current-chapter="currentChapter"
@@ -75,6 +78,14 @@
       </div>
     </n-spin>
 
+    <ZenMarginAnnotations
+      v-if="zenMode"
+      :slug="slug"
+      :live-content="zenLiveContent"
+      :guardrail-violations="zenGuardrailViolations"
+      :refresh-tick="zenAnnotationRefreshTick"
+    />
+
     <!-- 幕→章 AI 规划弹层 -->
     <ActPlanningModal
       v-model:show="showActPlanning"
@@ -86,7 +97,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, computed, ref, watch, defineAsyncComponent, type ComponentPublicInstance } from 'vue'
+import { onMounted, onUnmounted, computed, ref, watch, nextTick, unref, defineAsyncComponent, type ComponentPublicInstance } from 'vue'
 import { useRoute } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import { useDebouncedTask } from '../composables/useDebouncedTask'
@@ -109,6 +120,8 @@ import { storageKeys } from '@/config/storageKeys'
 import { runtimePerformance } from '@/config/performance'
 import { readStorageBoolean, writeStorageBoolean } from '@/utils/storage'
 
+const ZenMarginAnnotations = defineAsyncComponent(() => import('@/components/workbench/ZenMarginAnnotations.vue'))
+
 const ActPlanningModal = defineAsyncComponent(() => import('../components/workbench/ActPlanningModal.vue'))
 
 const route = useRoute()
@@ -121,6 +134,8 @@ const slug = computed(() => String(route.params.slug ?? ''))
 
 const chapterListRef = ref<ComponentPublicInstance<{ refreshStoryTree: () => void }> | null>(null)
 const workAreaRef = ref<ComponentPublicInstance<{
+  editorDisplayContent?: import('vue').Ref<string> | string
+  guardrailSnapshot?: import('vue').Ref<import('@/api/engineCore').GuardrailCheckResponse | null> | import('@/api/engineCore').GuardrailCheckResponse | null
   ensureAssistedMode: () => void
   streamingChapterNumber: import('vue').Ref<number | null>
   writingPipelineStep: import('vue').ComputedRef<number | null>
@@ -180,7 +195,13 @@ const handlePlanAct = (actId: string, actTitle: string) => {
 }
 
 const rightCollapsed = ref(readStorageBoolean(storageKeys.workbenchRightPanelCollapsed))
-const zenMode = ref(readStorageBoolean(storageKeys.workbenchZenMode))
+const zenMode = ref(route.query.zen === '1' || readStorageBoolean(storageKeys.workbenchZenMode))
+
+function syncAssistedModeForZenOrQuery() {
+  if (zenMode.value || route.query.mode === 'assisted') {
+    workAreaRef.value?.ensureAssistedMode?.()
+  }
+}
 
 function toggleRight() {
   rightCollapsed.value = !rightCollapsed.value
@@ -190,6 +211,9 @@ function toggleRight() {
 function toggleZenMode() {
   zenMode.value = !zenMode.value
   writeStorageBoolean(storageKeys.workbenchZenMode, zenMode.value)
+  if (zenMode.value) {
+    void nextTick(() => workAreaRef.value?.ensureAssistedMode?.())
+  }
 }
 
 function onWorkbenchKeydown(e: KeyboardEvent) {
@@ -217,6 +241,12 @@ const {
   goToChapter,
   handleChapterSelect,
 } = useWorkbench({ slug })
+
+const zenLiveContent = computed(() => String(unref(workAreaRef.value?.editorDisplayContent) ?? chapterContent.value ?? ''))
+const zenGuardrailViolations = computed(() => unref(workAreaRef.value?.guardrailSnapshot)?.violations ?? [])
+const zenAnnotationRefreshTick = computed(
+  () => workbenchRefresh.foreshadowTick + workbenchRefresh.deskTick,
+)
 
 const currentChapter = computed(() => {
   if (!currentChapterId.value) return null
@@ -259,8 +289,22 @@ onMounted(async () => {
     bookTitle.value = slug.value
   } finally {
     pageLoading.value = false
+    await nextTick()
+    syncAssistedModeForZenOrQuery()
   }
 })
+
+watch(
+  [workAreaRef, () => route.query.mode, () => route.query.zen],
+  ([, modeQuery, zenQuery]) => {
+    if (zenQuery === '1' && !zenMode.value) {
+      zenMode.value = true
+    }
+    if (modeQuery === 'assisted' || zenMode.value) {
+      workAreaRef.value?.ensureAssistedMode?.()
+    }
+  },
+)
 
 onUnmounted(() => {
   window.removeEventListener(WORKBENCH_CHAPTER_DESK_CHANGE_EVENT, onDeskChangeSignalFromPanels)
@@ -380,7 +424,7 @@ watch(
   background: var(--app-surface);
   border-left: 1px solid var(--plotpilot-split-border);
   color: var(--app-text-muted);
-  font-size: 12px;
+  font-size: 14px;
   transition: background 0.15s, color 0.15s;
   user-select: none;
 }
@@ -390,9 +434,12 @@ watch(
   color: var(--app-text-primary);
 }
 
+.workbench.is-zen-mode { background: var(--app-page-bg, #f4f4f2); }
+
 /* ── Zen Focus Mode (Alt+Z) ─────────────────────────── */
 .workbench.is-zen-mode .workbench-inner > :deep(.n-split > .n-split-pane-1),
-.workbench.is-zen-mode .workbench-inner > :deep(.n-split > .n-split__gutter) {
+.workbench.is-zen-mode .workbench-inner > :deep(.n-split > .n-split__gutter),
+.workbench.is-zen-mode .workbench-inner > :deep(.n-split > .n-split__resize-trigger-wrapper) {
   display: none !important;
 }
 
@@ -402,12 +449,13 @@ watch(
   max-width: 100% !important;
 }
 
-.workbench.is-zen-mode .wb-main-split :deep(.n-split > .n-split-pane-2),
-.workbench.is-zen-mode .wb-main-split :deep(.n-split > .n-split__gutter) {
+.workbench.is-zen-mode .wb-main-split :deep(.n-split-pane-2),
+.workbench.is-zen-mode .wb-main-split :deep(.n-split__gutter),
+.workbench.is-zen-mode .wb-main-split :deep(.n-split__resize-trigger-wrapper) {
   display: none !important;
 }
 
-.workbench.is-zen-mode .wb-main-split :deep(.n-split > .n-split-pane-1) {
+.workbench.is-zen-mode .wb-main-split :deep(.n-split-pane-1) {
   flex: 1 1 100% !important;
   width: 100% !important;
   max-width: 100% !important;
@@ -417,8 +465,21 @@ watch(
   max-width: 820px;
   width: 100%;
   margin: 0 auto;
-  border-left: 1px solid var(--app-border);
-  border-right: 1px solid var(--app-border);
+  padding-inline: 20px;
+  background: var(--app-surface, #ffffff);
+  border: none;
+}
+
+.workbench.is-zen-mode :deep(.work-mode-switch),
+.workbench.is-zen-mode :deep(.desk-toolbar),
+.workbench.is-zen-mode :deep(.rail-column),
+.workbench.is-zen-mode :deep(.primary-desk-tabs .n-tabs-nav) {
+  display: none !important;
+}
+
+.workbench.is-zen-mode :deep(.n-empty__description) {
+  color: var(--app-text-muted, #66645e) !important;
+  font-size: 14px !important;
 }
 
 .workbench.is-zen-mode :deep(.editor-input-wrapper textarea) {
@@ -426,5 +487,11 @@ watch(
   margin: 0 auto;
   font-size: 16px;
   line-height: 1.85;
+}
+
+@media (max-width: 1179px) {
+  .workbench.is-zen-mode :deep(.work-area) {
+    padding-bottom: calc(68px + env(safe-area-inset-bottom));
+  }
 }
 </style>

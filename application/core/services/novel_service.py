@@ -9,7 +9,7 @@ from domain.novel.value_objects.generation_preferences import GenerationPreferen
 from domain.novel.value_objects.word_count import WordCount
 from domain.novel.repositories.novel_repository import NovelRepository
 from domain.novel.repositories.chapter_repository import ChapterRepository
-from domain.shared.exceptions import EntityNotFoundError
+from domain.shared.exceptions import EntityConflictError, EntityNotFoundError
 from application.core.dtos.novel_dto import NovelDTO
 from application.core.chapter_target_limits import clamp_chapter_target_words
 from application.core.v1_length_tiers import resolve_v1_length_params
@@ -90,15 +90,39 @@ class NovelService:
         return (premise or "").strip()
 
     @staticmethod
-    def _sync_variable_hub_from_novel(novel: Novel) -> None:
-        try:
-            from application.ai_invocation.variable_hub import VariableWrite
-            from infrastructure.persistence.database.connection import get_database
-            from infrastructure.persistence.database.sqlite_ai_invocation_repository import SqliteVariableHubRepository
-        except Exception:
-            return
+    def _matches_idempotent_creation(existing: Novel, requested: Novel) -> bool:
+        existing_id = existing.novel_id.value if hasattr(existing, "novel_id") else str(existing.id)
+        requested_id = requested.novel_id.value if hasattr(requested, "novel_id") else str(requested.id)
+        if existing_id != requested_id:
+            return False
+        existing_prefs = getattr(existing, "generation_prefs", None) or GenerationPreferences()
+        requested_prefs = getattr(requested, "generation_prefs", None) or GenerationPreferences()
+        return (
+            str(existing.title or "").strip() == str(requested.title or "").strip()
+            and str(getattr(existing, "author", "") or "").strip()
+            == str(getattr(requested, "author", "") or "").strip()
+            and str(getattr(existing, "premise", "") or "").strip()
+            == str(getattr(requested, "premise", "") or "").strip()
+            and int(getattr(existing, "target_chapters", 0) or 0)
+            == int(getattr(requested, "target_chapters", 0) or 0)
+            and int(getattr(existing, "target_words_per_chapter", 0) or 0)
+            == int(getattr(requested, "target_words_per_chapter", 0) or 0)
+            and str(getattr(existing_prefs, "locked_genre", "") or "").strip()
+            == str(getattr(requested_prefs, "locked_genre", "") or "").strip()
+            and str(getattr(existing_prefs, "locked_world_preset", "") or "").strip()
+            == str(getattr(requested_prefs, "locked_world_preset", "") or "").strip()
+            and str(getattr(existing_prefs, "locked_story_structure", "") or "").strip()
+            == str(getattr(requested_prefs, "locked_story_structure", "") or "").strip()
+            and str(getattr(existing_prefs, "locked_pacing_control", "") or "").strip()
+            == str(getattr(requested_prefs, "locked_pacing_control", "") or "").strip()
+            and str(getattr(existing_prefs, "locked_writing_style", "") or "").strip()
+            == str(getattr(requested_prefs, "locked_writing_style", "") or "").strip()
+            and str(getattr(existing_prefs, "locked_special_requirements", "") or "").strip()
+            == str(getattr(requested_prefs, "locked_special_requirements", "") or "").strip()
+        )
 
-        context_key = f"novel_id:{novel.novel_id.value}"
+    @staticmethod
+    def _build_novel_setup_variable_entries(novel: Novel) -> List[tuple[str, Any, str, str]]:
         generation_prefs = getattr(novel, "generation_prefs", None)
         genre_label = str(getattr(generation_prefs, "locked_genre", "") or "").strip()
         world_preset = str(getattr(generation_prefs, "locked_world_preset", "") or "").strip()
@@ -107,7 +131,7 @@ class NovelService:
         writing_style = str(getattr(generation_prefs, "locked_writing_style", "") or "").strip()
         special_requirements = str(getattr(generation_prefs, "locked_special_requirements", "") or "").strip()
         parts = [part.strip() for part in genre_label.split("/") if part.strip()]
-        values = [
+        return [
             ("novel.title", str(novel.title or "").strip(), "string", "书名"),
             ("novel.premise", str(novel.premise or "").strip(), "string", "故事创意"),
             ("novel.target_chapters", int(getattr(novel, "target_chapters", 0) or 0), "integer", "目标章节数"),
@@ -126,7 +150,26 @@ class NovelService:
             ("novel.writing_style", writing_style, "string", "写作风格"),
             ("novel.special_requirements", special_requirements, "string", "特殊要求"),
         ]
-        repo = SqliteVariableHubRepository(get_database())
+
+    @classmethod
+    def _sync_variable_hub_from_novel(
+        cls,
+        novel: Novel,
+        *,
+        db: Any = None,
+    ) -> None:
+        """显式更新设置时同步覆盖 Variable Hub（仅用于 update_novel 或无幂等仓储的兼容路径）。"""
+        try:
+            from application.ai_invocation.variable_hub import VariableWrite
+            from infrastructure.persistence.database.connection import DatabaseConnection, get_database
+            from infrastructure.persistence.database.sqlite_ai_invocation_repository import SqliteVariableHubRepository
+        except Exception:
+            return
+
+        context_key = f"novel_id:{novel.novel_id.value}"
+        values = cls._build_novel_setup_variable_entries(novel)
+        target_db = db if isinstance(db, DatabaseConnection) else get_database()
+        repo = SqliteVariableHubRepository(target_db)
         for key, value, value_type, display_name in values:
             if value in ("", None):
                 continue
@@ -144,6 +187,20 @@ class NovelService:
                     stage="setup",
                 )
             )
+
+    def _init_variable_hub_from_novel_if_absent(self, novel: Novel) -> None:
+        """建书初始化与幂等重试共用的原子 INSERT-IF-ABSENT 补齐路径，绝不回退为覆盖写。"""
+        entries = self._build_novel_setup_variable_entries(novel)
+        init_fn = getattr(self.novel_repository, "init_setup_variables_if_absent", None)
+        if callable(init_fn):
+            init_fn(novel.novel_id.value, entries)
+            return
+        repo_db = getattr(self.novel_repository, "db", None)
+        from infrastructure.persistence.database.connection import DatabaseConnection
+        from infrastructure.persistence.database.sqlite_novel_repository import SqliteNovelRepository
+
+        if isinstance(repo_db, DatabaseConnection):
+            SqliteNovelRepository(repo_db).init_setup_variables_if_absent(novel.novel_id.value, entries)
 
     def create_novel(
         self,
@@ -211,8 +268,29 @@ class NovelService:
             ),
         )
 
+        repo_db = getattr(self.novel_repository, "db", None)
+        if isinstance(self.novel_repository, NovelRepository) and hasattr(
+            self.novel_repository, "create_if_absent"
+        ):
+            persisted, created = self.novel_repository.create_if_absent(novel)
+            if created:
+                self._init_variable_hub_from_novel_if_absent(persisted)
+                return NovelDTO.from_domain(persisted)
+            if not self._matches_idempotent_creation(persisted, novel):
+                raise EntityConflictError(
+                    "Novel",
+                    novel_id,
+                    f"Novel '{novel_id}' already exists with different creation attributes",
+                )
+            self._init_variable_hub_from_novel_if_absent(persisted)
+            hydrated = self._hydrate_chapters(persisted)
+            dto = NovelDTO.from_domain(hydrated)
+            dto.has_bible = self._check_has_bible(novel_id)
+            dto.has_outline = self._check_has_outline(novel_id)
+            return dto
+
         self.novel_repository.save(novel)
-        self._sync_variable_hub_from_novel(novel)
+        self._sync_variable_hub_from_novel(novel, db=repo_db)
 
         return NovelDTO.from_domain(novel)
 
