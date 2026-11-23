@@ -49,6 +49,14 @@ gh secret list --repo shenminglinyi/PlotPilot
 
 以下以 `4.8.2` 为例。
 
+推荐先使用发布 CLI 完成版本同步、Secret/标签预检和本地最低验证：
+
+```powershell
+python scripts/release_desktop.py prepare 4.8.2
+```
+
+该命令只修改版本清单并运行检查，不会自动提交、推送、创建 worktree 或标签。涉及远端状态变更的步骤继续由维护者检查 diff 后显式执行。临时只检查版本与清单脚本时可加 `--skip-build`，正式发布不应跳过完整构建检查。
+
 ### 1. 准备并同步版本
 
 用编辑器把根目录 `VERSION` 改为目标版本，然后执行：
@@ -59,6 +67,8 @@ python scripts/sync_release_version.py --check
 ```
 
 同步脚本会更新前端、Tauri、Cargo 和后端暴露的版本。不要只改 `package.json`。
+
+以上两条底层命令已包含在 `release_desktop.py prepare` 中，保留在这里用于单独排错。
 
 ### 2. 本地验证
 
@@ -115,6 +125,14 @@ gh run watch <run-id> --repo shenminglinyi/PlotPilot --exit-status
 ```
 
 ## 发布后验证
+
+发布完成后优先运行统一验证命令：
+
+```powershell
+python scripts/release_desktop.py verify 4.8.2
+```
+
+它会下载 Release 全部资产，逐项核对 GitHub SHA-256 digest，调用签名清单验证器，并检查公网 Latest 清单、三个更新下载和两个 DMG 的 HTTP 状态与内容类型。下面的命令用于人工复核或定位具体故障。
 
 ### Release 状态和资产
 
@@ -206,6 +224,7 @@ https://github.com/<owner>/<repo>/releases/download/<tag>/<asset>
 | `.github/workflows/release.yml` | 三平台构建、Draft、验证与发布编排 |
 | `VERSION` | 唯一发布版本源 |
 | `scripts/sync_release_version.py` | 同步所有运行时版本 |
+| `scripts/release_desktop.py` | 发布前准备与发布后公网一键验证 |
 | `scripts/build_backend_pyinstaller.py` | 原生冻结 FastAPI 后端 |
 | `scripts/build_updater_manifest.py` | 从 Release 资产生成多平台清单 |
 | `scripts/validate_updater_manifest.py` | 校验平台项、公开 URL、资产和签名 |
