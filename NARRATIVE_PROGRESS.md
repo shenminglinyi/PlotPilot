@@ -13,6 +13,14 @@
 - 每条验收绑定正文章节修订标识。改稿后旧证据失效，更新篇幅预算不会悄悄续签旧验收。
 - StoryPipeline 的叙事阶段从实际完成进度得到，避免“写作中”始终被当成“发展期”。
 
+## 本机隔离验收
+
+后端支持诊断入口 `plotpilot-backend.exe --verify-narrative-progress --db <测试副本> --report <JSON报告>`；源码可用 `python scripts/verify_narrative_progress.py` 配合同样参数运行。入口要求同目录有明确的 `narrative-test-copy.json` 标记，并拒绝原数据库、同文件硬链接及放在生产数据目录中的副本。
+
+验收先在现有长篇副本上检查篇幅已到但故事未验收的暂停行为，再创建独立合成小说检查跨卷和终局。规划回复固定，不构造联网模型；第二、第三项不是把现有稿件声明为已修完。
+
+测试实例不能靠进程名猜测哪些后台属于“残留”。启动时不再全局枚举或结束其他 Python/PlotPilot 进程；受管子进程的停止仅由持有 Process 句柄的 AutopilotDaemonManager.stop() 负责。未知旧进程留给明确的用户操作，不因开启第二个数据目录而被误杀。
+
 ## 审阅接口
 
 `GET /api/v1/novels/{novel_id}/structure/progress` 返回 `generation_finished`、`story_finished`、每卷预算及其来源、实际正文章号、未满足项。
