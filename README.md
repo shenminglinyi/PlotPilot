@@ -195,9 +195,9 @@ PlotPilot 内核（本仓库）
 
 > 支持 `tools\plotpilot.bat pack` 打包整个项目分享给他人，对方双击即用。当前启动器固定使用 Python 3.14 系列；如需使用系统 Python，可设置 `PLOTPILOT_PYTHON_EXE` 指向 Python 3.14 的 `python.exe`。
 
-### 方式二：桌面安装版（Windows · Tauri）
+### 方式二：桌面安装版（Windows / macOS · Tauri）
 
-前往 [GitHub Releases](https://github.com/shenminglinyi/PlotPilot/releases) 下载最新安装包，内含冻结后端，无需单独安装 Python。
+前往 [GitHub Releases](https://github.com/shenminglinyi/PlotPilot/releases) 下载 Windows x64、macOS Apple Silicon 或 macOS Intel 安装包。安装包内含冻结后端，无需单独安装 Python；应用也会通过签名更新清单检查新版本。
 
 维护者发布 Windows 与 macOS 桌面版本时，请遵循 [`docs/RELEASE_DESKTOP.md`](docs/RELEASE_DESKTOP.md) 的版本、签名、Draft 校验与故障恢复流程。
 
@@ -207,7 +207,7 @@ PlotPilot 内核（本仓库）
 
 ## 开发者文档
 
-**环境要求**：Python 3.14.x、Node.js 18+
+**环境要求**：Python 3.14.x、Node.js 20.19+（或 22.12+；由 Vite 8 要求）
 
 ```bash
 # 后端 — Windows
@@ -343,17 +343,13 @@ pytest tests/ --cov=. --cov-report=term-missing
 
 ---
 
-## 社区重启与贡献者招募
+## 社区与贡献
 
-PlotPilot（PP）正在重新整理开源项目的维护机制与社区协作方式。
-
-随着项目持续发展，我们将重新整理贡献者团队，仅保留活跃贡献者的仓库协作权限。此次调整只涉及当前维护权限，不会抹去任何人的历史贡献；所有曾参与代码、测试、文档、Issue、产品讨论或社区建设的成员，都会继续记录在 [CONTRIBUTORS.md](CONTRIBUTORS.md) 中。
-
-这样做是为了降低沟通与管理成本、明确维护责任，让社区重新焕发活力。如果你认同 PlotPilot 的发展方向，并愿意持续参与 PP 的研发、测试、文档、设计、社区维护或生态建设，欢迎联系我们，申请加入贡献者团队：
+PlotPilot 持续欢迎内核引擎、生态应用、提示词工程、前端工作台、测试和文档方面的贡献。历史贡献者记录见 [CONTRIBUTORS.md](CONTRIBUTORS.md)。如果你愿意长期参与维护，也欢迎联系我们：
 
 - **联系方式**：抖音搜索 **91472902104**，通过私信联系
 
-我们更看重长期参与意愿、实际行动和稳定协作，而不仅是一次性的代码提交。贡献者权限将根据参与方向、协作情况和维护责任逐步开放。
+仓库权限会根据持续贡献、协作情况和维护责任逐步开放。
 
 ---
 
@@ -378,19 +374,6 @@ PlotPilot（PP）正在重新整理开源项目的维护机制与社区协作方
 - 打包产物、安装包、Tauri / PyInstaller 输出目录
 
 如果必须提交示例资料，请放入脱敏后的 Markdown / JSON / YAML，并确认不包含真实密钥、真实用户数据或未公开作品内容。
-
----
-
-## 生态共建 (Community & Contribution)
-
-PlotPilot 引擎仍在持续演进中，我们始终致力于用工程化手段解决复杂的创作状态管理问题。我们正在寻找对“叙事工程”与“大模型复杂系统架构”感兴趣的极客同行。
-
-**当前生态演进方向**：内核引擎研发、生态应用构建、提示词工程、前端工作台、测试、文档与社区维护。如果你有志于长期共建，欢迎通过以下方式参与：
-
-*   **核心代码与架构共建：** 请直接在 GitHub 提交 Issue 或 PR，引擎核心维护组会定期 Review。
-*   **跨界应用探讨与联系：** 如果你对叙事工程的垂直生态应用（如游戏剧本、IP 衍生）感兴趣，或希望申请加入贡献者团队，可在抖音搜索 **91472902104**，通过私信联系。
-
----
 
 ## 许可证
 

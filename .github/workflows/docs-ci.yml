@@ -1,0 +1,22 @@
+name: Documentation CI
+
+on:
+  pull_request:
+    paths:
+      - "**.md"
+      - "**.mdx"
+      - "scripts/check_docs.py"
+      - ".github/workflows/docs-ci.yml"
+
+jobs:
+  links:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Check local documentation links
+        run: python scripts/check_docs.py

@@ -101,9 +101,10 @@ git push dev master
 
 ```powershell
 git fetch origin master
-git worktree add -b public-release-4.8.2 D:\CODE\Plotpilot-public-release origin/master
-git -C D:\CODE\Plotpilot-public-release cherry-pick <release-commit>
-git -C D:\CODE\Plotpilot-public-release push origin HEAD:master
+$publicWorktree = Join-Path (Split-Path -Parent (Get-Location)) "Plotpilot-public-release"
+git worktree add -b public-release-4.8.2 $publicWorktree origin/master
+git -C $publicWorktree cherry-pick <release-commit>
+git -C $publicWorktree push origin HEAD:master
 ```
 
 推送前必须确认 worktree 干净、提交内容正确。发布结束后验证绝对路径和 `git status`，再用 `git worktree remove` 清理临时目录。
@@ -113,8 +114,8 @@ git -C D:\CODE\Plotpilot-public-release push origin HEAD:master
 标签必须指向公开仓库中包含目标版本的提交，且名称必须与 `VERSION` 完全一致：
 
 ```powershell
-git -C D:\CODE\Plotpilot-public-release tag -a v4.8.2 -m "PlotPilot 4.8.2"
-git -C D:\CODE\Plotpilot-public-release push origin v4.8.2
+git -C $publicWorktree tag -a v4.8.2 -m "PlotPilot 4.8.2"
+git -C $publicWorktree push origin v4.8.2
 ```
 
 推送标签会自动启动 Release 工作流。可用以下命令查找并跟踪运行：

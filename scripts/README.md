@@ -48,4 +48,12 @@ python scripts/export_ai_traces.py --latest
 
 **前置条件**：环境变量 `AI_TRACE_ENABLED=true`（默认开启），每次 AI 调用会自动记录到 `ai_trace_spans` 表。关闭后不再记录。
 
-迁移说明见 `scripts/MIGRATION_GUIDE.md`。贡献者文档索引见 [docs/README.md](../docs/README.md)。其余见仓库根目录 [README.md](../README.md)。
+## 文档维护
+
+```bash
+python scripts/check_docs.py
+```
+
+该命令检查 Git 已跟踪 Markdown 文档中的相对链接，适合在重命名、移动或删除文档后运行。
+
+Checkpoint → Snapshot 的一次性数据迁移说明见 [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md)。贡献者文档索引见 [docs/README.md](../docs/README.md)，项目总览见根目录 [README.md](../README.md)。

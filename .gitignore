@@ -165,10 +165,6 @@ mcps/
 drafts/
 # DAG 版本数据（已迁移到数据库，目录已清理）
 
-
 # ── 运行时数据目录（整体忽略） ──
 data/
 !data/.gitkeep
-
-
-docs
