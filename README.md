@@ -199,6 +199,8 @@ PlotPilot 内核（本仓库）
 
 前往 [GitHub Releases](https://github.com/shenminglinyi/PlotPilot/releases) 下载最新安装包，内含冻结后端，无需单独安装 Python。
 
+维护者发布 Windows 与 macOS 桌面版本时，请遵循 [`docs/RELEASE_DESKTOP.md`](docs/RELEASE_DESKTOP.md) 的版本、签名、Draft 校验与故障恢复流程。
+
 构建流程见 [docs/BUILD_INSTALLER.md](docs/BUILD_INSTALLER.md)。
 
 ---

@@ -1,5 +1,7 @@
 # 桌面安装包（Windows NSIS / macOS DMG）
 
+完整的版本发布、GitHub Actions、签名、故障恢复和发布后验证流程见 [`RELEASE_DESKTOP.md`](RELEASE_DESKTOP.md)。本文主要说明本地构建。
+
 ## 仓库里需要知道的
 
 
@@ -7,11 +9,11 @@
 | --- | --- |
 | **Tauri 源码** | `frontend/src-tauri/` **在仓库中**；**构建产物** `frontend/src-tauri/target/` 由 `.gitignore` 忽略，需本地 `cargo tauri build` 生成 |
 | **命令** | `python scripts/build_installer.py`（若本机存在该脚本；部分环境可能被 `.gitignore` 排除，由发行维护者自备）。`--dev` 只到前端；`--clean` 清理后再构建（见下文「`--clean` 清理范围」）；`--skip-frozen-backend` 跳过 PyInstaller（需已有 exe） |
-| **冻结后端**       | `python scripts/build_backend_pyinstaller.py`（或由 `build_installer` 步骤 4 调用）。产出：`out/tauri/plotpilot-backend/plotpilot-backend.exe`                               |
+| **冻结后端**       | `python scripts/build_backend_pyinstaller.py`（或由 `build_installer` 步骤 4 调用）。Windows 产出 `plotpilot-backend.exe`，macOS 产出无扩展名的 `plotpilot-backend`。 |
 | **构建机 Python** | **推荐 Python 3.14.5**，在**专用 venv** 内执行：`pip install pyinstaller` 与 `pip install -r requirements-nsis.txt`。勿用混装过 `requirements-local.txt`（torch/faiss 等）的环境，否则 PyInstaller 会把重型依赖打进包，体积与耗时暴涨。 |
 | **占位**         | `out/tauri/plotpilot-backend/.gitkeep` 已入库，便于未打冻结包时通过 Tauri 资源 glob 校验                                                                                           |
-| **安装包路径**      | `frontend/src-tauri/target/release/bundle/nsis/*.exe`                                                                                                            |
-| **运行时**        | Tauri 优先启动 `plotpilot-backend.exe`；若无则回退 `python -m uvicorn`（本地开发）                                                                                               |
+| **安装包路径**      | Windows：`target/release/bundle/nsis/*.exe`；macOS：对应 target 下的 `release/bundle/dmg/*.dmg`。 |
+| **运行时**        | Tauri 优先启动当前平台的冻结后端；若无则回退 `python -m uvicorn`（本地开发）。 |
 
 ## `--clean` 清理范围
 
@@ -74,7 +76,7 @@ updater 强制签名校验，公钥已写入 `frontend/src-tauri/tauri.conf.json
 | 环境变量 | 说明 |
 | --- | --- |
 | `TAURI_SIGNING_PRIVATE_KEY_PATH` | 私钥文件路径（或用 `TAURI_SIGNING_PRIVATE_KEY` 直接传内容） |
-| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | 私钥密码（本 keypair 为空，可省略） |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | 加密私钥的密码；GitHub Actions 发布流程要求配置 |
 
 私钥一旦丢失，老版本将无法校验通过任何新更新包——**离线多备份**。
 
@@ -86,4 +88,4 @@ updater 强制签名校验，公钥已写入 `frontend/src-tauri/tauri.conf.json
 4. `.github/workflows/release.yml` 分别在 Windows x64、macOS Apple Silicon 和 macOS Intel 环境构建原生冻结后端及安装包。Release 始终先保持 Draft；最终任务统一生成 `latest.json`，逐项核对安装包、更新归档和 `.sig` 后才正式发布为 Latest。
 5. 老客户端自动发现 → 下载并校验签名 → 安全停止后端 → passive 模式安装 → 自动重启。
 
-本地的 `tauri build` 只会生成安装包和签名侧车文件；`latest.json` 由 Tauri Action 结合 GitHub Release 的真实下载 URL 生成，不要手工拼接。
+本地的 `tauri build` 只生成安装包、更新归档和签名侧车文件。发布流程由 `scripts/build_updater_manifest.py` 根据 Draft Release 的真实资产统一生成 `latest.json`，再由 `scripts/validate_updater_manifest.py` 校验；不要手工拼接或跳过验证。
