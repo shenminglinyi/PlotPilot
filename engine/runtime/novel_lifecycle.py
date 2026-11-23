@@ -91,6 +91,14 @@ async def process_novel(host: Any, novel: Novel) -> None:
             logger.info("[%s] 用户已停止自动驾驶，跳过本轮", novel.novel_id)
             return
 
+        if novel.current_stage == NovelStage.COMPLETED:
+            # A legacy count-only completion is not trusted when the user resumes.
+            from engine.runtime.narrative_progress_guard import enforce_progress
+            if not await enforce_progress(host, novel, writing=True):
+                novel.current_stage = NovelStage.WRITING
+                host._flush_novel(novel)
+            return
+
         stage_name = novel.current_stage.value
         logger.debug("[%s] 当前阶段: %s", novel.novel_id, stage_name)
 

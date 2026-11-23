@@ -89,6 +89,15 @@ class SqliteChapterRepository(ChapterRepository):
 
         return [self._row_to_chapter(row) for row in rows]
 
+    def completed_revisions(self, novel_id: NovelId) -> dict[int, str]:
+        """Read only revision metadata rather than loading the whole manuscript."""
+        rows = self.db.fetch_all(
+            "SELECT number, updated_at, length(content) AS content_length FROM chapters "
+            "WHERE novel_id = ? AND status = 'completed' AND length(trim(content)) > 0 ORDER BY number",
+            (novel_id.value,),
+        )
+        return {int(r['number']): f"{r['updated_at']}:{r['content_length']}" for r in rows}
+
     def delete(self, chapter_id: ChapterId) -> None:
         """删除章节：单写者内核下 API 线程只入队，由持久化消费者在 writer 上执行。"""
         from infrastructure.persistence.database.write_dispatch import (

@@ -1749,20 +1749,40 @@ class ContinuousPlanningService:
                 "message": f"继续第 {current_act.number} 幕"
             }
 
-    async def create_next_act_auto(self, novel_id: str, current_act_id: str) -> Dict:
+    async def create_next_act_auto(
+        self, novel_id: str, current_act_id: str, *,
+        target_volume_id: Optional[str] = None, chapter_budget: Optional[int] = None,
+    ) -> Dict:
         """自动创建下一幕"""
         logger.info(f"Creating next act after {current_act_id}")
 
         current_act = await self.story_node_repo.get_by_id(current_act_id)
         if not current_act:
             raise ValueError(f"当前幕不存在: {current_act_id}")
+        if current_act.novel_id != novel_id:
+            raise ValueError('当前幕不属于本小说')
+
+        parent_id = target_volume_id or current_act.parent_id
+        volume = await self.story_node_repo.get_by_id(parent_id) if parent_id else None
+        if not volume or volume.novel_id != novel_id or volume.node_type != NodeType.VOLUME:
+            raise ValueError('下一幕必须归属本小说的有效卷')
+        if chapter_budget is not None and chapter_budget <= 0:
+            raise ValueError('本卷没有剩余章节预算，请先重规划')
 
         bible_context = self._get_bible_context(novel_id)
+        bible_context = {**bible_context, 'target_volume': {
+            'id': volume.id, 'title': volume.title, 'description': volume.description or '',
+            'narrative_progress': (volume.metadata or {}).get('narrative_progress', {}),
+            'remaining_chapters': chapter_budget,
+        }}
         next_act_info = await self._generate_next_act_info(novel_id, current_act, bible_context)
+        if chapter_budget is not None:
+            next_act_info['suggested_chapter_count'] = min(
+                max(1, int(next_act_info.get('suggested_chapter_count') or chapter_budget)), chapter_budget)
 
         next_act = self._create_node_from_data(
             novel_id,
-            current_act.parent_id,
+            parent_id,
             NodeType.ACT,
             {
                 "number": current_act.number + 1,
@@ -2575,6 +2595,9 @@ class ContinuousPlanningService:
     ) -> Prompt:
         """构建幕级章节规划提示词。"""
         context_parts = [f"幕信息：《{act_node.title}》"]
+        if bible_context.get('target_volume'):
+            context_parts.append('本卷任务与剩余篇幅（本幕必须服务于这些任务）：\n' +
+                                 json.dumps(bible_context['target_volume'], ensure_ascii=False))
         if act_node.description:
             context_parts.append(f"幕简介：{act_node.description}")
         if previous_summary:
@@ -2686,6 +2709,17 @@ class ContinuousPlanningService:
 
         # 收集双轨上下文
         dual_track_context = await self._collect_dual_track_context(novel_id, current_act, bible_context)
+        destination = bible_context.get('target_volume')
+        if destination:
+            if destination['id'] != current_act.parent_id:
+                dual_track_context['volume_summary'] = (
+                    dual_track_context.get('current_volume_summary') or
+                    f'【前卷最后一幕任务，实际兑现情况以正文台账为准】{current_act.title}\n{current_act.description or ""}'
+                )
+            dual_track_context['current_volume_summary'] = (
+                '【下一幕必须推进的目标卷，不能继续扩写旧卷】\n'
+                + json.dumps(destination, ensure_ascii=False)
+            )
         
         # 构建增强型 Prompt
         prompt = self._build_next_act_prompt_with_dual_track(current_act, dual_track_context)

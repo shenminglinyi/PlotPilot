@@ -69,6 +69,9 @@ def _build_runner(daemon: Any):
 
 async def run_writing(host: Any, novel: Any) -> None:
     """写作阶段统一入口 — 按 host 配置或环境变量选择新/旧管线"""
+    from engine.runtime.narrative_progress_guard import enforce_progress
+    if await enforce_progress(host, novel, writing=True):
+        return
     if getattr(host, "use_story_pipeline_for_writing", False):
         await run_story_pipeline_writing(host, novel)
         return

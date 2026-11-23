@@ -593,9 +593,8 @@ async def run_chapter_audit(host: Any, novel: Novel) -> None:
         novel.current_stage = NovelStage.WRITING
 
     if book_done and not pause_gate:
-        logger.info(f"[{novel.novel_id}] 全书完成，共 {completed_count} 章")
-        novel.autopilot_status = AutopilotStatus.STOPPED
-        novel.current_stage = NovelStage.COMPLETED
+        from engine.runtime.narrative_progress_guard import enforce_progress
+        await enforce_progress(host, novel, force_limit=True)
     elif book_done and pause_gate:
         logger.info(
             "[%s] 全书已完成 %s 章，但章末闸门打开：保持待审阅，恢复后继续结束流程",

@@ -2148,53 +2148,6 @@ class DaemonHostMixin:
             )
 
 
-    def _find_parent_volume_for_new_act(
-        self,
-        volume_nodes: list,
-        act_nodes: list,
-        current_auto_chapters: int,
-        target_chapters: int,
-        rec_acts_per_volume: int,
-        novel_id: str,
-    ):
-        """智能选择新幕的父卷。
-
-        核心改进（替代原来的线性均分算法）：
-        1. 统计每个已有卷下已挂载了多少幕
-        2. 优先选择「当前写入卷」（幕数尚未达到 rec_acts_per_volume 的卷）
-        3. 只有当前卷的幕数已经满了，才跳到下一卷
-        4. 这样确保每卷都能写够足够多的幕，而不是写3幕就跑路
-        """
-        if not volume_nodes:
-            logger.warning(f"[{novel_id}] 无可用卷节点，无法确定父卷")
-            return None
-
-        # 统计每个卷下的幕数量
-        volume_act_counts: Dict[int, int] = {}
-        for v in volume_nodes:
-            volume_act_counts[v.number] = sum(
-                1 for a in act_nodes if a.parent_id == v.id
-            )
-
-        # 策略：从第一个卷开始找，返回第一个「幕数 < rec_acts_per_volume」的卷
-        # 如果所有卷都满了，返回最后一个卷（允许超发）
-        for v in volume_nodes:
-            current_count = volume_act_counts.get(v.number, 0)
-            if current_count < rec_acts_per_volume:
-                logger.info(
-                    f"[{novel_id}] 父卷选择：第{v}卷已有{current_count}幕"
-                    f"（上限{rec_acts_per_volume}），继续在本卷创建新幕"
-                )
-                return v
-
-        # 所有卷都已达到建议幕数，挂在最后一个卷上（允许超发）
-        last_volume = volume_nodes[-1]
-        logger.info(
-            f"[{novel_id}] 父卷选择：所有卷已达{rec_acts_per_volume}幕上限"
-            f"，新幕挂到最后一个卷（第{last_volume.number}卷）"
-        )
-        return last_volume
-
     async def _find_next_unwritten_chapter_async(self, novel):
         """找到下一个未写的章节节点
 

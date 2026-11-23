@@ -27,6 +27,15 @@ class ChapterRepository(ABC):
         """
         pass
 
+    def completed_revisions(self, novel_id: NovelId) -> dict[int, str]:
+        """Manuscript evidence; tree planning rows cannot satisfy closure."""
+        import hashlib
+        return {
+            c.number: hashlib.sha256(c.content.encode('utf-8')).hexdigest()
+            for c in self.list_by_novel(novel_id)
+            if getattr(c.status, 'value', c.status) == 'completed' and c.content.strip()
+        }
+
     @abstractmethod
     def exists(self, chapter_id: ChapterId) -> bool:
         """检查章节是否存在"""

@@ -2,9 +2,9 @@
 故事结构 API
 """
 
-from typing import Optional, List
+from typing import Optional, List, Literal
 from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, StrictInt
 
 from application.blueprint.services.story_structure_service import StoryStructureService
 from application.blueprint.services.continuous_planning_service import ContinuousPlanningService
@@ -76,6 +76,63 @@ class UpdateNodeRequest(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     number: Optional[int] = None
+
+
+class NarrativeMilestoneReview(BaseModel):
+    id: str = Field(min_length=1)
+    description: str = Field(min_length=1)
+    required: bool = True
+    status: Literal['open', 'resolved'] = 'open'
+    evidence_chapters: List[StrictInt] = Field(default_factory=list)
+
+
+class NarrativeEndingReview(BaseModel):
+    reviewed_through_chapter: StrictInt
+    core_conflict: NarrativeMilestoneReview
+    character_outcomes: NarrativeMilestoneReview
+    ending: NarrativeMilestoneReview
+    required_promises: List[NarrativeMilestoneReview] = Field(default_factory=list)
+    open_ending_notes: List[str] = Field(default_factory=list)
+
+
+class NarrativeProgressReviewRequest(BaseModel):
+    chapter_budget: Optional[int] = Field(default=None, gt=0, strict=True)
+    goal: Optional[str] = None
+    milestones: Optional[List[NarrativeMilestoneReview]] = None
+    ending_review: Optional[NarrativeEndingReview] = None
+
+
+def get_narrative_progress_service():
+    from application.blueprint.services.narrative_progress_service import NarrativeProgressService
+    from interfaces.api.dependencies import get_novel_repository
+
+    return NarrativeProgressService(StoryNodeRepository(get_db_path()),
+                                    SqliteChapterRepository(get_database()), get_novel_repository())
+
+
+@router.get('/novels/{novel_id}/structure/progress')
+async def get_narrative_progress(novel_id: str, service=Depends(get_narrative_progress_service)):
+    """Separate generated manuscript count from reviewed story completion."""
+    try:
+        return await service.get_report(novel_id)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error))
+
+
+@router.put('/novels/{novel_id}/structure/volumes/{volume_id}/progress')
+async def review_narrative_progress(novel_id: str, volume_id: str,
+                                   request: NarrativeProgressReviewRequest,
+                                   service=Depends(get_narrative_progress_service)):
+    try:
+        payload = request.model_dump(exclude_unset=True)
+        # Explicit null clears an old ending assessment after a replan.
+        if payload.get('milestones', []) is None or payload.get('chapter_budget', 1) is None:
+            raise ValueError('里程碑和章节预算不能为 null')
+        return await service.save_review(novel_id, volume_id, payload)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error))
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
 
 
 class ReorderRequest(BaseModel):

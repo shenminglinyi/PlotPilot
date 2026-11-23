@@ -194,8 +194,11 @@ async def test_run_act_planning_pauses_for_ai_invocation(monkeypatch):
     target_act.suggested_chapter_count = 5
     target_act.title = "第一幕"
     target_act.description = "开端"
-
-    host.story_node_repo.get_by_novel = AsyncMock(return_value=[target_act])
+    from domain.structure.story_node import StoryNode, NodeType
+    volume = StoryNode('volume-1', 'n-1', NodeType.VOLUME, 1, '卷一', 0)
+    target_act.parent_id = volume.id
+    host.chapter_repository.completed_revisions.return_value = {}
+    host.story_node_repo.get_by_novel = AsyncMock(return_value=[volume, target_act])
 
     novel = MagicMock()
     novel.novel_id.value = "n-1"

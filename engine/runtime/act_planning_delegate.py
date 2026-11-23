@@ -99,6 +99,14 @@ async def _request_act_invocation(
     from infrastructure.persistence.database.connection import get_database
 
     bible_context = host.planning_service._get_bible_context(novel.novel_id.value)
+    from engine.runtime.narrative_progress_guard import progress_policy
+    policy = await progress_policy(host, novel)
+    volume = next(v for v in policy.volumes if v.node.id == target_act.parent_id)
+    bible_context = {**bible_context, 'target_volume': {
+        'title': volume.node.title, 'description': volume.node.description or '',
+        'narrative_progress': policy.contract(volume.node),
+        'remaining_chapters': volume.remaining,
+    }}
     previous_summary = await host.planning_service._get_previous_acts_summary(target_act)
     prompt = host.planning_service._build_act_planning_prompt(
         target_act,
@@ -149,6 +157,9 @@ async def run_act_planning(host: Any, novel: Novel) -> None:
     """处理幕级规划（插入缓冲章策略 + 动态幕生成）"""
     if not host._is_still_running(novel):
         return
+    from engine.runtime.narrative_progress_guard import enforce_progress, progress_policy, pause_for_progress
+    if await enforce_progress(host, novel):
+        return
 
     host._update_shared_state(
         novel.novel_id.value,
@@ -164,7 +175,6 @@ async def run_act_planning(host: Any, novel: Novel) -> None:
     target_chapters = novel.target_chapters or 100
     struct_params = calculate_structure_params(target_chapters)
     rec_chapters_per_act = struct_params["chapters_per_act"]
-    rec_acts_per_volume = struct_params["acts_per_volume"]
 
     all_nodes = await host.story_node_repo.get_by_novel(novel_id)
     act_nodes = sorted(
@@ -193,14 +203,16 @@ async def run_act_planning(host: Any, novel: Novel) -> None:
             host._flush_novel(novel)
             return
 
-        parent_volume = host._find_parent_volume_for_new_act(
-            volume_nodes=volume_nodes,
-            act_nodes=act_nodes,
-            current_auto_chapters=novel.current_auto_chapters or 0,
-            target_chapters=target_chapters,
-            rec_acts_per_volume=rec_acts_per_volume,
-            novel_id=novel.novel_id,
-        )
+        try:
+            policy = await progress_policy(host, novel)
+            last_act = act_nodes[-1] if act_nodes else None
+            destination = policy.next_volume(last_act.parent_id if last_act else None)
+            parent_volume = destination.node
+            rec_chapters_per_act = min(rec_chapters_per_act, destination.remaining,
+                                       novel.target_chapters - len(policy.written))
+        except Exception as error:
+            pause_for_progress(host, novel, str(error))
+            return
 
         if parent_volume:
             logger.info(
@@ -216,6 +228,8 @@ async def run_act_planning(host: Any, novel: Novel) -> None:
                     await host.planning_service.create_next_act_auto(
                         novel_id=novel_id,
                         current_act_id=last_act.id,
+                        target_volume_id=parent_volume.id,
+                        chapter_budget=rec_chapters_per_act,
                     )
                 else:
                     logger.info("[%s] 创建首幕", novel.novel_id)
@@ -260,6 +274,16 @@ async def run_act_planning(host: Any, novel: Novel) -> None:
     just_created_chapter_plan = False
     if not confirmed_chapters:
         chapter_budget = target_act.suggested_chapter_count or rec_chapters_per_act
+        try:
+            policy = await progress_policy(host, novel)
+            volume = next(v for v in policy.volumes if v.node.id == target_act.parent_id)
+            chapter_budget = min(chapter_budget, volume.remaining,
+                                 novel.target_chapters - len(policy.written))
+            if chapter_budget <= 0:
+                raise ValueError('本卷或全书篇幅预算已用尽，需要验收或重规划')
+        except Exception as error:
+            pause_for_progress(host, novel, str(error))
+            return
         if not target_act.suggested_chapter_count:
             logger.info(
                 "[%s] 幕 %s 无 suggested_chapter_count，使用引擎推荐值 %s",

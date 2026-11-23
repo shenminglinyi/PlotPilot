@@ -162,9 +162,8 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
     current_chapters = novel.current_auto_chapters or 0
 
     if current_chapters >= target_chapters:
-        logger.info(f"[{novel.novel_id}] 已达到目标章节数 {target_chapters} 章，全托管完成")
-        novel.autopilot_status = AutopilotStatus.STOPPED
-        novel.current_stage = NovelStage.COMPLETED
+        from engine.runtime.narrative_progress_guard import enforce_progress
+        await enforce_progress(host, novel, force_limit=True)
         return
 
     if current_chapters >= max_chapters:

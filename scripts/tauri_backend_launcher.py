@@ -40,6 +40,11 @@ def main() -> None:
     _ensure_project_root_on_path()
     _ensure_stdio_for_uvicorn_logging()
 
+    if len(sys.argv) > 1 and sys.argv[1] == '--verify-narrative-progress':
+        from scripts.verify_narrative_progress import main as verify_progress
+        verify_progress(sys.argv[2:])
+        return
+
     os.environ.setdefault("HF_HUB_OFFLINE", "1")
     os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
     os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
