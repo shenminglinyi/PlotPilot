@@ -51,7 +51,7 @@ jobs:
               --title "PlotPilot ${{ github.ref_name }}" \
               --notes "PlotPilot desktop release ${{ github.ref_name }}."
           fi
-          id="$(gh api "repos/${{ github.repository }}/releases/tags/${{ github.ref_name }}" --jq .id)"
+          id="$(gh release view "${{ github.ref_name }}" --json databaseId --jq .databaseId)"
           echo "id=$id" >> "$GITHUB_OUTPUT"
 
   build:
