@@ -210,4 +210,3 @@ https://github.com/<owner>/<repo>/releases/download/<tag>/<asset>
 | `scripts/build_updater_manifest.py` | 从 Release 资产生成多平台清单 |
 | `scripts/validate_updater_manifest.py` | 校验平台项、公开 URL、资产和签名 |
 | `frontend/src-tauri/tauri.conf.json` | bundle、updater 公钥和 macOS 签名配置 |
-
