@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
@@ -19,6 +18,7 @@ def main() -> None:
     parser.add_argument("--version", required=True)
     parser.add_argument("--tag", required=True)
     parser.add_argument("--installer", required=True)
+    parser.add_argument("--signature-file", type=Path, required=True)
     args = parser.parse_args()
 
     try:
@@ -44,7 +44,13 @@ def main() -> None:
     signatures: set[str] = set()
     urls: set[str] = set()
     expected_download_path = f"/releases/download/{args.tag}/{args.installer}"
-    api_asset_path = re.compile(r"^/repos/shenminglinyi/PlotPilot/releases/assets/\d+$")
+
+    try:
+        expected_signature = args.signature_file.read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        fail(str(exc))
+    if not expected_signature:
+        fail("signature file is empty")
 
     for platform_name, update in windows_entries:
         if not isinstance(update, dict):
@@ -53,6 +59,8 @@ def main() -> None:
         signature = update.get("signature")
         if not isinstance(signature, str) or not signature.strip():
             fail(f"{platform_name}.signature is missing")
+        if signature != expected_signature:
+            fail(f"{platform_name}.signature does not match the sidecar signature")
         signatures.add(signature)
 
         url = update.get("url")
@@ -66,13 +74,8 @@ def main() -> None:
             and parsed_url.hostname == "github.com"
             and unquote(parsed_url.path).endswith(expected_download_path)
         )
-        is_github_asset_api = (
-            parsed_url.scheme == "https"
-            and parsed_url.hostname == "api.github.com"
-            and api_asset_path.fullmatch(parsed_url.path) is not None
-        )
-        if not (is_public_download or is_github_asset_api):
-            fail(f"{platform_name}.url is not a valid GitHub Release asset URL")
+        if not is_public_download:
+            fail(f"{platform_name}.url is not the public GitHub Release download URL")
 
     if len(signatures) != 1 or len(urls) != 1:
         fail("Windows platform aliases must reference the same signed installer")

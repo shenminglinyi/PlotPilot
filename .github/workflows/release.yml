@@ -127,11 +127,20 @@ jobs:
           }
 
           $version = (Get-Content VERSION -Raw).Trim()
+          python scripts/finalize_updater_manifest.py `
+            --manifest $manifest `
+            --repository "${{ github.repository }}" `
+            --tag "${{ github.ref_name }}" `
+            --installer $installer[0].Name
+
           python scripts/validate_updater_manifest.py `
             --manifest $manifest `
             --version $version `
             --tag "${{ github.ref_name }}" `
-            --installer $installer[0].Name
+            --installer $installer[0].Name `
+            --signature-file $signatures[0].FullName
+
+          gh release upload "${{ github.ref_name }}" $manifest --clobber
 
       - name: Publish verified release
         shell: pwsh
