@@ -15,12 +15,24 @@ concurrency:
 jobs:
   publish-windows:
     name: Build, sign and publish Windows
-    if: ${{ vars.ENABLE_SIGNED_UPDATES == 'true' }}
     runs-on: windows-latest
     timeout-minutes: 90
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Require updater signing secrets
+        shell: pwsh
+        env:
+          SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:SIGNING_PRIVATE_KEY)) {
+            throw "TAURI_SIGNING_PRIVATE_KEY is not configured"
+          }
+          if ([string]::IsNullOrWhiteSpace($env:SIGNING_PRIVATE_KEY_PASSWORD)) {
+            throw "TAURI_SIGNING_PRIVATE_KEY_PASSWORD is not configured"
+          }
 
       - name: Validate tag and synchronized version
         shell: pwsh
@@ -66,6 +78,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: frontend
           tauriScript: npm run tauri
@@ -75,10 +88,47 @@ jobs:
             PlotPilot desktop release ${{ github.ref_name }}.
 
             The application can download this signed update from Settings > About.
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
           uploadUpdaterJson: true
           updaterJsonPreferNsis: true
           uploadUpdaterSignatures: true
           releaseAssetNamePattern: PlotPilot_[version]_[arch][setup].[ext]
           retryAttempts: 2
+
+      - name: Verify updater assets and manifest
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $releaseDir = Join-Path $env:RUNNER_TEMP "plotpilot-release"
+          New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
+          gh release download "${{ github.ref_name }}" --dir $releaseDir
+
+          $assets = Get-ChildItem -LiteralPath $releaseDir -File
+          $installer = @($assets | Where-Object Name -Like "*.exe")
+          $signatures = @($assets | Where-Object Name -Like "*.exe.sig")
+          $manifest = Join-Path $releaseDir "latest.json"
+
+          if ($installer.Count -ne 1) {
+            throw "Expected exactly one Windows installer, found $($installer.Count)"
+          }
+          if ($signatures.Count -ne 1) {
+            throw "Expected exactly one updater signature, found $($signatures.Count)"
+          }
+          if (-not (Test-Path -LiteralPath $manifest)) {
+            throw "latest.json is missing from the draft release"
+          }
+
+          $version = (Get-Content VERSION -Raw).Trim()
+          python scripts/validate_updater_manifest.py `
+            --manifest $manifest `
+            --version $version `
+            --tag "${{ github.ref_name }}" `
+            --installer $installer[0].Name
+
+      - name: Publish verified release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${{ github.ref_name }}" --draft=false --latest
