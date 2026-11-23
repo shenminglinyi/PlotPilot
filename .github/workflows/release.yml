@@ -70,12 +70,12 @@ jobs:
             os: macos-latest
             target: aarch64-apple-darwin
             release_arch: aarch64
-            args: --bundles dmg --target aarch64-apple-darwin
+            args: --bundles app,dmg --target aarch64-apple-darwin
           - name: macOS Intel
             os: macos-15-intel
             target: x86_64-apple-darwin
             release_arch: x64
-            args: --bundles dmg --target x86_64-apple-darwin
+            args: --bundles app,dmg --target x86_64-apple-darwin
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
 
@@ -140,7 +140,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           archive_list="$(find frontend/src-tauri/target -type f -name '*.app.tar.gz')"
-          archive_count="$(printf '%s\n' "$archive_list" | grep -c .)"
+          archive_count="$(printf '%s\n' "$archive_list" | awk 'NF { count++ } END { print count + 0 }')"
           test "$archive_count" -eq 1 || {
             printf 'Expected one macOS updater archive, found %s\n' "$archive_count"
             printf '%s\n' "$archive_list"
