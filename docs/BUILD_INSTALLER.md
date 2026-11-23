@@ -1,4 +1,4 @@
-# Windows 安装包（Tauri / NSIS）
+# 桌面安装包（Windows NSIS / macOS DMG）
 
 ## 仓库里需要知道的
 
@@ -83,7 +83,7 @@ updater 强制签名校验，公钥已写入 `frontend/src-tauri/tauri.conf.json
 1. 只修改根目录 `VERSION`，然后执行 `python scripts/sync_release_version.py`。脚本会同步前端、Tauri、Cargo 和后端版本。
 2. 首次配置 GitHub Actions 时，将与现有公钥匹配的私钥和密码分别存为仓库 Secret `TAURI_SIGNING_PRIVATE_KEY`、`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。缺少任一 Secret 时发布会立即失败，不允许降级成无签名 Release。
 3. 提交版本变更，创建与 `VERSION` 一致的 tag，例如 `git tag v4.7.2 && git push origin v4.7.2`。
-4. `.github/workflows/release.yml` 在干净的 Windows 环境构建冻结后端和 NSIS 安装包，签名更新产物，并由 Tauri Action 生成、上传 `latest.json`。Release 先保持 Draft；安装包、`.sig`、`latest.json` 及清单内容全部验证通过后才正式发布为 Latest。
+4. `.github/workflows/release.yml` 分别在 Windows x64、macOS Apple Silicon 和 macOS Intel 环境构建原生冻结后端及安装包。Release 始终先保持 Draft；最终任务统一生成 `latest.json`，逐项核对安装包、更新归档和 `.sig` 后才正式发布为 Latest。
 5. 老客户端自动发现 → 下载并校验签名 → 安全停止后端 → passive 模式安装 → 自动重启。
 
 本地的 `tauri build` 只会生成安装包和签名侧车文件；`latest.json` 由 Tauri Action 结合 GitHub Release 的真实下载 URL 生成，不要手工拼接。

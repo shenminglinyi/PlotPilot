@@ -1,7 +1,7 @@
 //! FastAPI 后端进程管理器
 //!
 //! 职责：
-//!   1. 优先启动 PyInstaller 冻结产物 `plotpilot-backend.exe`（发布推荐）
+//!   1. 优先启动 PyInstaller 冻结产物 `plotpilot-backend[.exe]`（发布推荐）
 //!   2. 否则回退：内嵌 / venv / 系统 Python + `python -m uvicorn`（开发）
 //!   3. 健康检查轮询，等待 HTTP 就绪
 //!   4. 管理子进程生命周期（退出时自动清理）
@@ -25,6 +25,11 @@ use win32job::Job;
 
 const DEFAULT_BACKEND_PORT_START: u16 = 8005;
 const BACKEND_PORT_SCAN_LIMIT: u16 = 100;
+
+#[cfg(target_os = "windows")]
+const FROZEN_BACKEND_FILENAME: &str = "plotpilot-backend.exe";
+#[cfg(not(target_os = "windows"))]
+const FROZEN_BACKEND_FILENAME: &str = "plotpilot-backend";
 
 /// 子进程若使用 `Stdio::piped()`，父进程必须持续读取，否则管道缓冲区满后子进程会在下一次写日志时**永久阻塞**。
 /// 开发版多在终端直接 `uvicorn`（输出到控制台，无管道）；安装包由 Tauri `spawn` 且此前未消费管道，**挂一晚上日志一多就会整后端假死**，表现成「只有安装包会坏」。
@@ -134,11 +139,11 @@ impl BackendManager {
         Ok(())
     }
 
-    /// PyInstaller onedir：`$RESOURCE/plotpilot-backend/plotpilot-backend.exe`（见 tauri.conf resources 映射）
+    /// PyInstaller onedir：`$RESOURCE/plotpilot-backend/plotpilot-backend[.exe]`
     fn find_frozen_backend_exe(handle: &AppHandle) -> Option<PathBuf> {
         // 方案 1a：与 bundle.resources 映射一致（推荐；安装包与 tauri build 均可用）
         if let Ok(p) = handle.path().resolve(
-            "plotpilot-backend/plotpilot-backend.exe",
+            &format!("plotpilot-backend/{FROZEN_BACKEND_FILENAME}"),
             BaseDirectory::Resource,
         ) {
             if p.is_file() {
@@ -149,7 +154,7 @@ impl BackendManager {
 
         // 方案 1b：旧配置曾用数组 + `../**/*`，打包后实际路径经 Tauri 归一化；用同一字符串解析
         if let Ok(p) = handle.path().resolve(
-            "../../out/tauri/plotpilot-backend/plotpilot-backend.exe",
+            &format!("../../out/tauri/plotpilot-backend/{FROZEN_BACKEND_FILENAME}"),
             BaseDirectory::Resource,
         ) {
             if p.is_file() {
@@ -160,12 +165,12 @@ impl BackendManager {
 
         // 方案 1c：resource_dir 下直接探测（手工拷贝或扁平布局）
         if let Ok(rd) = handle.path().resource_dir() {
-            let nested = rd.join("plotpilot-backend").join("plotpilot-backend.exe");
+            let nested = rd.join("plotpilot-backend").join(FROZEN_BACKEND_FILENAME);
             if nested.is_file() {
                 log::info!("📦 后端路径 (resource_dir nested): {}", nested.display());
                 return Some(nested);
             }
-            let flat = rd.join("plotpilot-backend.exe");
+            let flat = rd.join(FROZEN_BACKEND_FILENAME);
             if flat.is_file() {
                 log::info!("📦 后端路径 (resource_dir flat): {}", flat.display());
                 return Some(flat);
@@ -184,7 +189,7 @@ impl BackendManager {
                     .join("out")
                     .join("tauri")
                     .join("plotpilot-backend")
-                    .join("plotpilot-backend.exe");
+                    .join(FROZEN_BACKEND_FILENAME);
                 if candidate.is_file() {
                     log::info!("📦 后端路径 (dev walk-up): {}", candidate.display());
                     return Some(candidate);
@@ -196,7 +201,7 @@ impl BackendManager {
             if let Some(parent) = exe_path.parent() {
                 let sibling = parent
                     .join("plotpilot-backend")
-                    .join("plotpilot-backend.exe");
+                    .join(FROZEN_BACKEND_FILENAME);
                 if sibling.is_file() {
                     log::info!("📦 后端路径 (sibling dir): {}", sibling.display());
                     return Some(sibling);
@@ -416,7 +421,9 @@ impl BackendManager {
             c
         } else {
             let python = self.find_python().ok_or_else(|| {
-                "未找到 plotpilot-backend.exe，也未找到 Python。发布构建请运行 scripts/build_backend_pyinstaller.py；开发请安装 Python 3.14.5".to_string()
+                format!(
+                    "未找到 {FROZEN_BACKEND_FILENAME}，也未找到 Python。发布构建请运行 scripts/build_backend_pyinstaller.py；开发请安装 Python 3.14.5"
+                )
             })?;
             log::info!("🐍 启动 uvicorn（解释器）: {}", python.display());
             let mut c = Command::new(&python);

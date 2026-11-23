@@ -2855,7 +2855,7 @@ dependencies = [
 
 [[package]]
 name = "plotpilot"
-version = "4.8.0"
+version = "4.8.1"
 dependencies = [
  "dirs 6.0.0",
  "env_logger",
