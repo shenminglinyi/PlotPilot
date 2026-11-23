@@ -64,14 +64,17 @@ jobs:
           - name: Windows x64
             os: windows-latest
             target: x86_64-pc-windows-msvc
+            release_arch: x64
             args: --bundles nsis
           - name: macOS Apple Silicon
             os: macos-latest
             target: aarch64-apple-darwin
+            release_arch: aarch64
             args: --bundles dmg --target aarch64-apple-darwin
           - name: macOS Intel
             os: macos-15-intel
             target: x86_64-apple-darwin
+            release_arch: x64
             args: --bundles dmg --target x86_64-apple-darwin
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
@@ -129,6 +132,31 @@ jobs:
           releaseAssetNamePattern: PlotPilot_[version]_[arch][setup].[ext]
           retryAttempts: 2
           args: ${{ matrix.args }}
+
+      - name: Upload macOS updater archive
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          archive_list="$(find frontend/src-tauri/target -type f -name '*.app.tar.gz')"
+          archive_count="$(printf '%s\n' "$archive_list" | grep -c .)"
+          test "$archive_count" -eq 1 || {
+            printf 'Expected one macOS updater archive, found %s\n' "$archive_count"
+            printf '%s\n' "$archive_list"
+            exit 1
+          }
+          source_archive="$archive_list"
+          source_signature="$source_archive.sig"
+          test -s "$source_signature"
+
+          version="$(tr -d '\r\n' < VERSION)"
+          release_name="PlotPilot_${version}_${{ matrix.release_arch }}.app.tar.gz"
+          release_archive="$RUNNER_TEMP/$release_name"
+          cp "$source_archive" "$release_archive"
+          cp "$source_signature" "$release_archive.sig"
+          gh release upload "${{ github.ref_name }}" \
+            "$release_archive" "$release_archive.sig" --clobber
 
   publish:
     name: Verify and publish release
