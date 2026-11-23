@@ -12,6 +12,12 @@ concurrency:
   group: desktop-release-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  # GitHub Windows runners otherwise expose a cp1252 stdout stream. The build
+  # scripts and PyInstaller diagnostics contain Chinese text and require UTF-8.
+  PYTHONUTF8: "1"
+  PYTHONIOENCODING: "utf-8"
+
 jobs:
   publish-windows:
     name: Build, sign and publish Windows
