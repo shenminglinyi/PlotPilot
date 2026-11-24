@@ -14,6 +14,7 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', name: 'Home', component: Home },
+    { path: '/plugins/character-candidates', name: 'CharacterCandidates', component: () => import('../views/CharacterCandidates.vue') },
     { path: '/book/:slug/workbench', name: 'Workbench', component: Workbench },
     { path: '/book/:slug/cast', name: 'Cast', component: Cast },
     { path: '/book/:slug/chapter/:id', name: 'Chapter', component: Chapter },
