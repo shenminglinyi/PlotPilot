@@ -13,6 +13,14 @@
 - 每条验收绑定正文章节修订标识。改稿后旧证据失效，更新篇幅预算不会悄悄续签旧验收。
 - StoryPipeline 的叙事阶段从实际完成进度得到，避免“写作中”始终被当成“发展期”。
 
+## 自动托管与手动续幕
+
+托管按全书顺序选择第一处缺少定稿正文的章号，并绑定其卷、幕、章节节点、剩余预算、大纲版本与本轮托管编号。标为已完成的空章仍需补写。新旧写作管线及人工采纳模型结果共用这一目标。提交时，数据库写入者在同一事务内复核目标和已有草稿。作者在模型返回前改纲或改稿时，旧结果无法覆盖新内容。
+
+手动续幕建议和自动续幕执行同一个卷预算与前卷验收决定。新幕的章节规划预览携带 `plan_revision`，确认时重新核验。满卷、待补空章或已过期的预览会给出具体原因；同一张新幕规划重复提交也须保护已有正文。
+
+整幕替换只适用于该幕的空白规划。已有正文时，提示会给出具体章节，作者可以在章节编辑器继续修改正文和纲要。
+
 ## 本机隔离验收
 
 后端支持诊断入口 `plotpilot-backend.exe --verify-narrative-progress --db <测试副本> --report <JSON报告>`；源码可用 `python scripts/verify_narrative_progress.py` 配合同样参数运行。入口要求同目录有明确的 `narrative-test-copy.json` 标记，并拒绝原数据库、同文件硬链接及放在生产数据目录中的副本。
@@ -25,7 +33,7 @@
 
 `GET /api/v1/novels/{novel_id}/structure/progress` 返回 `generation_finished`、`story_finished`、每卷预算及其来源、实际正文章号、未满足项。
 
-`PUT /api/v1/novels/{novel_id}/structure/volumes/{volume_id}/progress` 配置该卷任务并记录验收。提交必须针对同一小说，证据须为已完成非空正文；服务在服务器侧绑定修订标识，客户端不提交该标识。
+`PUT /api/v1/novels/{novel_id}/structure/volumes/{volume_id}/progress` 配置该卷任务并记录验收。服务器校验正文并签署版本。客户端可以把打开审阅页时取得的 `plan_revision` 作为 `expected_plan_revision` 传回；书稿或大纲已变化时返回 HTTP 409。
 
 ```json
 {
@@ -37,13 +45,20 @@
       "description": "阶段危机发生且其后果进入人物选择",
       "required": true,
       "status": "resolved",
-      "evidence_chapters": [36, 39, 40]
+      "evidence_chapters": [36, 39, 40],
+      "evidence_passages": [{"chapter_number": 40, "quote": "她把船票还给他。"}]
     }
   ]
 }
 ```
 
 只有末卷可记录 `ending_review`，含 `reviewed_through_chapter`、`core_conflict`、`character_outcomes`、`ending` 和可选 `required_promises`。后三个必填项及承诺都使用里程碑的对象形态，各自提供证据。开放式结尾可用 `open_ending_notes` 解释，但不能自动豁免已经声明必须兑现的承诺。重规划时可用 `ending_review: null` 清除过时终局验收。
+
+原文片段可选。接口在指定章中定位引文，相同引文出现多次时须提供起点 `start`。返回的 `start` 和 `end` 按 Unicode 码点计数，从零开始，右端不包含在内。章级引用仍可使用。进度响应的 `evidence_current` 表示该项核读的章节版本是否仍然有效；末章另有 `terminal_revision_current`。
+
+作者可以在工作台「写作支撑 → 叙事简报 → 剧情验收 → 查看证据」回读。点击引用时，`GET /api/v1/novels/{novel_id}/chapters/{chapter_number}/evidence-source` 同时返回当前正文和版本。旧引文会显示待复核，精确位置只在版本匹配时高亮。
+
+SQLite 在写入正文的同一事务中更新 `manuscript_revision`。等长改写也会生成新版本，标题、审计时间等变更不会更新正文版本。已核验的末章改写，或必达事项引用的章节发生变化，会让已完结作品重新进入待审；无关章节的文字修改保留原验收。升级前以时间与长度签署的旧证据保留供回读，须重新确认。
 
 仅设置目标章数、生成完毕、在正文出现某个人名，都不会自动写入“已兑现”。接口记录验收后，重新启动自动驾驶时会重新检查；不会为了确认完结而多写一章。
 

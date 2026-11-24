@@ -365,16 +365,24 @@ def register_autopilot_continuations() -> None:
                 "outline_plan_mode": payload.get("mode") or "autopilot_outline_partition",
             }
         if novel_id:
+            meta = dict(ctx.session.metadata or {})
+            binding = meta.get("writing_binding")
+            if binding:
+                from application.engine.services.checked_chapter_write import submit_checked_chapter
+                submit_checked_chapter(binding, "adopt_prose", next_beat_index=0)
             _clear_invocation_state(
                 novel_id,
                 autopilot_status="running",
                 current_stage="writing",
                 autopilot_pending_chapter_number=chapter_number,
+                autopilot_pending_chapter_revision=meta.get("writing_input_revision"),
+                **({"autopilot_run_epoch": binding["epoch"]} if binding else {}),
                 autopilot_pending_chapter_plan=payload,
                 planned_micro_beats=micro_beats,
                 outline_plan_mode=payload.get("mode") or "autopilot_outline_partition",
             )
-            _resume_autopilot_stage(novel_id, "writing")
+            if not binding:
+                _resume_autopilot_stage(novel_id, "writing")
         return {
             "atoms": micro_beats,
             "chapter_plan": payload,
@@ -448,6 +456,7 @@ def register_autopilot_continuations() -> None:
                 current_stage="act_planning",
                 autopilot_pending_act_plan_id=act_id,
                 autopilot_pending_act_chapters=chapters,
+                autopilot_pending_act_revision=ctx.session.context.get("plan_revision"),
             )
             _resume_autopilot_stage(novel_id, "act_planning")
         return {
@@ -457,6 +466,7 @@ def register_autopilot_continuations() -> None:
                 "success": True,
                 "act_id": act_id,
                 "chapters": chapters,
+                "plan_revision": ctx.session.context.get("plan_revision"),
             },
         }
 
@@ -472,6 +482,25 @@ def register_autopilot_continuations() -> None:
                 is_full_chapter
                 and session_meta.get("commit_owner") == "story_pipeline_save_step"
             )
+            binding = session_meta.get("writing_binding")
+            if binding:
+                from application.engine.services.checked_chapter_write import submit_checked_chapter
+                from application.engine.services.streaming_bus import streaming_bus
+                if binding["novel_id"] != novel_id or binding["target"]["chapter_number"] != chapter_number:
+                    raise ValueError("采纳的正文与写作目标不一致")
+                if is_full_chapter != story_pipeline_commit_owner:
+                    raise ValueError("采纳的整章正文缺少管线提交信息")
+                next_beat_index = 0 if is_full_chapter else beat_index + 1
+                reply = submit_checked_chapter(binding, "adopt_prose" if is_full_chapter else "adopt_beat",
+                                               next_beat_index=next_beat_index, content=content)
+                _clear_invocation_state(
+                    novel_id, autopilot_run_epoch=binding["epoch"], autopilot_status="running", current_stage="writing",
+                    current_beat_index=next_beat_index, current_chapter_number=chapter_number,
+                    accumulated_words=len(content) if is_full_chapter else reply["word_count"],
+                )
+                streaming_bus.publish_start_signal(novel_id, epoch=binding["epoch"])
+                return {"content": content, "beat_content": content, "chapter_number": chapter_number,
+                        "beat_index": beat_index, "commit_owner": session_meta.get("commit_owner")}
             if story_pipeline_commit_owner:
                 _clear_invocation_state(
                     novel_id,
@@ -492,10 +521,7 @@ def register_autopilot_continuations() -> None:
                     "commit_owner": "story_pipeline_save_step",
                 }
             write_result = _write_chapter_draft(
-                novel_id,
-                chapter_number,
-                content,
-                append=not is_full_chapter,
+                novel_id, chapter_number, content, append=not is_full_chapter,
                 status="completed" if is_full_chapter else "draft",
             )
             total_words = int(write_result.get("word_count") or 0)

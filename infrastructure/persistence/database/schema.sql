@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS novels (
     last_stable_stage TEXT DEFAULT '',
     beats_completed INTEGER DEFAULT 0,
     last_audit_chapter_number INTEGER,
+    pending_audit_chapter_number INTEGER,
     last_audit_similarity REAL,
     last_audit_drift_alert INTEGER DEFAULT 0,
     last_audit_narrative_ok INTEGER DEFAULT 1,

@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from domain.structure.narrative_progress import NarrativeProgressPolicy
 from domain.structure.story_node import StoryNode
+from infrastructure.persistence.database.sqlite_chapter_repository import read_completed_revisions
 
 
 def audit(db_path: Path, novel_id: str | None = None, *, snapshot=False):
@@ -41,8 +42,7 @@ def audit(db_path: Path, novel_id: str | None = None, *, snapshot=False):
         chapters = [dict(r) for r in conn.execute(
             'SELECT number,title,status,content,word_count,updated_at FROM chapters WHERE novel_id=? ORDER BY number',
             (novel_id,))]
-        revisions = {r['number']: f"{r['updated_at']}:{len(r['content'])}" for r in chapters
-                     if r['status']=='completed' and (r['content'] or '').strip()}
+        revisions = read_completed_revisions(conn.execute, novel_id)
         report = NarrativeProgressPolicy(nodes,novel['target_chapters'],revisions).report()
         report['source_state'] = novel
         report['audited_at'] = datetime.now(timezone(timedelta(hours=8))).isoformat(timespec='seconds')

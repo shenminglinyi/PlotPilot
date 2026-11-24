@@ -86,6 +86,11 @@ class AutopilotRecoveryPolicy:
         autopilot_stopped = str(row.get("autopilot_status") or "").strip().lower() == "stopped"
         if stage == NovelStage.PLANNING.value:
             stage = NovelStage.MACRO_PLANNING.value
+        if row.get("pending_audit_chapter_number") and (
+            stage == NovelStage.WRITING.value
+            or (for_start and autopilot_stopped and stage == NovelStage.PAUSED_FOR_REVIEW.value)
+        ):
+            stage = NovelStage.AUDITING.value
 
         pending = self._find_pending_invocation(novel_id)
         if stage == NovelStage.PAUSED_FOR_REVIEW.value:
@@ -128,7 +133,7 @@ class AutopilotRecoveryPolicy:
             )
 
         if stage == NovelStage.AUDITING.value:
-            chapter_number = self._latest_completed_chapter_number(novel_id)
+            chapter_number = row.get("pending_audit_chapter_number") or self._latest_completed_chapter_number(novel_id)
             if chapter_number is not None:
                 return AutopilotRecoveryDecision(
                     novel_id=novel_id,

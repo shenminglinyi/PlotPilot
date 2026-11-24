@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import ANY, AsyncMock, Mock
 
 import pytest
 
@@ -35,6 +35,6 @@ async def test_runtime_passes_selected_destination_and_clips_new_act_to_remainin
     await run_act_planning(host,novel)
 
     host.planning_service.create_next_act_auto.assert_awaited_once_with(
-        novel_id='n',current_act_id='a1',target_volume_id='v2',chapter_budget=1)
+        novel_id='n',current_act_id='a1',target_volume_id='v2',chapter_budget=1,expected_plan_revision=ANY)
     assert nodes[-1].parent_id=='v2'
     assert nodes[-1].suggested_chapter_count==1

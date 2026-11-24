@@ -35,6 +35,7 @@ class PersistenceCommandType(Enum):
     """持久化命令类型"""
     # 章节相关
     UPSERT_CHAPTER = "upsert_chapter"
+    WRITE_CHECKED_CHAPTER = "write_checked_chapter"
     UPDATE_CHAPTER_STATUS = "update_chapter_status"
     UPDATE_CHAPTER_TENSION = "update_chapter_tension"
     UPDATE_CHAPTER_WORD_COUNT = "update_chapter_word_count"
@@ -191,6 +192,27 @@ class PersistenceQueue:
         ]
         return self.push(PersistenceCommandType.BATCH.value, {"commands": batch_payload})
 
+    def submit_from_daemon(self, command_type: str, payload: dict, timeout: float):
+        """Wait for the single writer's committed result across a process boundary."""
+        if self.is_consumer_running():
+            return self.submit_and_wait(command_type, payload, timeout)
+        if self._queue is None:
+            raise RuntimeError("持久化队列未就绪")
+        receive, send = mp.Pipe(duplex=False)
+        try:
+            command = PersistenceCommand(command_type, payload, time.time()).to_dict()
+            command.update(reply_pipe=send, deadline=time.monotonic() + timeout)
+            self._queue.put(command, block=False)
+            if not receive.poll(timeout):
+                raise TimeoutError("守护进程未收到持久化确认")
+            ok, result = receive.recv()
+            if not ok:
+                raise RuntimeError(result)
+            return result
+        finally:
+            receive.close()
+            send.close()
+
     def is_consumer_running(self) -> bool:
         """持久化消费者线程是否已启动且存活（用于启动链多阶段复用）。"""
         t = self._consumer_thread
@@ -252,6 +274,7 @@ class PersistenceQueue:
         """处理单个命令"""
         command_type = item.get("command_type")
         payload = item.get("payload", {})
+        pipe = item.get("reply_pipe")
         reply = None
         if token := item.get("command_id"):
             with self._reply_lock:
@@ -261,6 +284,8 @@ class PersistenceQueue:
 
         try:
             result = None
+            if pipe is not None and time.monotonic() > item["deadline"]:
+                return
             if command_type == PersistenceCommandType.BATCH.value:
                 # 批量命令
                 commands = payload.get("commands", [])
@@ -273,14 +298,24 @@ class PersistenceQueue:
                 result = self._process_single_command(command_type, payload)
             if reply is not None:
                 reply.set_result(result)
+            if pipe is not None:
+                pipe.send((True, result))
 
             self._stats["processed"] += 1
 
         except Exception as e:
             if reply is not None:
                 reply.set_exception(e)
+            if pipe is not None:
+                try:
+                    pipe.send((False, str(e)))
+                except (OSError, EOFError):
+                    pass  # Caller already timed out or shut down.
             logger.error(f"处理持久化命令失败: {command_type}, {e}")
             self._stats["failed"] += 1
+        finally:
+            if pipe is not None:
+                pipe.close()
 
     def _process_single_command(self, command_type: str, payload: Dict):
         """处理单个命令，DB 被锁时按配置进行指数退避。"""
@@ -592,6 +627,8 @@ def register_persistence_handlers() -> None:
 
     # 注册处理器
     pq.register_handler(PersistenceCommandType.UPSERT_CHAPTER.value, handle_upsert_chapter)
+    from application.engine.services.checked_chapter_write import commit_checked_chapter
+    pq.register_handler(PersistenceCommandType.WRITE_CHECKED_CHAPTER.value, commit_checked_chapter)
     pq.register_handler(PersistenceCommandType.UPDATE_CHAPTER_TENSION.value, handle_update_chapter_tension)
     pq.register_handler(PersistenceCommandType.PATCH_NOVEL.value, handle_patch_novel)
 

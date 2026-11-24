@@ -1,4 +1,5 @@
 """SQLite Chapter Repository 实现"""
+import hashlib
 import logging
 import sqlite3
 from typing import Optional, List
@@ -10,6 +11,30 @@ from domain.novel.repositories.chapter_repository import ChapterRepository
 from infrastructure.persistence.database.connection import DatabaseConnection
 
 logger = logging.getLogger(__name__)
+
+
+def read_completed_revisions(fetch_all, novel_id: str) -> dict[int, str]:
+    """Read committed prose identities from a live database or a read-only archive."""
+    try:
+        rows = fetch_all(
+            "SELECT number, manuscript_revision FROM chapters WHERE novel_id = ? "
+            "AND status = 'completed' AND manuscript_revision <> '' ORDER BY number",
+            (novel_id,),
+        )
+    except sqlite3.OperationalError as exc:
+        if "no such column: manuscript_revision" not in str(exc):
+            raise
+        # An unmigrated archive can be audited without modifying it. Historical
+        # timestamp/length signatures do not certify the text of that archive.
+        rows = fetch_all(
+            "SELECT number, content FROM chapters WHERE novel_id = ? AND status = 'completed'",
+            (novel_id,),
+        )
+        return {
+            row['number']: hashlib.sha256(row['content'].encode('utf-8')).hexdigest()
+            for row in rows if (row['content'] or '').strip()
+        }
+    return {row['number']: row['manuscript_revision'] for row in rows}
 
 
 class SqliteChapterRepository(ChapterRepository):
@@ -91,12 +116,7 @@ class SqliteChapterRepository(ChapterRepository):
 
     def completed_revisions(self, novel_id: NovelId) -> dict[int, str]:
         """Read only revision metadata rather than loading the whole manuscript."""
-        rows = self.db.fetch_all(
-            "SELECT number, updated_at, length(content) AS content_length FROM chapters "
-            "WHERE novel_id = ? AND status = 'completed' AND length(trim(content)) > 0 ORDER BY number",
-            (novel_id.value,),
-        )
-        return {int(r['number']): f"{r['updated_at']}:{r['content_length']}" for r in rows}
+        return read_completed_revisions(self.db.fetch_all, novel_id.value)
 
     def delete(self, chapter_id: ChapterId) -> None:
         """删除章节：单写者内核下 API 线程只入队，由持久化消费者在 writer 上执行。"""
@@ -628,4 +648,5 @@ class SqliteChapterRepository(ChapterRepository):
             emotional_tension=row.get('emotional_tension', 50.0),
             pacing_tension=row.get('pacing_tension', 50.0),
             generation_hint=row.get('generation_hint', '') or '',
+            manuscript_revision=row.get('manuscript_revision', '') or '',
         )

@@ -27,6 +27,7 @@ from infrastructure.persistence.database.story_node_repository import StoryNodeR
 from infrastructure.persistence.database.chapter_element_repository import ChapterElementRepository
 from infrastructure.persistence.database.sqlite_chapter_repository import SqliteChapterRepository
 from domain.ai.services.llm_service import LLMService
+from domain.structure.narrative_progress import NarrativeProgressError
 from application.paths import get_db_path
 from interfaces.api.dependencies import get_database
 from interfaces.api.v1.blueprint.planning_runtime_settings import (
@@ -106,12 +107,13 @@ class MacroPlanConfirmRequest(BaseModel):
 
 class ActChaptersRequest(BaseModel):
     """幕级规划请求"""
-    chapter_count: Optional[int] = Field(None, ge=3, le=20)
+    chapter_count: Optional[int] = Field(None, ge=1, le=20)
 
 
 class ActChaptersConfirmRequest(BaseModel):
     """幕级规划确认请求"""
     chapters: List[Dict] = Field(..., description="用户编辑后的章节列表")
+    expected_plan_revision: Optional[str] = None
 
 
 class ContinuePlanningRequest(BaseModel):
@@ -565,7 +567,7 @@ async def confirm_macro_plan(
 async def stream_act_chapters_sse(
     act_id: str,
     chapter_count: Optional[int] = Query(
-        None, ge=2, le=20, description="本幕规划章节数；不传则与 POST 生成接口一致，由幕节点或引擎推荐"
+        None, ge=1, le=20, description="本幕规划章节数；不传则与 POST 生成接口一致，由幕节点或引擎推荐"
     ),
     service: ContinuousPlanningService = Depends(get_service),
 ):
@@ -687,6 +689,7 @@ async def stream_act_chapters_sse(
                 "success": True,
                 "act_id": result.get("act_id", act_id),
                 "chapters": chapters,
+                "plan_revision": result.get("plan_revision"),
             },
         )
 
@@ -713,6 +716,8 @@ async def generate_act_chapters(
             custom_chapter_count=request.chapter_count
         )
         return result
+    except NarrativeProgressError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -732,9 +737,12 @@ async def confirm_act_chapters(
     try:
         result = await service.confirm_act_planning(
             act_id=act_id,
-            chapters=request.chapters
+            chapters=request.chapters,
+            expected_revision=request.expected_plan_revision,
         )
         return result
+    except NarrativeProgressError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -759,6 +767,8 @@ async def continue_planning(
             current_chapter_number=request.current_chapter
         )
         return result
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"续规划失败: {str(e)}")
 
@@ -766,7 +776,8 @@ async def continue_planning(
 @router.post("/acts/{act_id}/create-next")
 async def create_next_act(
     act_id: str,
-    service: ContinuousPlanningService = Depends(get_service)
+    service: ContinuousPlanningService = Depends(get_service),
+    expected_plan_revision: Optional[str] = None,
 ):
     """创建下一幕
 
@@ -779,9 +790,14 @@ async def create_next_act(
 
         result = await service.create_next_act_auto(
             novel_id=act.novel_id,
-            current_act_id=act_id
+            current_act_id=act_id,
+            expected_plan_revision=expected_plan_revision,
         )
         return result
+    except HTTPException:
+        raise
+    except NarrativeProgressError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:

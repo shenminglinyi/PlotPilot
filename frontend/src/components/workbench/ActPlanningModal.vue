@@ -30,7 +30,7 @@
       <n-form-item label="本幕章节数" :show-feedback="false">
         <n-input-number
           v-model:value="chapterCount"
-          :min="2"
+          :min="1"
           :max="20"
           style="width: 120px"
         />
@@ -190,6 +190,7 @@ const uiPhase = ref<UiPhase>('form')
 
 const confirming = ref(false)
 const chapterCount = ref<number | null>(null)
+const planRevision = ref<string>()
 const chapters = ref<ChapterDraft[]>([])
 
 const statusMessage = ref('正在连接…')
@@ -226,6 +227,7 @@ function mapRawToDraft(c: Record<string, unknown>): ChapterDraft {
 
 function startStream() {
   abortCtrl?.abort()
+  planRevision.value = undefined
   streamPreview.value = []
   llmStreamPreview.value = ''
   statusMessage.value = '正在连接…'
@@ -263,6 +265,7 @@ function startStream() {
         })
       },
       onDone(e) {
+        planRevision.value = e.plan_revision ?? undefined
         const raw = e.chapters ?? []
         chapters.value = raw.map((c) => mapRawToDraft(c as Record<string, unknown>))
         if (!chapters.value.length) {
@@ -337,7 +340,10 @@ onUnmounted(() => {
 async function confirm() {
   confirming.value = true
   try {
-    await planningApi.confirmActChapters(props.actId, { chapters: chapters.value })
+    await planningApi.confirmActChapters(props.actId, {
+      chapters: chapters.value,
+      expected_plan_revision: planRevision.value,
+    })
     message.success('章节已写入结构树')
     emit('confirmed')
     emit('update:show', false)

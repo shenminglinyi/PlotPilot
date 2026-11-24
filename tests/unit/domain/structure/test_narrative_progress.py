@@ -30,6 +30,7 @@ def add_ending(nodes, n):
     volume = [node for node in nodes if node.node_type == NodeType.VOLUME][-1]
     volume.metadata['narrative_progress']['ending_review'] = {
         'reviewed_through_chapter': n,
+        'reviewed_through_revision': f'r{n}',
         'core_conflict': review(n), 'character_outcomes': review(n), 'ending': review(n),
     }
 

@@ -18,6 +18,10 @@ class NarrativeProgressError(ValueError):
     pass
 
 
+class NarrativeReviewConflict(NarrativeProgressError):
+    """The manuscript or plan changed after the review was opened."""
+
+
 @dataclass(frozen=True)
 class VolumeProgress:
     node: StoryNode
@@ -148,8 +152,11 @@ class NarrativeProgressPolicy:
             for volume in self.volumes:
                 issues.extend(f'《{volume.node.title}》：{i}' for i in volume.issues)
             ending = (self.contract(self.volumes[-1].node).get('ending_review') or {}) if self.volumes else {}
-            if ending.get('reviewed_through_chapter') != max(self.written, default=0):
+            last = max(self.written)
+            if ending.get('reviewed_through_chapter') != last:
                 issues.append('缺少覆盖当前末章的全书终局验收')
+            elif ending.get('reviewed_through_revision') != self.revisions[last]:
+                issues.append(f'第{last}章正文版本缺少相应的终局验收，请重新核读末章')
             for key, label in [('core_conflict', '核心冲突'), ('character_outcomes', '主要人物去向'), ('ending', '全书结局')]:
                 if not self.evidence_valid(ending.get(key, {})):
                     issues.append(label + '尚未有有效正文证据支持闭环')

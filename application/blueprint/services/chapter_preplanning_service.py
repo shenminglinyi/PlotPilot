@@ -54,6 +54,7 @@ class ChapterPreplanningService:
         chapter_node: Any = None,
         current_outline: str = "",
         target_words: int | None = None,
+        writing_session=None,
     ) -> str:
         """Return a seven-section execution plan, generating it when needed."""
         outline = (current_outline or "").strip()
@@ -81,6 +82,7 @@ class ChapterPreplanningService:
                 rendered,
                 legacy_plan,
                 continuity_context=continuity_context,
+                writing_session=writing_session,
             )
             return rendered
 
@@ -126,6 +128,7 @@ class ChapterPreplanningService:
             rendered,
             chapter_plan,
             detail_title=detail_title,
+            writing_session=writing_session,
             key_plot_points=key_plot_points,
             chapter_characters=chapter_characters,
             continuity_context=continuity_context,
@@ -209,6 +212,7 @@ class ChapterPreplanningService:
         outline: str,
         chapter_plan: Any,
         *,
+        writing_session=None,
         detail_title: str = "",
         key_plot_points: list[str] | None = None,
         chapter_characters: list[str] | None = None,
@@ -225,6 +229,12 @@ class ChapterPreplanningService:
             "continuity_context": continuity_context,
             "chapter_plan": chapter_plan,
         }
+        if writing_session is not None:
+            writing_session.submit("preplan", outline=outline, preplan=preplan_payload)
+            node.outline = outline
+            node.metadata = {**node.metadata, "chapter_preplan": preplan_payload}
+            self._write_plan_variables(novel_id, chapter_number, outline, continuity_context=continuity_context)
+            return
         if node is not None:
             try:
                 node.outline = outline

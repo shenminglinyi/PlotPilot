@@ -14,10 +14,11 @@ from datetime import datetime
 from json_repair import repair_json
 
 from domain.structure.story_node import StoryNode, NodeType, PlanningStatus, PlanningSource
+from domain.structure.act_continuation import decide_act_continuation
+from domain.structure.writing_target import plan_revision
+from domain.structure.narrative_progress import NarrativeProgressError, NarrativeProgressPolicy
 from domain.structure.chapter_element import ChapterElement, ElementType, RelationType, Importance
-from domain.novel.entities.chapter import Chapter, ChapterStatus
 from domain.novel.value_objects.novel_id import NovelId
-from domain.novel.value_objects.chapter_id import ChapterId
 from domain.novel.value_objects.generation_preferences import GenerationPreferences
 from domain.novel.repositories.chapter_repository import ChapterRepository
 from domain.novel.repositories.novel_repository import NovelRepository
@@ -49,10 +50,6 @@ from application.blueprint.services.chapter_plan_renderer import (
 from application.blueprint.services.chapter_continuity_ledger import ChapterContinuityLedgerService
 from application.blueprint.services.chapter_planning_policy import validate_lightweight_act_plan
 from application.audit.services.macro_merge_engine import MacroMergeEngine, MergePlan, MergeConflictException
-from application.blueprint.services.chapter_book_structure_sync import (
-    collect_structure_chapter_numbers,
-    purge_chapter_book_rows_not_matching_structure,
-)
 
 logger = logging.getLogger(__name__)
 _macro_plan_progress_store: Dict[str, Dict] = {}
@@ -1478,21 +1475,41 @@ class ContinuousPlanningService:
 
     # ==================== 幕级规划 ====================
 
+    def _chapter_planning_terms(self, act, requested):
+        policy = self._continuation_policy(act.novel_id)
+        count = requested or act.suggested_chapter_count or calculate_structure_params(policy.target)["chapters_per_act"]
+        existing = [n for n in policy.nodes if n.parent_id == act.id and n.node_type == NodeType.CHAPTER]
+        if existing:
+            self.story_node_repo.ensure_act_has_no_manuscript(act.id)
+        volume = policy.next_volume(act.parent_id)
+        if volume.node.id != act.parent_id:
+            raise NarrativeProgressError("本幕所在卷已用尽预算，请先核对目标卷")
+        from domain.structure.writing_target import select_writing_target
+        pending = select_writing_target(policy)
+        if pending and pending.act_id != act.id:
+            raise NarrativeProgressError(f"第{pending.chapter_number}章已有规划，请先完成正文")
+        if act.number > 1:
+            previous = next((n for n in policy.nodes if n.node_type == NodeType.ACT and n.number == act.number - 1), None)
+            if previous is None:
+                raise NarrativeProgressError("缺少前一幕，请先核对大纲")
+            continuation = decide_act_continuation(policy, previous.id, count)
+            if continuation.existing_id != act.id:
+                raise NarrativeProgressError("当前幕与下一幕决策不一致，请重新检查")
+        count = min(count, volume.remaining, policy.target - len(policy.written))
+        if count <= 0:
+            raise NarrativeProgressError("本卷没有剩余章节预算")
+        context = {"target_volume": {"id": volume.node.id, "title": volume.node.title,
+                   "description": volume.node.description or "", "narrative_progress": policy.contract(volume.node),
+                   "remaining_chapters": volume.remaining}}
+        return count, plan_revision(policy), context
+
     async def resolve_act_planning_chapter_count(
         self, act_id: str, custom_chapter_count: Optional[int] = None
     ) -> int:
-        """与 plan_act_chapters 相同的章数解析逻辑，供 SSE 骨架行数等使用。"""
-        act_node = await self.story_node_repo.get_by_id(act_id)
-        if not act_node:
+        act = await self.story_node_repo.get_by_id(act_id)
+        if not act:
             raise ValueError(f"幕节点不存在: {act_id}")
-        _default_cpa = calculate_structure_params(100)["chapters_per_act"]
-        chapter_count = custom_chapter_count or act_node.suggested_chapter_count or _default_cpa
-        if not custom_chapter_count and not act_node.suggested_chapter_count:
-            logger.info(
-                f"[ActPlanning] act={act_id} 无自定义章数且无 suggested_chapter_count，"
-                f"使用引擎推荐值 {_default_cpa}"
-            )
-        return chapter_count
+        return self._chapter_planning_terms(act, custom_chapter_count)[0]
 
     async def plan_act_chapters(
         self, act_id: str, custom_chapter_count: Optional[int] = None
@@ -1504,11 +1521,9 @@ class ContinuousPlanningService:
         if not act_node:
             raise ValueError(f"幕节点不存在: {act_id}")
 
-        bible_context = self._get_bible_context(act_node.novel_id)
+        chapter_count, revision, volume_context = self._chapter_planning_terms(act_node, custom_chapter_count)
+        bible_context = {**self._get_bible_context(act_node.novel_id), **volume_context}
         previous_summary = await self._get_previous_acts_summary(act_node)
-        chapter_count = await self.resolve_act_planning_chapter_count(
-            act_id, custom_chapter_count
-        )
 
         prompt = self._build_act_planning_prompt(
             act_node, bible_context, previous_summary, chapter_count
@@ -1551,41 +1566,17 @@ class ContinuousPlanningService:
                 "validation_errors": errors,
             }
 
+        if revision is not None and plan_revision(self._continuation_policy(act_node.novel_id)) != revision:
+            raise NarrativeProgressError("生成期间大纲或正文已变化，请重新规划")
         return {
             "success": True,
             "act_id": act_id,
             "chapters": chapters,
+            "plan_revision": revision,
         }
 
-    async def _remove_chapter_children_of_act(self, act_id: str) -> None:
-        """同一幕再次确认规划时，先删掉本幕下已有章节节点及对应正文行、元素关联，避免重复堆积。"""
-        children = self.story_node_repo.get_children_sync(act_id)
-        chapter_nodes = [n for n in children if n.node_type == NodeType.CHAPTER]
-        for n in chapter_nodes:
-            await self.chapter_element_repo.delete_by_chapter(n.id)
-            if self.chapter_repository:
-                self.chapter_repository.delete(ChapterId(n.id))
-            await self.story_node_repo.delete(n.id)
-
-    def _assert_chapter_number_range_free(
-        self, novel_id_vo: NovelId, start: int, length: int
-    ) -> None:
-        """写入前兜底：若区间内仍有正文行残留（异步删未落盘等），报错。"""
-        if not self.chapter_repository:
-            return
-        bad: List[int] = []
-        for n in range(start, start + length):
-            existing = self.chapter_repository.get_by_novel_and_number(novel_id_vo, n)
-            if existing is not None:
-                bad.append(int(n))
-        if bad:
-            raise ValueError(
-                f"无法在本书写入新章节序号 {bad[0]}—{bad[-1]} ："
-                f"正文表中已存在行 {bad[:5]}{'…' if len(bad) > 5 else ''}，或与结构树未完成同步。"
-                f"请重试载入结构树以对齐。"
-            )
-
-    async def confirm_act_planning(self, act_id: str, chapters: List[Dict]) -> Dict:
+    async def confirm_act_planning(self, act_id: str, chapters: List[Dict], *,
+                                   expected_revision: str | None = None) -> Dict:
         """确认幕级规划：写入 story_nodes + chapters 表（供工作台侧栏列表），并关联 Bible 元素。"""
         logger.info(f"Confirming act planning for act {act_id}")
 
@@ -1597,42 +1588,34 @@ class ContinuousPlanningService:
         if validation_errors:
             raise ValueError("章节规划不完整/被截断：" + "；".join(validation_errors))
 
-        await self._remove_chapter_children_of_act(act_id)
-
         novel_id_str = act_node.novel_id
-        novel_id_vo = NovelId(novel_id_str)
-        # ★ 树为真源：正文表多出或无对应树上章节的行一律清掉后再顺延编号
-        pruned = purge_chapter_book_rows_not_matching_structure(
-            self.story_node_repo,
-            self.chapter_repository,
-            novel_id_str,
-        )
-        if pruned:
-            logger.info("[ActPlanning] novel=%s 已对齐全书正文↔结构，删行 %s 条", novel_id_str, pruned)
+        allowed, snapshot, _ = self._chapter_planning_terms(act_node, len(chapters))
+        expected = expected_revision if expected_revision is not None else snapshot
+        if allowed < len(chapters):
+            raise NarrativeProgressError("本卷或全书剩余预算不足")
 
-        chapter_nums_on_tree = collect_structure_chapter_numbers(self.story_node_repo, novel_id_str)
-        next_global_number = (max(chapter_nums_on_tree) + 1) if chapter_nums_on_tree else 1
+        def validate():
+            policy = self._continuation_policy(novel_id_str)
+            if plan_revision(policy) != expected:
+                raise NarrativeProgressError("大纲或正文已变化，请重新检查幕规划")
+            self.story_node_repo.ensure_act_has_no_manuscript(act_id)
+            planned = [n.number for n in policy.nodes if n.node_type == NodeType.CHAPTER]
+            existing = sorted(n.number for n in policy.nodes if n.node_type == NodeType.CHAPTER and n.parent_id == act_id)
+            if existing:
+                last = existing[0] + len(chapters) - 1
+                if any(n.node_type == NodeType.CHAPTER and n.parent_id != act_id and existing[0] <= n.number <= last
+                       for n in policy.nodes):
+                    raise NarrativeProgressError("扩大本幕会占用其他幕已经规划的章号，请先调整大纲")
+                if last < existing[-1] and any(number > existing[-1] for number in planned):
+                    raise NarrativeProgressError("缩短本幕会留下空缺章号，请先调整后续幕")
+                return existing[0]
+            return max(planned, default=0) + 1
 
-        # 兜底清理：直接按章号范围删除残留正文行（list_by_novel 可能因缓存/事务隔离漏删）
-        if self.chapter_repository:
-            for n in range(next_global_number, next_global_number + len(chapters)):
-                existing = self.chapter_repository.get_by_novel_and_number(novel_id_vo, n)
-                if existing is not None:
-                    cid = getattr(existing.id, "value", existing.id)
-                    self.chapter_repository.delete(ChapterId(cid))
-                    logger.warning(
-                        "[ActPlanning] novel=%s 兜底清理残留正文行 #%s",
-                        novel_id_str,
-                        n,
-                    )
-
-        self._assert_chapter_number_range_free(
-            novel_id_vo, next_global_number, len(chapters)
-        )
-
+        next_global_number = validate()
         created_chapters: List[StoryNode] = []
         created_elements: List[ChapterElement] = []
 
+        plan_variables = []
         for idx, raw in enumerate(chapters):
             row = self._normalize_act_chapter_row(raw, act_local_index=idx + 1)
             global_number = next_global_number + idx
@@ -1662,147 +1645,92 @@ class ContinuousPlanningService:
             elements = self._create_elements_from_data(story_chapter_id, elements_dict)
             created_elements.extend(elements)
 
-            if self.chapter_repository:
-                book_ch = Chapter(
-                    id=story_chapter_id,
-                    novel_id=novel_id_vo,
-                    number=global_number,
-                    title=row["title"],
-                    content="",
-                    outline=row.get("outline") or "",
-                    status=ChapterStatus.DRAFT,
-                )
-                self.chapter_repository.save(book_ch)
+            plan_variables.append(dict(novel_id=novel_id_str, chapter_number=global_number,
+                                       title=row["title"], outline=row.get("outline") or "",
+                                       characters=row.get("characters") or []))
 
-            self._write_chapter_plan_variables(
-                novel_id=novel_id_str,
-                chapter_number=global_number,
-                title=row["title"],
-                outline=row.get("outline") or "",
-                characters=row.get("characters") or [],
-            )
-
-        await self.story_node_repo.save_batch(created_chapters)
-        await self.chapter_element_repo.save_batch(created_elements)
-
-        act_children = self.story_node_repo.get_children_sync(act_id)
-        chapter_nodes = [n for n in act_children if n.node_type == NodeType.CHAPTER]
-        if chapter_nodes:
-            nums = [n.number for n in chapter_nodes]
-            act_node.chapter_start = min(nums)
-            act_node.chapter_end = max(nums)
-        else:
-            act_node.chapter_start = None
-            act_node.chapter_end = None
-        act_node.chapter_count = len(chapter_nodes)
-        await self.story_node_repo.update(act_node)
-
-        return {
-            "success": True,
-            "created_chapters": len(created_chapters),
-            "created_elements": len(created_elements),
-            "message": f"已写入 {len(created_chapters)} 个章节（本幕旧规划已替换）",
-        }
+        self.story_node_repo.commit_act_chapters(act_id, created_chapters, created_elements, validate)
+        for variables in plan_variables:
+            self._write_chapter_plan_variables(**variables)
+        return {"success": True, "created_chapters": len(created_chapters), "created_elements": len(created_elements),
+                "message": f"已写入 {len(created_chapters)} 个章节"}
 
     # ==================== AI 续规划 ====================
 
+    def _continuation_policy(self, novel_id: str) -> NarrativeProgressPolicy:
+        novel = self.novel_repository.get_by_id(NovelId(novel_id))
+        if not novel:
+            raise ValueError('小说不存在')
+        nodes = self.story_node_repo.get_plan_nodes_sync(novel_id)
+        revisions = self.chapter_repository.completed_revisions(novel.novel_id)
+        return NarrativeProgressPolicy(nodes, novel.target_chapters, revisions)
+
     async def continue_planning(self, novel_id: str, current_chapter_number: int) -> Dict:
-        """AI 续规划"""
-        logger.info(f"Continue planning for novel {novel_id}, chapter {current_chapter_number}")
-
-        current_act = await self._find_act_for_chapter(novel_id, current_chapter_number)
-        if not current_act:
+        """按指定章节的实际归属与已提交正文决定是否续幕。"""
+        policy = self._continuation_policy(novel_id)
+        chapter = next((n for n in policy.nodes
+                        if n.node_type == NodeType.CHAPTER and n.number == current_chapter_number), None)
+        current = policy.by_id.get(chapter.parent_id) if chapter else None
+        if not current or current.node_type != NodeType.ACT:
             return {"success": False, "message": "未找到当前章节所属的幕"}
-
-        chapters_written = await self._count_written_chapters_in_act(current_act.id)
-        chapters_planned = await self._count_planned_chapters_in_act(current_act.id)
-
-        should_end = chapters_written >= chapters_planned
-
-        if should_end:
-            next_act = await self._get_next_act(current_act)
-
-            if next_act:
-                return {
-                    "success": True,
-                    "act_completed": True,
-                    "has_next_act": True,
-                    "current_act": current_act.to_dict(),
-                    "next_act": next_act.to_dict(),
-                    "message": f"第 {current_act.number} 幕已完成，可以开始第 {next_act.number} 幕"
-                }
-            else:
-                return {
-                    "success": True,
-                    "act_completed": True,
-                    "has_next_act": False,
-                    "current_act": current_act.to_dict(),
-                    "suggest_create_next": True,
-                    "message": f"第 {current_act.number} 幕已完成，是否需要 AI 生成下一幕？"
-                }
-        else:
-            return {
-                "success": True,
-                "act_completed": False,
-                "current_act": current_act.to_dict(),
-                "progress": f"{chapters_written}/{chapters_planned}",
-                "message": f"继续第 {current_act.number} 幕"
-            }
+        chapters = [n for n in policy.nodes if n.parent_id == current.id and n.node_type == NodeType.CHAPTER]
+        written = sum(n.number in policy.written for n in chapters)
+        result = {"success": True, "current_act": current.to_dict(), "act_completed": written == len(chapters),
+                  "progress": f"{written}/{len(chapters)}", "suggest_create_next": False}
+        if written < len(chapters):
+            return {**result, "message": f"继续第 {current.number} 幕"}
+        limit = calculate_structure_params(policy.target)["chapters_per_act"]
+        try:
+            decision = decide_act_continuation(policy, current.id, limit)
+        except NarrativeProgressError as exc:
+            return {**result, "message": str(exc)}
+        result.update(target_volume_id=decision.volume_id, chapter_budget=decision.chapter_budget,
+                      plan_revision=decision.plan_revision, has_next_act=bool(decision.existing_id))
+        if decision.existing_id:
+            return {**result, "next_act": policy.by_id[decision.existing_id].to_dict(), "message": "下一幕已规划"}
+        return {**result, "suggest_create_next": True, "message": "本幕已完成，可以创建下一幕"}
 
     async def create_next_act_auto(
         self, novel_id: str, current_act_id: str, *,
         target_volume_id: Optional[str] = None, chapter_budget: Optional[int] = None,
+        expected_plan_revision: Optional[str] = None,
     ) -> Dict:
-        """自动创建下一幕"""
-        logger.info(f"Creating next act after {current_act_id}")
+        """Use one checked decision for the model call and structural commit."""
+        with self.story_node_repo.claim_act_planning(novel_id):
+            policy = self._continuation_policy(novel_id)
+            limit = calculate_structure_params(policy.target)["chapters_per_act"]
+            if chapter_budget is not None:
+                limit = min(limit, chapter_budget)
+            decision = decide_act_continuation(policy, current_act_id, limit)
+            if target_volume_id is not None and target_volume_id != decision.volume_id:
+                raise NarrativeProgressError("目标卷已变化，请刷新后重试")
+            if decision.existing_id:
+                return {"success": True, "next_act": policy.by_id[decision.existing_id].to_dict(),
+                        "message": "下一幕已规划", "created": False}
+            if expected_plan_revision is not None and expected_plan_revision != decision.plan_revision:
+                raise NarrativeProgressError("建议生成后大纲或正文已有变动，请重新检查")
+            source = policy.by_id[current_act_id]
+            volume = policy.by_id[decision.volume_id]
+            bible_context = {**self._get_bible_context(novel_id), "target_volume": {
+                "id": volume.id, "title": volume.title, "description": volume.description or "",
+                "narrative_progress": policy.contract(volume), "remaining_chapters": decision.chapter_budget,
+            }}
+            info = await self._generate_next_act_info(novel_id, source, bible_context)
+            count = min(max(1, int(info.get("suggested_chapter_count") or decision.chapter_budget)),
+                        decision.chapter_budget)
+            siblings = [n.order_index for n in policy.nodes if n.parent_id == volume.id]
+            node = self._create_node_from_data(novel_id, volume.id, NodeType.ACT,
+                                               {**info, "number": source.number + 1, "suggested_chapter_count": count},
+                                               max(siblings, default=-1) + 1)
 
-        current_act = await self.story_node_repo.get_by_id(current_act_id)
-        if not current_act:
-            raise ValueError(f"当前幕不存在: {current_act_id}")
-        if current_act.novel_id != novel_id:
-            raise ValueError('当前幕不属于本小说')
+            def validate():
+                latest = decide_act_continuation(self._continuation_policy(novel_id), current_act_id, limit)
+                if latest != decision:
+                    raise NarrativeProgressError("生成期间大纲或正文已变化，请重新检查后续幕")
 
-        parent_id = target_volume_id or current_act.parent_id
-        volume = await self.story_node_repo.get_by_id(parent_id) if parent_id else None
-        if not volume or volume.novel_id != novel_id or volume.node_type != NodeType.VOLUME:
-            raise ValueError('下一幕必须归属本小说的有效卷')
-        if chapter_budget is not None and chapter_budget <= 0:
-            raise ValueError('本卷没有剩余章节预算，请先重规划')
-
-        bible_context = self._get_bible_context(novel_id)
-        bible_context = {**bible_context, 'target_volume': {
-            'id': volume.id, 'title': volume.title, 'description': volume.description or '',
-            'narrative_progress': (volume.metadata or {}).get('narrative_progress', {}),
-            'remaining_chapters': chapter_budget,
-        }}
-        next_act_info = await self._generate_next_act_info(novel_id, current_act, bible_context)
-        if chapter_budget is not None:
-            next_act_info['suggested_chapter_count'] = min(
-                max(1, int(next_act_info.get('suggested_chapter_count') or chapter_budget)), chapter_budget)
-
-        next_act = self._create_node_from_data(
-            novel_id,
-            parent_id,
-            NodeType.ACT,
-            {
-                "number": current_act.number + 1,
-                "title": next_act_info["title"],
-                "description": next_act_info["description"],
-                "suggested_chapter_count": next_act_info.get("suggested_chapter_count", 5),
-                "key_events": next_act_info.get("key_events", []),
-                "narrative_arc": next_act_info.get("narrative_arc"),
-                "conflicts": next_act_info.get("conflicts", []),
-            },
-            current_act.order_index + 1
-        )
-
-        await self.story_node_repo.save(next_act)
-
-        return {
-            "success": True,
-            "next_act": next_act.to_dict(),
-            "message": f"已创建第 {next_act.number} 幕，请为其规划章节"
-        }
+            self.story_node_repo.save_sync(node, validate=validate)
+            return {"success": True, "next_act": node.to_dict(), "created": True,
+                    "message": f"已创建第 {node.number} 幕，请为其规划章节"}
 
     # ==================== 辅助方法 ====================
 
@@ -2669,28 +2597,6 @@ class ContinuousPlanningService:
     async def _get_previous_acts_summary(self, act_node: StoryNode) -> Optional[str]:
         """获取前面幕的摘要"""
         return None
-
-    async def _find_act_for_chapter(self, novel_id: str, chapter_number: int) -> Optional[StoryNode]:
-        """查找章节所属的幕"""
-        tree = self.story_node_repo.get_tree(novel_id)
-        acts = [n for n in tree.nodes if n.node_type == NodeType.ACT]
-        return max(acts, key=lambda x: x.number) if acts else None
-
-    async def _count_written_chapters_in_act(self, act_id: str) -> int:
-        """统计已写章节数"""
-        children = self.story_node_repo.get_children(act_id, None)
-        return sum(1 for n in children if n.node_type == NodeType.CHAPTER and n.word_count and n.word_count > 0)
-
-    async def _count_planned_chapters_in_act(self, act_id: str) -> int:
-        """统计已规划章节数"""
-        children = self.story_node_repo.get_children(act_id, None)
-        return sum(1 for n in children if n.node_type == NodeType.CHAPTER)
-
-    async def _get_next_act(self, current_act: StoryNode) -> Optional[StoryNode]:
-        """获取下一幕"""
-        tree = self.story_node_repo.get_tree(current_act.novel_id)
-        acts = [n for n in tree.nodes if n.node_type == NodeType.ACT and n.number == current_act.number + 1]
-        return acts[0] if acts else None
 
     async def _generate_next_act_info(self, novel_id: str, current_act: StoryNode, bible_context: Dict) -> Dict:
         """生成下一幕信息（双轨融合版）

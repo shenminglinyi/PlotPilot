@@ -180,6 +180,20 @@ async def create_chapter(
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@router.get("/{novel_id}/chapters/{chapter_number}/evidence-source")
+def get_chapter_evidence_source(novel_id: str, chapter_number: int = Path(..., gt=0)):
+    """Read a single saved manuscript and its evidence revision from one SQLite row."""
+    from infrastructure.persistence.database.connection import get_database
+
+    row = get_database().fetch_one(
+        """SELECT number, title, content, status, manuscript_revision FROM chapters
+           WHERE novel_id = ? AND number = ?""", (novel_id, chapter_number),
+    )
+    if row is None:
+        raise HTTPException(404, "未找到被引用的正文")
+    return row
+
+
 @router.get("/{novel_id}/chapters/{chapter_number}", response_model=ChapterDTO)
 async def get_chapter(
     novel_id: str,

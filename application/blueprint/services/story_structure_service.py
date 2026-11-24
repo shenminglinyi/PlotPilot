@@ -154,23 +154,13 @@ class StoryStructureService:
     async def update_node(
         self,
         node_id: str,
+        novel_id: str,
         title: Optional[str] = None,
         description: Optional[str] = None,
         number: Optional[int] = None
     ) -> Dict[str, Any]:
         """更新节点"""
-        node = await self.repository.get_by_id(node_id)
-        if not node:
-            raise ValueError(f"Node not found: {node_id}")
-
-        if title is not None:
-            node.title = title
-        if description is not None:
-            node.description = description
-        if number is not None:
-            node.number = number
-
-        saved_node = await self.repository.save(node)
+        saved_node = self.repository.update_node_details(novel_id, node_id, title, description, number)
         return saved_node.to_dict()
 
     def _collect_descendant_chapter_numbers(self, novel_id: str, root_id: str) -> List[int]:

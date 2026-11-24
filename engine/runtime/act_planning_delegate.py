@@ -5,6 +5,9 @@ import logging
 from typing import Any, Dict, List, Mapping
 
 from domain.novel.entities.novel import Novel, NovelStage, AutopilotStatus
+from domain.structure.act_continuation import decide_act_continuation
+from domain.structure.narrative_progress import NarrativeProgressError
+from domain.structure.writing_target import plan_revision, select_writing_target
 from domain.structure.story_node import StoryNode, NodeType, PlanningStatus, PlanningSource
 
 logger = logging.getLogger(__name__)
@@ -26,6 +29,7 @@ def _consume_pending_act_plan(host: Any, *, novel_id: str, act_id: str) -> dict[
         novel_id,
         autopilot_pending_act_plan_id=None,
         autopilot_pending_act_chapters=None,
+        autopilot_pending_act_revision=None,
         active_invocation_session_id="",
         active_invocation_operation="",
         active_invocation_node_key="",
@@ -35,7 +39,8 @@ def _consume_pending_act_plan(host: Any, *, novel_id: str, act_id: str) -> dict[
         requires_ai_review=False,
         autopilot_pause_reason="",
     )
-    return {"success": True, "act_id": act_id, "chapters": list(pending)}
+    return {"success": True, "act_id": act_id, "chapters": list(pending),
+            "plan_revision": shared.get("autopilot_pending_act_revision")}
 
 
 def _write_act_variables(*, novel_id: str, act_id: str, context: str, chapter_count: int, node_key: str) -> None:
@@ -89,6 +94,7 @@ async def _request_act_invocation(
     *,
     target_act: StoryNode,
     chapter_budget: int,
+    checked_revision: str,
 ) -> Any:
     from application.ai_invocation.autopilot.factory import get_or_create_autopilot_orchestrator
     from application.ai_invocation.autopilot.intents import AutopilotInvocationIntent
@@ -101,6 +107,8 @@ async def _request_act_invocation(
     bible_context = host.planning_service._get_bible_context(novel.novel_id.value)
     from engine.runtime.narrative_progress_guard import progress_policy
     policy = await progress_policy(host, novel)
+    if plan_revision(policy) != checked_revision:
+        raise NarrativeProgressError("请求模型前大纲已变化，请重新规划")
     volume = next(v for v in policy.volumes if v.node.id == target_act.parent_id)
     bible_context = {**bible_context, 'target_volume': {
         'title': volume.node.title, 'description': volume.node.description or '',
@@ -143,6 +151,7 @@ async def _request_act_invocation(
                 "novel_id": novel.novel_id.value,
                 "act_id": target_act.id,
                 "chapter_count": int(chapter_budget or 0),
+                "plan_revision": checked_revision,
             },
             explicit_variables=variables,
             continuation_handler_key="autopilot_act_plan",
@@ -158,116 +167,65 @@ async def run_act_planning(host: Any, novel: Novel) -> None:
     if not host._is_still_running(novel):
         return
     from engine.runtime.narrative_progress_guard import enforce_progress, progress_policy, pause_for_progress
-    if await enforce_progress(host, novel):
+    policy = await progress_policy(host, novel)
+    if await enforce_progress(host, novel, policy=policy):
+        return
+    novel_id = novel.novel_id.value
+    if not policy.volumes:
+        novel.current_stage = NovelStage.MACRO_PLANNING
+        novel.current_act = 0
+        host._flush_novel(novel)
         return
 
-    host._update_shared_state(
-        novel.novel_id.value,
-        writing_substep="act_planning",
-        writing_substep_label=f"第 {novel.current_act + 1} 幕规划",
-    )
-
-    novel_id = novel.novel_id.value
-    target_act_number = novel.current_act + 1
-
     from application.blueprint.services.continuous_planning_service import calculate_structure_params
-
-    target_chapters = novel.target_chapters or 100
-    struct_params = calculate_structure_params(target_chapters)
-    rec_chapters_per_act = struct_params["chapters_per_act"]
-
-    all_nodes = await host.story_node_repo.get_by_novel(novel_id)
-    act_nodes = sorted(
-        [n for n in all_nodes if n.node_type.value == "act"],
-        key=lambda n: n.number,
-    )
-
-    target_act = next((n for n in act_nodes if n.number == target_act_number), None)
-
-    if not target_act:
-        volume_nodes = sorted(
-            [n for n in all_nodes if n.node_type.value == "volume"],
-            key=lambda n: n.number,
-        )
-
-        if not volume_nodes:
-            logger.error(
-                "[%s] 宏观规划缺少卷节点！无法进行幕级规划。"
-                "parts=%s, volumes=0, acts=%s. 触发重新规划...",
-                novel_id,
-                len([n for n in all_nodes if n.node_type.value == "part"]),
-                len(act_nodes),
-            )
-            novel.current_stage = NovelStage.MACRO_PLANNING
-            novel.current_act = 0
+    recommended = calculate_structure_params(novel.target_chapters)["chapters_per_act"]
+    try:
+        pending = select_writing_target(policy)
+        if pending:
+            novel.current_act = policy.by_id[pending.act_id].number - 1
+            novel.current_stage = NovelStage.WRITING
             host._flush_novel(novel)
             return
+        acts = [n for n in policy.nodes if n.node_type == NodeType.ACT]
+        last_chapter = max((n for n in policy.nodes if n.node_type == NodeType.CHAPTER and n.number in policy.written),
+                           key=lambda n: n.number, default=None)
+        previous = policy.by_id.get(last_chapter.parent_id) if last_chapter else None
+        if previous:
+            decision = decide_act_continuation(policy, previous.id, recommended)
+            target_act_number = previous.number + 1
+            rec_chapters_per_act = decision.chapter_budget
+            target_act = policy.by_id.get(decision.existing_id)
+            if target_act is None:
+                await host.planning_service.create_next_act_auto(
+                    novel_id=novel_id, current_act_id=previous.id, target_volume_id=decision.volume_id,
+                    chapter_budget=decision.chapter_budget, expected_plan_revision=decision.plan_revision)
+                refreshed = await progress_policy(host, novel)
+                target_act = next((n for n in refreshed.nodes
+                                   if n.node_type == NodeType.ACT and n.number == target_act_number
+                                   and n.parent_id == decision.volume_id), None)
+                if not target_act:
+                    raise NarrativeProgressError("新幕尚未保存，请重新检查")
+        else:
+            target_act_number = 1
+            destination = policy.next_volume(None)
+            rec_chapters_per_act = min(recommended, destination.remaining)
+            target_act = next((n for n in acts if n.number == target_act_number), None)
+            if target_act and target_act.parent_id != destination.node.id:
+                raise NarrativeProgressError("首幕不属于开篇卷，请先调整大纲")
+            if target_act is None:
+                target_act = StoryNode(
+                    id=f"act-{novel_id}-1", novel_id=novel_id, parent_id=destination.node.id,
+                    node_type=NodeType.ACT, number=1, title="第一幕 · 开端",
+                    description="故事起始，建立世界观与主角目标", order_index=0,
+                    planning_status=PlanningStatus.CONFIRMED, planning_source=PlanningSource.AI_MACRO,
+                    suggested_chapter_count=rec_chapters_per_act)
+                await host.story_node_repo.save(target_act)
+    except NarrativeProgressError as exc:
+        pause_for_progress(host, novel, str(exc))
+        return
 
-        try:
-            policy = await progress_policy(host, novel)
-            last_act = act_nodes[-1] if act_nodes else None
-            destination = policy.next_volume(last_act.parent_id if last_act else None)
-            parent_volume = destination.node
-            rec_chapters_per_act = min(rec_chapters_per_act, destination.remaining,
-                                       novel.target_chapters - len(policy.written))
-        except Exception as error:
-            pause_for_progress(host, novel, str(error))
-            return
-
-        if parent_volume:
-            logger.info(
-                "[%s] 动态生成第 %s 幕（父卷：第 %s 卷，每幕建议 %s 章）",
-                novel.novel_id,
-                target_act_number,
-                parent_volume.number,
-                rec_chapters_per_act,
-            )
-            try:
-                last_act = act_nodes[-1] if act_nodes else None
-                if last_act:
-                    await host.planning_service.create_next_act_auto(
-                        novel_id=novel_id,
-                        current_act_id=last_act.id,
-                        target_volume_id=parent_volume.id,
-                        chapter_budget=rec_chapters_per_act,
-                    )
-                else:
-                    logger.info("[%s] 创建首幕", novel.novel_id)
-                    first_act = StoryNode(
-                        id=f"act-{novel_id}-1",
-                        novel_id=novel_id,
-                        parent_id=parent_volume.id,
-                        node_type=NodeType.ACT,
-                        number=1,
-                        title="第一幕 · 开端",
-                        description="故事起始，建立世界观与主角目标",
-                        order_index=0,
-                        planning_status=PlanningStatus.CONFIRMED,
-                        planning_source=PlanningSource.AI_MACRO,
-                        suggested_chapter_count=rec_chapters_per_act,
-                    )
-                    await host.story_node_repo.save(first_act)
-
-                all_nodes = await host.story_node_repo.get_by_novel(novel_id)
-                act_nodes = sorted(
-                    [n for n in all_nodes if n.node_type.value == "act"],
-                    key=lambda n: n.number,
-                )
-                target_act = next((n for n in act_nodes if n.number == target_act_number), None)
-            except Exception as e:
-                logger.warning("[%s] 动态幕生成失败: %s", novel.novel_id, e)
-
-        if not target_act:
-            logger.error(
-                "[%s] 找不到第 %s 幕，且动态生成失败，回退到宏观规划",
-                novel.novel_id,
-                target_act_number,
-            )
-            novel.current_stage = NovelStage.MACRO_PLANNING
-            novel.current_act = 0
-            host._flush_novel(novel)
-            return
-
+    host._update_shared_state(novel_id, writing_substep="act_planning",
+                              writing_substep_label=f"第 {target_act_number} 幕规划")
     act_children = host.story_node_repo.get_children_sync(target_act.id)
     confirmed_chapters = [n for n in act_children if n.node_type.value == "chapter"]
 
@@ -277,6 +235,7 @@ async def run_act_planning(host: Any, novel: Novel) -> None:
         try:
             policy = await progress_policy(host, novel)
             volume = next(v for v in policy.volumes if v.node.id == target_act.parent_id)
+            checked_revision = plan_revision(policy)
             chapter_budget = min(chapter_budget, volume.remaining,
                                  novel.target_chapters - len(policy.written))
             if chapter_budget <= 0:
@@ -314,6 +273,7 @@ async def run_act_planning(host: Any, novel: Novel) -> None:
                     novel,
                     target_act=target_act,
                     chapter_budget=chapter_budget,
+                    checked_revision=checked_revision,
                 )
                 if outcome.status in {
                     "awaiting_pre_call_review",
@@ -329,6 +289,9 @@ async def run_act_planning(host: Any, novel: Novel) -> None:
                 commit_result = getattr(commit, "result", None) if commit is not None else None
                 continuation = commit_result.get("continuation") if isinstance(commit_result, Mapping) else None
                 plan_result = dict((continuation or {}).get("act_plan") or {})
+            except NarrativeProgressError as exc:
+                pause_for_progress(host, novel, str(exc))
+                return
             except Exception as e:
                 logger.warning("[%s] autopilot.act.plan 未捕获异常: %s", novel.novel_id, e, exc_info=True)
                 plan_result = {}
@@ -348,10 +311,16 @@ async def run_act_planning(host: Any, novel: Novel) -> None:
             host._flush_novel(novel)
             return
 
-        await host.planning_service.confirm_act_planning(
-            act_id=target_act.id,
-            chapters=chapters_data,
-        )
+        if (len(chapters_data) > chapter_budget or plan_result.get("plan_revision") != checked_revision
+                or plan_revision(await progress_policy(host, novel)) != checked_revision):
+            pause_for_progress(host, novel, "返回的章节规划超过预算，或生成期间大纲已变化，请重新检查")
+            return
+        try:
+            await host.planning_service.confirm_act_planning(
+                act_id=target_act.id, chapters=chapters_data, expected_revision=checked_revision)
+        except NarrativeProgressError as exc:
+            pause_for_progress(host, novel, str(exc))
+            return
         just_created_chapter_plan = True
 
     act_children = host.story_node_repo.get_children_sync(target_act.id)

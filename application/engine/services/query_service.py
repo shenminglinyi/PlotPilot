@@ -334,6 +334,23 @@ class QueryService:
         """
         # 先尝试获取 NovelState 对象
         state = self._shared.get_novel_state(novel_id)
+        if state and state.current_stage == "completed" and state.autopilot_status == "stopped":
+            # Edits can invalidate a sealed ending while the daemon is idle.
+            from infrastructure.persistence.database.connection import get_database
+
+            changed = get_database().fetch_one(
+                """SELECT current_stage, autopilot_status, autopilot_run_epoch, last_audit_issues
+                   FROM novels WHERE id = ? AND autopilot_run_epoch > ?""",
+                (novel_id, state.autopilot_run_epoch),
+            )
+            if changed:
+                reason = persisted_narrative_review_reason(changed)
+                self._shared.merge_raw_state(
+                    novel_id, current_stage=changed["current_stage"], autopilot_status=changed["autopilot_status"],
+                    autopilot_run_epoch=changed["autopilot_run_epoch"], narrative_review_reason=reason,
+                    autopilot_pause_reason=reason,
+                )
+                state = self._shared.get_novel_state(novel_id)
         if state is None:
             # 尝试获取原始数据（兼容旧格式）
             raw_data = self._shared.get_raw_state(novel_id)

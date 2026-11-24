@@ -23,11 +23,11 @@ async def progress_policy(host, novel):
                                           host.novel_repository).policy(novel)
 
 
-async def enforce_progress(host, novel, *, writing=False, force_limit=False):
+async def enforce_progress(host, novel, *, writing=False, force_limit=False, policy=None):
     if type(getattr(novel, 'target_chapters', None)) is not int or novel.target_chapters <= 0:
         return False  # Absent target belongs to macro planning.
     try:
-        policy = await progress_policy(host, novel)
+        policy = policy if policy is not None else await progress_policy(host, novel)
         report = policy.report()
         if policy.generation_finished or force_limit:
             if report['story_finished']:
@@ -44,11 +44,9 @@ async def enforce_progress(host, novel, *, writing=False, force_limit=False):
                 pause_for_progress(host, novel, '生成预算已结束，故事仍待验收：' + '；'.join(report['issues']), report)
             return True
         if writing:
+            from domain.structure.writing_target import select_writing_target
             novel.current_auto_chapters = len(policy.written)
-            from domain.structure.story_node import NodeType
-            unwritten = sorted(n.number for n in policy.nodes
-                               if n.node_type == NodeType.CHAPTER and n.number not in policy.written)
-            policy.ensure_can_write(unwritten[0] if unwritten else max(policy.written, default=0) + 1)
+            select_writing_target(policy)
         return False
     except Exception as error:
         pause_for_progress(host, novel, f'无法确认剧情推进条件，已停止继续生成：{error}')

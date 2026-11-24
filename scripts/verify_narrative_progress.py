@@ -104,6 +104,7 @@ async def verify(db_path: Path) -> dict:
         await nodes.save(node)
     chapters.save(Chapter('verify-prose-1', fixture.novel_id, 1, 'Committed chapter',
                           content='Synthetic committed prose for deterministic verification.', status=ChapterStatus.COMPLETED))
+    db.commit()
     await service.save_review(fixture_id, v1.id, {'chapter_budget': 1, 'milestones': [
         {'id': 'opening-goal', 'description': 'Opening conflict changes the protagonist',
          'status': 'resolved', 'evidence_chapters': [1]}]})
@@ -138,6 +139,8 @@ async def verify(db_path: Path) -> dict:
     for number in [2, 3]:
         chapters.save(Chapter(f'verify-prose-{number}', fixture.novel_id, number, 'Closing chapter',
                               content=f'Synthetic closing prose {number}.', status=ChapterStatus.COMPLETED))
+    db.commit()
+
     def item(key, evidence):
         return {'id': key, 'description': key, 'status': 'resolved', 'evidence_chapters': evidence}
     await service.save_review(fixture_id, v2.id, {

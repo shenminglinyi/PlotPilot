@@ -5,6 +5,7 @@
 from typing import Optional, List, Literal
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field, StrictInt
+from domain.structure.narrative_progress import NarrativeReviewConflict
 
 from application.blueprint.services.story_structure_service import StoryStructureService
 from application.blueprint.services.continuous_planning_service import ContinuousPlanningService
@@ -78,12 +79,19 @@ class UpdateNodeRequest(BaseModel):
     number: Optional[int] = None
 
 
+class NarrativeEvidencePassage(BaseModel):
+    chapter_number: StrictInt = Field(gt=0)
+    quote: str = Field(min_length=1, max_length=4000)
+    start: Optional[StrictInt] = Field(default=None, ge=0)
+
+
 class NarrativeMilestoneReview(BaseModel):
     id: str = Field(min_length=1)
     description: str = Field(min_length=1)
     required: bool = True
     status: Literal['open', 'resolved'] = 'open'
     evidence_chapters: List[StrictInt] = Field(default_factory=list)
+    evidence_passages: List[NarrativeEvidencePassage] = Field(default_factory=list)
 
 
 class NarrativeEndingReview(BaseModel):
@@ -96,6 +104,7 @@ class NarrativeEndingReview(BaseModel):
 
 
 class NarrativeProgressReviewRequest(BaseModel):
+    expected_plan_revision: Optional[str] = None
     chapter_budget: Optional[int] = Field(default=None, gt=0, strict=True)
     goal: Optional[str] = None
     milestones: Optional[List[NarrativeMilestoneReview]] = None
@@ -131,6 +140,8 @@ async def review_narrative_progress(novel_id: str, volume_id: str,
         return await service.save_review(novel_id, volume_id, payload)
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error))
+    except NarrativeReviewConflict as error:
+        raise HTTPException(status_code=409, detail=str(error))
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error))
 
@@ -202,6 +213,7 @@ async def update_node(
     """更新节点"""
     try:
         node = await service.update_node(
+            novel_id=novel_id,
             node_id=node_id,
             title=request.title,
             description=request.description,

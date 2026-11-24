@@ -15,17 +15,25 @@ async def test_next_act_uses_selected_volume_and_its_context_and_remaining_budge
     previous = StoryNode('a1', 'n1', NodeType.ACT, 1, '河阴', 0, parent_id='v1')
     destination = StoryNode('v2', 'n1', NodeType.VOLUME, 2, '造势', 1,
                             description='走向东西魏分立')
+    from contextlib import nullcontext
+    source = StoryNode('v1', 'n1', NodeType.VOLUME, 1, '开篇', 0, metadata={'narrative_progress': {
+        'chapter_budget': 1, 'milestones': [{'id': 'p', 'status': 'resolved', 'evidence_chapters': [1],
+                                           'evidence_revisions': {'1': 'r1'}}]}})
+    chapter = StoryNode('c1', 'n1', NodeType.CHAPTER, 1, '第一章', 0, parent_id='a1')
     repo = Mock()
-    repo.get_by_id = AsyncMock(side_effect=lambda key: {'a1': previous, 'v2': destination}.get(key))
-    repo.save = AsyncMock()
-    service = ContinuousPlanningService(repo, Mock(), Mock())
+    repo.get_plan_nodes_sync.return_value = [source, previous, chapter, destination]
+    repo.claim_act_planning.return_value = nullcontext()
+    chapter_repo, novels = Mock(), Mock()
+    chapter_repo.completed_revisions.return_value = {1: 'r1'}
+    novels.get_by_id.return_value = Novel(NovelId('n1'), 'Book', 'Author', 3)
+    service = ContinuousPlanningService(repo, Mock(), Mock(), chapter_repository=chapter_repo, novel_repository=novels)
     service._get_bible_context = Mock(return_value={})
     service._generate_next_act_info = AsyncMock(return_value={
         'title': '新的政治选择', 'description': '推进下一卷', 'suggested_chapter_count': 9})
 
     await service.create_next_act_auto('n1', 'a1', target_volume_id='v2', chapter_budget=2)
 
-    created = repo.save.call_args.args[0]
+    created = repo.save_sync.call_args.args[0]
     assert created.parent_id == 'v2'
     assert created.suggested_chapter_count == 2
     context = service._generate_next_act_info.call_args.args[2]

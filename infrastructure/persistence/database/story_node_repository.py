@@ -5,7 +5,10 @@
 import sqlite3
 import json
 import logging
-from typing import List, Optional, Union
+from contextlib import closing, contextmanager, nullcontext
+from hashlib import sha256
+from pathlib import Path
+from typing import Callable, List, Optional, Union
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -47,60 +50,168 @@ class StoryNodeRepository:
         """不再在方法末尾 close：db_path 模式也走全局 DatabaseConnection，避免误关线程本地连接。"""
         return False
 
-    def save_sync(self, node: StoryNode) -> StoryNode:
+    @contextmanager
+    def claim_act_planning(self, novel_id: str):
+        """Reserve model work across processes without locking the manuscript database."""
+        from domain.structure.narrative_progress import NarrativeProgressError
+
+        directory = Path(self.db_path).resolve().parent / 'planning-locks'
+        directory.mkdir(exist_ok=True)
+        key = sha256((str(Path(self.db_path).resolve()) + '\0' + novel_id).encode()).hexdigest()
+        # SQLite releases the OS lock even if the process exits during generation.
+        with closing(sqlite3.connect(directory / (key + '.db'), timeout=0)) as lock:
+            try:
+                lock.execute('BEGIN IMMEDIATE')
+            except sqlite3.OperationalError as exc:
+                if exc.sqlite_errorcode in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
+                    raise NarrativeProgressError('本书正在生成下一幕，请稍后重试') from exc
+                raise
+            yield
+
+    def save_sync(self, node: StoryNode, *, validate: Optional[Callable[[], None]] = None) -> StoryNode:
         """同步保存（供 NovelService 等非 async 调用链使用）。"""
         conn = self._get_connection()
         try:
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO story_nodes (
-                    id, novel_id, parent_id, node_type, number, title, description, order_index,
-                    planning_status, planning_source,
-                    chapter_start, chapter_end, chapter_count, suggested_chapter_count,
-                    content, outline, word_count, status,
-                    themes, key_events, narrative_arc, conflicts,
-                    pov_character_id, timeline_start, timeline_end,
-                    metadata, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                node.id,
-                node.novel_id,
-                node.parent_id,
-                node.node_type.value,
-                node.number,
-                node.title,
-                node.description,
-                node.order_index,
-                node.planning_status.value,
-                node.planning_source.value,
-                node.chapter_start,
-                node.chapter_end,
-                node.chapter_count,
-                node.suggested_chapter_count,
-                node.content,
-                node.outline,
-                node.word_count,
-                node.status,
-                json.dumps(node.themes),
-                json.dumps(node.key_events),
-                node.narrative_arc,
-                json.dumps(node.conflicts),
-                node.pov_character_id,
-                node.timeline_start,
-                node.timeline_end,
-                json.dumps(node.metadata),
-                node.created_at.isoformat(),
-                node.updated_at.isoformat(),
-            ))
+            if validate:
+                conn.execute("BEGIN IMMEDIATE")
+                validate()
+            self._insert_node(conn, node)
             conn.commit()
             return node
+        except Exception:
+            conn.rollback()
+            raise
         finally:
             if self._should_close_after_use():
                 conn.close()
 
+    @staticmethod
+    def _insert_node(conn, node):
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO story_nodes (
+                id, novel_id, parent_id, node_type, number, title, description, order_index,
+                planning_status, planning_source,
+                chapter_start, chapter_end, chapter_count, suggested_chapter_count,
+                content, outline, word_count, status,
+                themes, key_events, narrative_arc, conflicts,
+                pov_character_id, timeline_start, timeline_end,
+                metadata, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            node.id,
+            node.novel_id,
+            node.parent_id,
+            node.node_type.value,
+            node.number,
+            node.title,
+            node.description,
+            node.order_index,
+            node.planning_status.value,
+            node.planning_source.value,
+            node.chapter_start,
+            node.chapter_end,
+            node.chapter_count,
+            node.suggested_chapter_count,
+            node.content,
+            node.outline,
+            node.word_count,
+            node.status,
+            json.dumps(node.themes),
+            json.dumps(node.key_events),
+            node.narrative_arc,
+            json.dumps(node.conflicts),
+            node.pov_character_id,
+            node.timeline_start,
+            node.timeline_end,
+            json.dumps(node.metadata),
+            node.created_at.isoformat(),
+            node.updated_at.isoformat(),
+        ))
+
+    def ensure_act_has_no_manuscript(self, act_id: str) -> None:
+        from domain.structure.narrative_progress import NarrativeProgressError
+
+        row = self._get_connection().execute("""
+            SELECT n.number FROM story_nodes n LEFT JOIN chapters c ON c.novel_id=n.novel_id AND c.number=n.number
+             WHERE n.parent_id=? AND n.node_type='chapter'
+               AND (length(coalesce(c.content,''))>0 OR length(coalesce(n.content,''))>0)
+             ORDER BY n.number LIMIT 1
+        """, (act_id,)).fetchone()
+        if row:
+            raise NarrativeProgressError(f"本幕第{row[0]}章已有正文，整幕替换已停止。请在章节编辑器中调整现有章节的大纲。")
+
+    def commit_act_chapters(self, act_id, nodes, elements, validate):
+        """Replace only unfilled plans in this act, under a checked transaction."""
+        conn = self._get_connection()
+        with conn:
+            conn.execute("BEGIN IMMEDIATE")
+            validate()
+            conn.execute("""DELETE FROM chapters WHERE novel_id=? AND number IN
+                            (SELECT number FROM story_nodes WHERE parent_id=? AND node_type='chapter')""",
+                         (nodes[0].novel_id, act_id))
+            conn.execute("DELETE FROM story_nodes WHERE parent_id=? AND node_type='chapter'", (act_id,))
+            previous = conn.execute("""SELECT number FROM chapters WHERE novel_id=?
+                       AND number BETWEEN ? AND ? ORDER BY number LIMIT 1""",
+                       (nodes[0].novel_id, nodes[0].number, nodes[-1].number)).fetchone()
+            if previous:
+                from domain.structure.narrative_progress import NarrativeProgressError
+                raise NarrativeProgressError(f"第{previous[0]}章已有书稿记录，请先核对目录和书稿")
+            for node in nodes:
+                self._insert_node(conn, node)
+                conn.execute("""
+                    INSERT INTO chapters(id, novel_id, number, title, content, outline, status)
+                    VALUES (?, ?, ?, ?, '', ?, 'draft')
+                """, (node.id, node.novel_id, node.number, node.title, node.outline))
+            conn.executemany("""
+                INSERT INTO chapter_elements(id, chapter_id, element_type, element_id, relation_type,
+                        importance, appearance_order, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, [(e.id, e.chapter_id, e.element_type.value, e.element_id, e.relation_type.value,
+                   e.importance.value, e.appearance_order, e.notes, e.created_at.isoformat()) for e in elements])
+            conn.execute("""
+                UPDATE story_nodes SET chapter_start=?, chapter_end=?, chapter_count=?, updated_at=CURRENT_TIMESTAMP
+                WHERE id=?
+            """, (nodes[0].number, nodes[-1].number, len(nodes), act_id))
+
     async def save(self, node: StoryNode) -> StoryNode:
         """保存节点"""
         return self.save_sync(node)
+
+    async def commit_narrative_review(self, novel_id: str, volume_id: str, contract: dict, expected: str) -> None:
+        """Store only this review, against the exact plan and manuscripts the author saw."""
+        from domain.structure.narrative_progress import NarrativeProgressPolicy, NarrativeReviewConflict
+        from domain.structure.writing_target import plan_revision
+        from infrastructure.persistence.database.sqlite_chapter_repository import read_completed_revisions
+
+        conn = self._get_connection()
+        nested = conn.in_transaction
+        with nullcontext() if nested else conn:
+            if not nested:
+                conn.execute('BEGIN IMMEDIATE')
+            book = conn.execute('SELECT target_chapters FROM novels WHERE id=?', (novel_id,)).fetchone()
+            refs = read_completed_revisions(conn.execute, novel_id)
+            if not book or plan_revision(NarrativeProgressPolicy(self.get_plan_nodes_sync(novel_id), book[0], refs)) != expected:
+                raise NarrativeReviewConflict('书稿或大纲已变化，请重新核读后再提交验收')
+            conn.execute(
+                """UPDATE story_nodes SET metadata=json_set(coalesce(metadata,'{}'),'$.narrative_progress',json(?)),
+                          updated_at=CURRENT_TIMESTAMP WHERE novel_id=? AND id=? AND node_type='volume'""",
+                (json.dumps(contract, ensure_ascii=False), novel_id, volume_id),
+            )
+
+    def update_node_details(self, novel_id: str, node_id: str, title, description, number) -> StoryNode:
+        conn = self._get_connection()
+        with conn:
+            cursor = conn.execute(
+                """UPDATE story_nodes SET title=COALESCE(?,title), description=COALESCE(?,description),
+                       number=COALESCE(?,number),updated_at=CURRENT_TIMESTAMP
+                   WHERE novel_id=? AND id=? RETURNING *""",
+                (title, description, number, novel_id, node_id),
+            )
+            row = cursor.fetchone()
+            cursor.close()
+            if row is None:
+                raise ValueError(f"Node not found: {node_id}")
+            return self._row_to_entity(row)
 
     async def update(self, node: StoryNode) -> StoryNode:
         """更新节点"""
@@ -270,6 +381,19 @@ class StoryNodeRepository:
     async def get_by_novel(self, novel_id: str) -> List[StoryNode]:
         """获取小说的所有节点"""
         return self.get_by_novel_sync(novel_id)
+
+    def get_plan_nodes_sync(self, novel_id: str) -> List[StoryNode]:
+        """Read the outline tree without hydrating archived chapter prose."""
+        rows = self._get_connection().execute(
+            """SELECT id, novel_id, parent_id, node_type, number, title, description, order_index,
+                      planning_status, planning_source, chapter_start, chapter_end, chapter_count,
+                      suggested_chapter_count, NULL AS content, outline, word_count, status,
+                      themes, key_events, narrative_arc, conflicts, pov_character_id, timeline_start,
+                      timeline_end, metadata, created_at, updated_at
+                 FROM story_nodes WHERE novel_id=? ORDER BY order_index""",
+            (novel_id,),
+        )
+        return [self._row_to_entity(row) for row in rows]
 
     def get_tree_sync(self, novel_id: str) -> StoryTree:
         """同步获取结构树（供 NovelService 使用）。"""

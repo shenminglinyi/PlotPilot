@@ -43,7 +43,7 @@ async def test_valid_manuscript_backed_review_completes_without_new_generation()
     item={'id':'goal','description':'结局','status':'resolved','evidence_chapters':[2],
           'evidence_revisions':{'2':'r2'}}
     volume.metadata={'narrative_progress':{'chapter_budget':2,'milestones':[item],
-        'ending_review':{'reviewed_through_chapter':2,'core_conflict':item,
+        'ending_review':{'reviewed_through_chapter':2,'reviewed_through_revision':'r2','core_conflict':item,
                          'character_outcomes':item,'ending':item}}}
     assert await enforce_progress(host,novel,writing=True)
     assert novel.current_stage == NovelStage.COMPLETED

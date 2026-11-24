@@ -123,7 +123,7 @@ def _build_adopted_chapter_plan(
     )
 
 
-async def run_legacy_writing(host: Any, novel: Novel) -> None:
+async def run_legacy_writing(host: Any, novel: Novel, *, session=None) -> None:
     """Legacy 写作（节拍级生成 + 断点续写）— host 提供基础设施 helper"""
     if not host._is_still_running(novel):
         return
@@ -183,7 +183,7 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
         logger.info(f"[{novel.novel_id}] 上章张力≥80（raw={raw_tension}），触发余韵章")
 
     # 3. 找下一个未写章节
-    next_chapter_node = await host._find_next_unwritten_chapter_async(novel)
+    next_chapter_node = session.node if session is not None else await host._find_next_unwritten_chapter_async(novel)
     if not next_chapter_node:
         # 🔥 修复：找不到下一章时，检查当前幕是否全部写完
         if await host._current_act_fully_written(novel):
@@ -203,6 +203,12 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
     host._sync_novel_current_act_from_chapter_story_node(novel, next_chapter_node)
     host._cache_stats_to_shared_memory(novel)
     outline = next_chapter_node.outline or next_chapter_node.description or next_chapter_node.title
+
+    async def write_content(content, status):
+        if session is not None:
+            session.submit(status, content=content, outline=outline)
+        else:
+            await host._upsert_chapter_content(novel, next_chapter_node, content, status=status)
 
     # 合并分章叙事节拍
     if host.knowledge_service:
@@ -345,6 +351,7 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
                 pending_plan
                 and isinstance(pending_plan, dict)
                 and str(pending_chapter or "") == str(chapter_num)
+                and (session is None or shared_state.get("autopilot_pending_chapter_revision") == session.input_revision())
             ):
                 chapter_plan = _build_adopted_chapter_plan(
                     payload=pending_plan,
@@ -452,6 +459,8 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
                         metadata={
                             "source": "legacy_writing_delegate",
                             "beat_sheet_present": bool(beat_sheet_json),
+                            "writing_binding": session.binding() if session else None,
+                            "writing_input_revision": session.input_revision() if session else None,
                         },
                     )
                 )
@@ -556,6 +565,8 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
         return
 
     # 6. 节拍级生成 + 断点续写 + 完整性保证
+    if session is not None:
+        session.submit("validate")
     start_beat = novel.current_beat_index or 0
     entry_start_beat = start_beat  # 记录本轮入口节拍索引，用于死锁检测
     beats_completed = getattr(novel, 'beats_completed', False)
@@ -574,7 +585,7 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
     already_audited = (
         getattr(novel, 'last_audit_chapter_number', None) == chapter_num
     )
-    if existing_chapter and existing_chapter.status == ChapterStatus.COMPLETED:
+    if existing_content and existing_chapter and existing_chapter.status == ChapterStatus.COMPLETED:
         if already_audited:
             # 审计完的 completed 章节，直接跳过（下一轮 _find_next_unwritten_chapter_async 会跳过 completed）
             logger.info(
@@ -602,16 +613,14 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
             )
             # 🔥 关键修复：强制直接写 DB 确保章节状态为 completed
             # 这样下一轮 _find_next_unwritten_chapter_async 就不会再找到这一章
-            if existing_chapter:
+            if existing_chapter and session is None:
                 # 🔥 核心修复：使用独立短连接写入 completed 状态
                 host._save_chapter_ephemeral(
                     novel.novel_id.value, chapter_num,
                     status="completed",
                 )
             else:
-                await host._upsert_chapter_content(
-                    novel, next_chapter_node, existing_content, status="completed"
-                )
+                await write_content(existing_content, "completed")
             # return 让下一轮主循环重新进入 _handle_writing
             # 此时 DB 中章节已是 completed，_find_next_unwritten_chapter_async 会跳过它
             return
@@ -631,9 +640,7 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
                 f"[{novel.novel_id}] 章节 {chapter_num} 已有 {len(existing_content)} 字 "
                 f"(达标 {int(len(existing_content) / target_word_count * 100)}%)，直接标记完成"
             )
-            await host._upsert_chapter_content(
-                novel, next_chapter_node, existing_content, status="completed"
-            )
+            await write_content(existing_content, "completed")
             novel.current_auto_chapters = (novel.current_auto_chapters or 0) + 1
             novel.current_chapter_in_act += 1
             novel.current_beat_index = 0
@@ -765,9 +772,7 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
                                 f"[{novel.novel_id}] 🔪 中断截断：{len(accumulated_content.strip())} "
                                 f"→ {len(safe_content)} 字（截至句尾）"
                             )
-                    await host._upsert_chapter_content(
-                        novel, next_chapter_node, safe_content, status="draft"
-                    )
+                    await write_content(safe_content, "draft")
                     novel.current_beat_index = i  # 记录当前节拍索引，下次从断点继续
                     host._flush_novel(novel)
                     logger.info(
@@ -950,9 +955,7 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
                         writing_substep="persisting",
                         writing_substep_label="节拍内容落盘",
                     )
-                    await host._upsert_chapter_content(
-                        novel, next_chapter_node, accumulated_content, status="draft"
-                    )
+                    await write_content(accumulated_content, "draft")
                     write_counter = 0
                     logger.debug(f"[{novel.novel_id}] 批量写入，当前 {len(accumulated_content)} 字")
 
@@ -1017,7 +1020,7 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
             host._flush_novel(novel)
             return
         chapter_content = beat_content
-        await host._upsert_chapter_content(novel, next_chapter_node, chapter_content, status="draft")
+        await write_content(chapter_content, "draft")
 
     if not host._is_still_running(novel):
         logger.info(f"[{novel.novel_id}] 用户已停止，本章不标记完成")
@@ -1100,10 +1103,10 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
                     f"清除 draft 内容并从第 0 拍重写（第 {rewrite_count + 1}/{MAX_REWRITE} 次）"
                 )
                 # 清除章节内容，让下一轮从零开始生成
-                host._save_chapter_ephemeral(
-                    novel.novel_id.value, chapter_num,
-                    content="", status="draft", word_count=0
-                )
+                if session is not None:
+                    await write_content("", "draft")
+                else:
+                    host._save_chapter_ephemeral(novel.novel_id.value, chapter_num, content="", status="draft", word_count=0)
                 novel.current_beat_index = 0
                 novel.beats_completed = False
                 host._flush_novel(novel)
@@ -1245,7 +1248,7 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
         writing_substep="chapter_persist",
         writing_substep_label="章节落盘",
     )
-    await host._upsert_chapter_content(novel, next_chapter_node, chapter_content, status="completed")
+    await write_content(chapter_content, "completed")
 
     # 🔥 落库后用短连接读真实聚合，刷新 /status 缓存（与接口 SQL 一致）
     st = host._read_chapter_stats_ephemeral(novel.novel_id.value)

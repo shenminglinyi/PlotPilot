@@ -663,7 +663,7 @@ async def run_chapter_audit(host: Any, novel: Novel) -> None:
     # 🔥 核心修复：novel_repository.save() 改为独立短连接写入
     # 原因：repository.save() 使用线程本地长连接，写锁持有时间不可控
     # 在守护进程（multiprocessing.Process）中，这会阻塞 API 进程的所有 DB 操作
-    host._save_novel_ephemeral(novel)
+    host._save_novel_ephemeral(novel, finishing_audit=True)
     logger.info(f"[{novel.novel_id}] 审计完成，状态已落盘")
 
     # 🔥 审计完成：同步编年史+故事线到共享内存
