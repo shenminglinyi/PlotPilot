@@ -104,6 +104,7 @@ class ChapterProseInvocationComposer:
                   AND json_extract(s.context_json, '$.novel_id') = ?
                   AND CAST(json_extract(s.context_json, '$.chapter_number') AS INTEGER) = ?
                   AND json_extract(s.metadata_json, '$.commit_owner') = 'story_pipeline_save_step'
+                  AND json_extract(s.metadata_json, '$.writing_input_revision') IS ?
                 ORDER BY c.updated_at DESC, d.accepted_at DESC
                 LIMIT 1
                 """,
@@ -111,6 +112,7 @@ class ChapterProseInvocationComposer:
                     AUTOPILOT_CHAPTER_PROSE_OPERATION,
                     request.novel_id,
                     int(request.chapter_number or 0),
+                    request.metadata.get("writing_input_revision"),
                 ),
             )
         except Exception:
@@ -160,6 +162,8 @@ class ChapterProseInvocationComposer:
                 "target_words": request.target_words,
                 "generation_mode": "full_chapter_once",
                 "commit_owner": "story_pipeline_save_step",
+                "writing_binding": request.metadata.get("writing_binding"),
+                "writing_input_revision": request.metadata.get("writing_input_revision"),
             },
             config={"max_tokens": self._max_output_tokens(request), "temperature": 0.85},
         )

@@ -17,9 +17,11 @@ import queue
 import sqlite3
 import threading
 import time
+from concurrent.futures import Future, TimeoutError as FutureTimeout
 from dataclasses import dataclass, asdict
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
+from uuid import uuid4
 
 from application.engine.services.persistence_queue_settings import (
     PersistentQueueSettings,
@@ -33,6 +35,7 @@ class PersistenceCommandType(Enum):
     """持久化命令类型"""
     # 章节相关
     UPSERT_CHAPTER = "upsert_chapter"
+    WRITE_CHECKED_CHAPTER = "write_checked_chapter"
     UPDATE_CHAPTER_STATUS = "update_chapter_status"
     UPDATE_CHAPTER_TENSION = "update_chapter_tension"
     UPDATE_CHAPTER_WORD_COUNT = "update_chapter_word_count"
@@ -109,6 +112,8 @@ class PersistenceQueue:
         self._consumer_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._handlers: Dict[str, Callable] = {}
+        self._local_replies: dict[str, Future] = {}
+        self._reply_lock = threading.Lock()
         self._stats = {"queued": 0, "processed": 0, "failed": 0}
         self._settings: PersistentQueueSettings = get_persistent_queue_settings()
 
@@ -132,7 +137,7 @@ class PersistenceQueue:
         """注册命令处理器"""
         self._handlers[command_type] = handler
 
-    def push(self, command_type: str, payload: Dict[str, Any]) -> bool:
+    def push(self, command_type: str, payload: Dict[str, Any], *, command_id: str | None = None) -> bool:
         """推入持久化命令（守护进程调用）"""
         if self._queue is None:
             logger.warning(f"持久化队列未初始化，丢弃命令: {command_type}")
@@ -143,6 +148,7 @@ class PersistenceQueue:
                 command_type=command_type,
                 payload=payload,
                 timestamp=time.time(),
+                command_id=command_id,
             )
             self._queue.put(command.to_dict(), block=False)
             self._stats["queued"] += 1
@@ -150,6 +156,30 @@ class PersistenceQueue:
         except Exception as e:
             logger.error(f"推入持久化队列失败: {e}")
             return False
+
+    def submit_and_wait(self, command_type: str, payload: dict, timeout: float):
+        """API 进程等待本条命令被写入者执行，并取得执行结果。"""
+        if not self.is_consumer_running():
+            raise RuntimeError("持久化消费者未启动")
+        if command_type not in self._handlers:
+            raise ValueError(f"未注册的持久化命令: {command_type}")
+        token = uuid4().hex
+        reply = Future()
+        with self._reply_lock:
+            self._local_replies[token] = reply
+        try:
+            if not self.push(command_type, payload, command_id=token):
+                raise RuntimeError("持久化命令未能入队")
+            try:
+                return reply.result(timeout=timeout)
+            except FutureTimeout:
+                if reply.cancel():
+                    raise TimeoutError("持久化命令在开始执行前超时") from None
+                # 写入已经开始时，以真实提交结果为准。
+                return reply.result()
+        finally:
+            with self._reply_lock:
+                self._local_replies.pop(token, None)
 
     def push_batch(self, commands: List[tuple]) -> bool:
         """批量推入命令"""
@@ -161,6 +191,27 @@ class PersistenceQueue:
             for ct, p in commands
         ]
         return self.push(PersistenceCommandType.BATCH.value, {"commands": batch_payload})
+
+    def submit_from_daemon(self, command_type: str, payload: dict, timeout: float):
+        """Wait for the single writer's committed result across a process boundary."""
+        if self.is_consumer_running():
+            return self.submit_and_wait(command_type, payload, timeout)
+        if self._queue is None:
+            raise RuntimeError("持久化队列未就绪")
+        receive, send = mp.Pipe(duplex=False)
+        try:
+            command = PersistenceCommand(command_type, payload, time.time()).to_dict()
+            command.update(reply_pipe=send, deadline=time.monotonic() + timeout)
+            self._queue.put(command, block=False)
+            if not receive.poll(timeout):
+                raise TimeoutError("守护进程未收到持久化确认")
+            ok, result = receive.recv()
+            if not ok:
+                raise RuntimeError(result)
+            return result
+        finally:
+            receive.close()
+            send.close()
 
     def is_consumer_running(self) -> bool:
         """持久化消费者线程是否已启动且存活（用于启动链多阶段复用）。"""
@@ -223,8 +274,18 @@ class PersistenceQueue:
         """处理单个命令"""
         command_type = item.get("command_type")
         payload = item.get("payload", {})
+        pipe = item.get("reply_pipe")
+        reply = None
+        if token := item.get("command_id"):
+            with self._reply_lock:
+                reply = self._local_replies.get(token)
+            if reply is None or not reply.set_running_or_notify_cancel():
+                return
 
         try:
+            result = None
+            if pipe is not None and time.monotonic() > item["deadline"]:
+                return
             if command_type == PersistenceCommandType.BATCH.value:
                 # 批量命令
                 commands = payload.get("commands", [])
@@ -234,15 +295,29 @@ class PersistenceQueue:
                         cmd.get("payload", {})
                     )
             else:
-                self._process_single_command(command_type, payload)
+                result = self._process_single_command(command_type, payload)
+            if reply is not None:
+                reply.set_result(result)
+            if pipe is not None:
+                pipe.send((True, result))
 
             self._stats["processed"] += 1
 
         except Exception as e:
+            if reply is not None:
+                reply.set_exception(e)
+            if pipe is not None:
+                try:
+                    pipe.send((False, str(e)))
+                except (OSError, EOFError):
+                    pass  # Caller already timed out or shut down.
             logger.error(f"处理持久化命令失败: {command_type}, {e}")
             self._stats["failed"] += 1
+        finally:
+            if pipe is not None:
+                pipe.close()
 
-    def _process_single_command(self, command_type: str, payload: Dict) -> None:
+    def _process_single_command(self, command_type: str, payload: Dict):
         """处理单个命令，DB 被锁时按配置进行指数退避。"""
         handler = self._handlers.get(command_type)
         if not handler:
@@ -252,8 +327,7 @@ class PersistenceQueue:
         max_retries = self._settings.legacy_lock_max_retries
         for attempt in range(max_retries):
             try:
-                handler(payload)
-                return  # 成功，直接返回
+                return handler(payload)
             except sqlite3.OperationalError as e:
                 if "locked" in str(e).lower() or "busy" in str(e).lower():
                     if attempt < max_retries - 1:
@@ -386,7 +460,7 @@ def register_persistence_handlers() -> None:
     # ── 通用 SQL 执行器（CQRS 统一写入通道）──
     # 守护进程不再直接写 DB，所有写操作统一推 (sql, params) 到队列，
     # 由 API 进程的消费者线程串行执行，从根本上消除 SQLite 多进程写锁竞争。
-    def handle_execute_sql(payload: Dict) -> None:
+    def handle_execute_sql(payload: Dict):
         """执行任意 SQL 写操作（INSERT/UPDATE/DELETE）。
 
         payload 格式:
@@ -403,15 +477,24 @@ def register_persistence_handlers() -> None:
         if not sql.strip():
             return
 
+        db = get_database()
         try:
-            db = get_database()
-            db.execute(sql, params)
+            cursor = db.execute(sql, params)
+            result = None
+            if payload.get("return_row"):
+                try:
+                    result = cursor.fetchone()
+                finally:
+                    cursor.close()
             db.get_connection().commit()
             logger.debug("[PersistenceQueue] EXECUTE_SQL 已执行: %s", sql[:120])
+            return tuple(result) if result is not None else None
         except sqlite3.OperationalError:
             # 必须向上抛：外层 _process_single_command 才对 database locked / busy 退避重试
+            db.get_connection().rollback()
             raise
         except Exception as e:
+            db.get_connection().rollback()
             logger.error(
                 "[PersistenceQueue] EXECUTE_SQL 失败: %s | SQL: %s",
                 e,
@@ -544,6 +627,8 @@ def register_persistence_handlers() -> None:
 
     # 注册处理器
     pq.register_handler(PersistenceCommandType.UPSERT_CHAPTER.value, handle_upsert_chapter)
+    from application.engine.services.checked_chapter_write import commit_checked_chapter
+    pq.register_handler(PersistenceCommandType.WRITE_CHECKED_CHAPTER.value, commit_checked_chapter)
     pq.register_handler(PersistenceCommandType.UPDATE_CHAPTER_TENSION.value, handle_update_chapter_tension)
     pq.register_handler(PersistenceCommandType.PATCH_NOVEL.value, handle_patch_novel)
 

@@ -112,6 +112,9 @@ async def test_chapter_prose_composer_reuses_committed_story_pipeline_content(mo
         chapter_number=2,
         stream_sink=chunks.append,
     )
+    from dataclasses import replace
+    changed = replace(request, metadata={"writing_input_revision": "different-plan"})
+    assert ChapterProseInvocationComposer._load_committed_story_pipeline_content(changed) == ""
 
     result = await ChapterProseInvocationComposer().compose(request)
 

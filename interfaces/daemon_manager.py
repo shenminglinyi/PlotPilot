@@ -225,127 +225,17 @@ def run_autopilot_daemon_process(
 
 
 def cleanup_orphan_python_processes(logger_: logging.Logger | None = None) -> None:
-    """Windows cleanup for leftover PlotPilot/uvicorn Python processes."""
-    log = logger_ or logger
-    lifecycle_settings = get_daemon_lifecycle_settings()
-    current_pid = os.getpid()
-    log.info("检查残留进程（当前 PID=%s）...", current_pid)
+    """Compatibility hook: never kill processes without an ownership handle.
 
-    ps_script = r"""$ErrorActionPreference = 'SilentlyContinue'
-Get-CimInstance Win32_Process | ForEach-Object {
-  $nl = ([string]$_.Name).ToLowerInvariant()
-  if ($nl -notin @('python.exe','python3.exe','pythonw.exe','plotpilot-backend.exe')) { return }
-  $cl = if ($null -eq $_.CommandLine) { '' } else { [string]$_.CommandLine }
-  $cl = $cl -replace "`t", ' '
-  [Console]::Out.WriteLine($_.ProcessId.ToString() + [char]9 + $cl)
-}
-"""
-
-    def _list_via_powershell() -> list[tuple[int, str]]:
-        result = subprocess.run(
-            [
-                "powershell",
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-Command",
-                ps_script,
-            ],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=lifecycle_settings.powershell_list_timeout_seconds,
-            creationflags=NO_WINDOW,
-        )
-        if result.returncode != 0:
-            return []
-        rows: list[tuple[int, str]] = []
-        for line in result.stdout.splitlines():
-            line = line.strip()
-            if not line or "\t" not in line:
-                continue
-            pid_str, _, cmd = line.partition("\t")
-            if pid_str.strip().isdigit():
-                rows.append((int(pid_str), cmd.strip()))
-        return rows
-
-    def _list_via_wmic() -> list[tuple[int, str]]:
-        result = subprocess.run(
-            [
-                "wmic",
-                "process",
-                "where",
-                "name='python.exe' or name='python3.exe' or name='plotpilot-backend.exe'",
-                "get",
-                "processid,commandline",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=lifecycle_settings.wmic_list_timeout_seconds,
-            creationflags=NO_WINDOW,
-        )
-        if result.returncode != 0:
-            return []
-        rows: list[tuple[int, str]] = []
-        for line in result.stdout.strip().split("\n"):
-            line = line.strip()
-            if not line or "CommandLine" in line:
-                continue
-            if any(keyword in line.lower() for keyword in ("plotpilot", "autopilot", "uvicorn", "interfaces.main")):
-                parts = line.split()
-                for part in reversed(parts):
-                    if part.isdigit():
-                        rows.append((int(part), line))
-                        break
-        return rows
-
-    keywords = ("plotpilot", "autopilot", "uvicorn", "interfaces.main")
-    killed_count = 0
-
-    try:
-        candidates: list[tuple[int, str]] = []
-        try:
-            candidates = _list_via_powershell()
-        except OSError as exc:
-            log.debug("PowerShell 枚举进程不可用: %s", exc)
-        except subprocess.TimeoutExpired:
-            log.warning("PowerShell 枚举进程超时，尝试 wmic")
-        if not candidates:
-            try:
-                candidates = _list_via_wmic()
-            except OSError as exc:
-                log.debug("wmic 枚举进程不可用: %s", exc)
-            except subprocess.TimeoutExpired:
-                log.warning("wmic 枚举进程超时")
-
-        for pid, cmdline in candidates:
-            low = cmdline.lower()
-            if not any(k in low for k in keywords) or pid == current_pid:
-                continue
-            try:
-                log.info("清理残留进程 PID=%s: %s...", pid, cmdline[:80])
-                subprocess.run(
-                    ["taskkill", "/F", "/PID", str(pid)],
-                    capture_output=True,
-                    timeout=lifecycle_settings.orphan_taskkill_timeout_seconds,
-                    creationflags=NO_WINDOW,
-                )
-                killed_count += 1
-            except Exception as exc:
-                log.warning("清理进程 %s 失败: %s", pid, exc)
-
-        if killed_count > 0:
-            log.info("已清理 %s 个残留进程", killed_count)
-        else:
-            log.info("未发现残留进程")
-
-    except subprocess.TimeoutExpired:
-        log.warning("进程清理超时")
-    except FileNotFoundError as exc:
-        log.warning("进程清理失败（未找到 PowerShell/wmic）: %s", exc)
-    except Exception as exc:
-        log.warning("进程清理失败: %s", exc)
+    A matching executable name or command line does not prove that a process is
+    orphaned. Production, portable and test instances can legitimately coexist.
+    AutopilotDaemonManager.stop() owns its Process handle and is the only cleanup
+    path allowed to terminate that managed child. Unknown processes are left to
+    the OS or explicit user action after a crash.
+    """
+    (logger_ or logger).info(
+        "Skip global process cleanup; managed children are stopped by their owning manager"
+    )
 
 
 class AutopilotDaemonManager:

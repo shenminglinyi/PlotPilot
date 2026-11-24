@@ -151,6 +151,12 @@ class StoryPipelineRunner(DaemonHostMixin, BaseStoryPipeline):
         await run_chapter_audit(self.host, novel)
 
     def _get_novel_phase(self, novel: Any) -> str:
+        from engine.core.entities.story import StoryPhase
+
+        target = getattr(novel, 'target_chapters', 0)
+        written = getattr(novel, 'current_auto_chapters', 0)
+        if type(target) is int and target > 0 and type(written) is int:
+            return StoryPhase.from_progress(max(0, written) / target).value
         try:
             stage = getattr(novel, "current_stage", None)
             stage_value = stage.value if hasattr(stage, "value") else str(stage)

@@ -5,6 +5,7 @@ import multiprocessing
 import sys
 import time
 from typing import Any
+from application.engine.services.shared_state_repository import merge_novel_state
 
 
 def read_autopilot_shared_state(novel_id: str) -> dict[str, Any]:
@@ -31,14 +32,8 @@ def write_autopilot_shared_state(novel_id: str, **fields: Any) -> bool:
     try:
         shared = sys.modules.get("__shared_state")
         if shared is not None:
-            key = f"novel:{novel_id}"
-            current = dict(shared.get(key, {}) or {})
-            current.update(fields)
-            current["novel_id"] = novel_id
-            current["_updated_at"] = time.time()
             shared["_daemon_heartbeat"] = time.time()
-            shared[key] = current
-            return True
+            return merge_novel_state(shared, novel_id, fields)
     except Exception:
         pass
     try:

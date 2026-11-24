@@ -23,6 +23,7 @@ from application.engine.services.shared_state_repository import (
     get_shared_state_repository,
 )
 from application.ai_invocation.autopilot.review_gate import (
+    persisted_narrative_review_reason,
     INVOCATION_FAILED_STATUSES,
     PENDING_INVOCATION_STATUSES,
     review_gate_from_status,
@@ -65,6 +66,7 @@ _RUNTIME_STATUS_KEYS: tuple[str, ...] = (
     "has_active_invocation",
     "requires_ai_review",
     "autopilot_pause_reason",
+    "narrative_review_reason",
     "autopilot_pending_chapter_number",
     "autopilot_pending_chapter_plan",
     "autopilot_pending_macro_plan",
@@ -193,7 +195,7 @@ def _merge_runtime_fields_from_raw(
 ) -> Dict[str, Any]:
     """将共享内存原始 dict 中的 V9 运行时字段并入 /status 响应。"""
     if not raw:
-        return payload
+        return _augment_review_fields(payload) if stage_needs_human_review(payload.get("current_stage")) else payload
     for key in _RUNTIME_STATUS_KEYS:
         if key in raw:
             payload[key] = raw[key]
@@ -240,6 +242,9 @@ class NovelStatusResponse:
     daemon_alive: bool
     daemon_heartbeat_at: Optional[float]
     _from_shared_memory: bool = True
+    narrative_review_reason: str = ""
+    autopilot_run_epoch: int = 0
+    macro_structure_ready: Optional[bool] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -270,6 +275,10 @@ class NovelStatusResponse:
             "daemon_alive": self.daemon_alive,
             "daemon_heartbeat_at": self.daemon_heartbeat_at,
             "_from_shared_memory": self._from_shared_memory,
+            "narrative_review_reason": self.narrative_review_reason,
+            "autopilot_run_epoch": self.autopilot_run_epoch,
+            "macro_structure_ready": self.macro_structure_ready,
+            "autopilot_pause_reason": self.narrative_review_reason,
         }
 
 
@@ -325,6 +334,23 @@ class QueryService:
         """
         # 先尝试获取 NovelState 对象
         state = self._shared.get_novel_state(novel_id)
+        if state and state.current_stage == "completed" and state.autopilot_status == "stopped":
+            # Edits can invalidate a sealed ending while the daemon is idle.
+            from infrastructure.persistence.database.connection import get_database
+
+            changed = get_database().fetch_one(
+                """SELECT current_stage, autopilot_status, autopilot_run_epoch, last_audit_issues
+                   FROM novels WHERE id = ? AND autopilot_run_epoch > ?""",
+                (novel_id, state.autopilot_run_epoch),
+            )
+            if changed:
+                reason = persisted_narrative_review_reason(changed)
+                self._shared.merge_raw_state(
+                    novel_id, current_stage=changed["current_stage"], autopilot_status=changed["autopilot_status"],
+                    autopilot_run_epoch=changed["autopilot_run_epoch"], narrative_review_reason=reason,
+                    autopilot_pause_reason=reason,
+                )
+                state = self._shared.get_novel_state(novel_id)
         if state is None:
             # 尝试获取原始数据（兼容旧格式）
             raw_data = self._shared.get_raw_state(novel_id)
@@ -354,6 +380,7 @@ class QueryService:
             novel_id=state.novel_id,
             title=state.title,
             autopilot_status=state.autopilot_status,
+            autopilot_run_epoch=state.autopilot_run_epoch,
             current_stage=state.current_stage,
             current_act=state.current_act,
             current_chapter_in_act=state.current_chapter_in_act,
@@ -400,6 +427,7 @@ class QueryService:
             novel_id=novel_id,
             title=raw_data.get("title", ""),
             autopilot_status=raw_data.get("autopilot_status", "stopped"),
+            autopilot_run_epoch=raw_data.get("autopilot_run_epoch", 0),
             current_stage=raw_data.get("current_stage", "writing"),
             current_act=current_act,
             current_chapter_in_act=current_chapter_in_act,
@@ -440,10 +468,12 @@ class QueryService:
             db = get_database(db_path)
 
             novel_row = db.fetch_one(
-                """SELECT id, title, autopilot_status, current_stage,
+                """SELECT id, title, autopilot_status, autopilot_run_epoch, current_stage,
                           current_act, current_chapter_in_act, current_beat_index,
                           current_auto_chapters, target_chapters, target_words_per_chapter,
-                          consecutive_error_count, last_chapter_tension, auto_approve_mode
+                          consecutive_error_count, last_chapter_tension, auto_approve_mode, last_audit_issues,
+                          EXISTS (SELECT 1 FROM story_nodes
+                                  WHERE novel_id = novels.id AND lower(node_type) = 'volume') AS macro_ready
                    FROM novels WHERE id = ?""",
                 (novel_id,),
             )
@@ -503,6 +533,9 @@ class QueryService:
                 novel_id=novel_id,
                 title=novel_row['title'] or "",
                 autopilot_status=novel_row['autopilot_status'] or "stopped",
+                autopilot_run_epoch=novel_row.get("autopilot_run_epoch") or 0,
+                narrative_review_reason=persisted_narrative_review_reason(novel_row),
+                macro_structure_ready=bool(novel_row["macro_ready"]),
                 current_stage=novel_row['current_stage'] or "writing",
                 current_act=novel_row['current_act'],
                 current_chapter_in_act=novel_row['current_chapter_in_act'],

@@ -187,15 +187,12 @@ async def test_run_act_planning_pauses_for_ai_invocation(monkeypatch):
     host.planning_service.plan_act_chapters = AsyncMock()
     host.story_node_repo.get_children_sync.return_value = []
 
-    target_act = MagicMock()
-    target_act.id = "act-1"
-    target_act.number = 1
-    target_act.node_type.value = "act"
-    target_act.suggested_chapter_count = 5
-    target_act.title = "第一幕"
-    target_act.description = "开端"
-
-    host.story_node_repo.get_by_novel = AsyncMock(return_value=[target_act])
+    from domain.structure.story_node import StoryNode, NodeType
+    volume = StoryNode('volume-1', 'n-1', NodeType.VOLUME, 1, '卷一', 0)
+    target_act = StoryNode('act-1', 'n-1', NodeType.ACT, 1, '第一幕', 1, parent_id=volume.id,
+                           suggested_chapter_count=5, description='开端')
+    host.chapter_repository.completed_revisions.return_value = {}
+    host.story_node_repo.get_by_novel = AsyncMock(return_value=[volume, target_act])
 
     novel = MagicMock()
     novel.novel_id.value = "n-1"
@@ -241,7 +238,9 @@ async def test_run_act_planning_pauses_for_ai_invocation(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_run_writing_routes_to_story_pipeline_when_enabled():
+async def test_run_writing_routes_to_story_pipeline_when_enabled(monkeypatch):
+    session = MagicMock()
+    monkeypatch.setattr("engine.runtime.writing_delegate._prepare_writing_session", AsyncMock(return_value=session))
     host = MagicMock()
     host.use_story_pipeline_for_writing = True
     novel = MagicMock()
@@ -254,12 +253,14 @@ async def test_run_writing_routes_to_story_pipeline_when_enabled():
         new_callable=AsyncMock,
     ) as mock_legacy:
         await run_writing(host, novel)
-        mock_pipeline.assert_awaited_once_with(host, novel)
+        mock_pipeline.assert_awaited_once_with(host, novel, session=session)
         mock_legacy.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_run_writing_routes_to_legacy_when_pipeline_off():
+async def test_run_writing_routes_to_legacy_when_pipeline_off(monkeypatch):
+    session = MagicMock()
+    monkeypatch.setattr("engine.runtime.writing_delegate._prepare_writing_session", AsyncMock(return_value=session))
     host = MagicMock()
     host.use_story_pipeline_for_writing = False
     novel = MagicMock()
@@ -272,7 +273,7 @@ async def test_run_writing_routes_to_legacy_when_pipeline_off():
         new_callable=AsyncMock,
     ) as mock_legacy:
         await run_writing(host, novel)
-        mock_legacy.assert_awaited_once_with(host, novel)
+        mock_legacy.assert_awaited_once_with(host, novel, session=session)
         mock_pipeline.assert_not_awaited()
 
 

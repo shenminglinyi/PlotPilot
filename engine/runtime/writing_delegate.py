@@ -67,17 +67,63 @@ def _build_runner(daemon: Any):
     )
 
 
-async def run_writing(host: Any, novel: Any) -> None:
-    """写作阶段统一入口 — 按 host 配置或环境变量选择新/旧管线"""
-    if getattr(host, "use_story_pipeline_for_writing", False):
-        await run_story_pipeline_writing(host, novel)
+async def _prepare_writing_session(host, novel):
+    from application.engine.services.checked_chapter_write import ChapterWritingSession, manuscript_stamp
+    from domain.novel.entities.novel import NovelStage
+    from domain.structure.writing_target import select_writing_target
+    from engine.runtime.narrative_progress_guard import enforce_progress, pause_for_progress, progress_policy
+
+    if type(novel.target_chapters) is not int or novel.target_chapters <= 0:
+        pause_for_progress(host, novel, "请先设置全书篇幅和分卷规划")
+        return None
+    try:
+        policy = await progress_policy(host, novel)
+        if await enforce_progress(host, novel, policy=policy):
+            return
+        novel.current_auto_chapters = len(policy.written)
+        target = select_writing_target(policy)
+        if target is None:
+            if await host._current_act_fully_written(novel):
+                novel.current_act = (novel.current_act or 0) + 1
+            novel.current_chapter_in_act = 0
+            novel.current_stage = NovelStage.ACT_PLANNING
+            host._flush_novel(novel)
+            return
+        node = policy.by_id[target.chapter_id]
+        manuscript = host.chapter_repository.get_by_novel_and_number(novel.novel_id, target.chapter_number)
+        session = ChapterWritingSession(novel.novel_id.value, novel.autopilot_run_epoch, target,
+                                        node, manuscript_stamp(manuscript))
+        session.submit("validate")
+        return session
+    except Exception as exc:
+        pause_for_progress(host, novel, f"无法确认写作目标：{exc}")
         return
-    from engine.runtime.legacy_writing_delegate import run_legacy_writing
-
-    await run_legacy_writing(host, novel)
 
 
-async def run_story_pipeline_writing(daemon: Any, novel: Any) -> None:
+async def run_writing(host: Any, novel: Any) -> None:
+    """Use the same checked chapter for either writing engine."""
+    from domain.structure.narrative_progress import NarrativeProgressError
+    from application.engine.services.checked_chapter_write import current_writing_session
+    from engine.runtime.narrative_progress_guard import pause_for_progress
+
+    session = await _prepare_writing_session(host, novel)
+    if session is None:
+        return
+    host._sync_novel_current_act_from_chapter_story_node(novel, session.node)
+    if host.use_story_pipeline_for_writing:
+        writer = run_story_pipeline_writing
+    else:
+        from engine.runtime.legacy_writing_delegate import run_legacy_writing as writer
+    token = current_writing_session.set(session)
+    try:
+        await writer(host, novel, session=session)
+    except NarrativeProgressError as exc:
+        pause_for_progress(host, novel, str(exc))
+    finally:
+        current_writing_session.reset(token)
+
+
+async def run_story_pipeline_writing(daemon: Any, novel: Any, *, session=None) -> None:
     """执行单章写作（新管线），并同步 novel 状态到 daemon 模型"""
     from domain.novel.entities.novel import NovelStage
     from engine.pipelines.registry import get_pipeline_registry
@@ -149,9 +195,14 @@ async def run_story_pipeline_writing(daemon: Any, novel: Any) -> None:
         era=getattr(novel, "era", "ancient"),
     )
     ctx.writing_progress_sink = _writing_sink
+    ctx.writing_session = session
 
     pipeline = get_pipeline_registry().create_pipeline(genre)
     result = await pipeline.run_chapter(ctx)
+
+    if ctx.metadata.get("writing_target_conflict") is True and not result.success:
+        from domain.structure.narrative_progress import NarrativeProgressError
+        raise NarrativeProgressError(result.error)
 
     if not result.success and result.error == "awaiting_ai_review":
         novel.current_stage = NovelStage.PAUSED_FOR_REVIEW

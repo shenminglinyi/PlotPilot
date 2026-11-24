@@ -1,4 +1,5 @@
 import sqlite3
+import threading
 
 import pytest
 
@@ -41,3 +42,36 @@ persistence_queue:
         assert sleeps == pytest.approx([0.1, 0.15])
     finally:
         reload_config()
+
+
+def test_writer_skips_expired_request_and_reports_execution_error():
+    queue = PersistenceQueue()
+    channel = queue.initialize()
+    entered, release = threading.Event(), threading.Event()
+    observed = []
+
+    def hold(_):
+        entered.set()
+        assert release.wait(5)
+
+    def fail(_):
+        raise sqlite3.IntegrityError("rejected")
+
+    queue.register_handler("hold", hold)
+    queue.register_handler("record", lambda payload: observed.append(payload))
+    queue.register_handler("fail", fail)
+    queue.start_consumer()
+    try:
+        assert queue.push("hold", {})
+        assert entered.wait(5)
+        with pytest.raises(TimeoutError):
+            queue.submit_and_wait("record", {"run": 1}, timeout=0.01)
+        release.set()
+        with pytest.raises(sqlite3.IntegrityError, match="rejected"):
+            queue.submit_and_wait("fail", {}, timeout=3)
+        assert observed == []
+    finally:
+        release.set()
+        queue.stop_consumer()
+        channel.close()
+        channel.join_thread()

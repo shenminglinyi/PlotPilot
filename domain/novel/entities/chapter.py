@@ -31,11 +31,13 @@ class Chapter(BaseEntity):
         emotional_tension: float = 50.0,
         pacing_tension: float = 50.0,
         generation_hint: str = "",
+        manuscript_revision: str = "",
     ):
         super().__init__(id)
         self.novel_id = novel_id
         self.number = number
         self.title = title
+        self.manuscript_revision = manuscript_revision
         self._content_text = content  # 直接存储文本，允许空内容
         self.outline = outline  # 章节大纲
         self.status = status

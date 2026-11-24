@@ -204,7 +204,7 @@ class DaemonHostMixin:
             pass
 
 
-    def _save_novel_ephemeral(self, novel: Novel) -> bool:
+    def _save_novel_ephemeral(self, novel: Novel, *, finishing_audit=False) -> bool:
         """🔥 用独立短连接保存 novel 状态到 DB（替代 novel_repository.save()）。
 
         核心问题：novel_repository.save() 使用线程本地长连接，在守护进程
@@ -246,13 +246,13 @@ class DaemonHostMixin:
             "audit_progress": getattr(novel, 'audit_progress', None),
         }
 
-        set_clauses = [f"{k} = ?" for k in fields.keys()]
-        set_clauses.append("updated_at = CURRENT_TIMESTAMP")
-        sql = f"UPDATE novels SET {', '.join(set_clauses)} WHERE id = ?"
-        params = list(fields.values()) + [novel.novel_id.value]
-
         # CQRS：全部由 API 消费者串行落库，守护进程不再直连写第二路
-        ok = self._queue_sql(sql, params)
+        if finishing_audit:
+            fields["pending_audit_chapter_number"] = None
+        ok = self._patch_novel_ephemeral(
+            novel.novel_id, fields, run_epoch=novel.autopilot_run_epoch,
+            audited_chapter=novel.last_audit_chapter_number if finishing_audit else None,
+        )
         if not ok:
             logger.warning("持久化队列写入失败 novel=%s（无短连接兜底）", novel.novel_id.value)
         return ok
@@ -325,12 +325,10 @@ class DaemonHostMixin:
         self,
         novel_id: NovelId,
         fields: Dict[str, Any],
-        **kwargs: Any,
+        *, run_epoch: int | None = None, audited_chapter: int | None = None,
     ) -> bool:
         """增量 UPDATE novels——统一持久化队列，与单写者内核一致。"""
         from domain.novel.entities.novel import AutopilotStatus as _APS, NovelStage as _NS
-
-        _ = kwargs
 
         if not fields:
             return True
@@ -356,6 +354,20 @@ class DaemonHostMixin:
         values = list(processed.values()) + [novel_id.value]
 
         sql = f"UPDATE novels SET {', '.join(set_clauses)} WHERE id = ?"
+        if run_epoch is not None:
+            # Evaluate this when the queued UPDATE executes. An older daemon tick
+            # must not restart a stopped run or overwrite an explicitly resumed run.
+            # A terminal tick can finish saving its audit snapshot after its own stop.
+            sql += " AND COALESCE(autopilot_run_epoch, 0) = ?"
+            values.append(run_epoch)
+            if "autopilot_status" in processed and "current_stage" in processed:
+                sql += " AND (autopilot_status = 'running' OR (autopilot_status = ? AND current_stage = ?))"
+                values.extend([processed["autopilot_status"], processed["current_stage"]])
+            else:
+                sql += " AND autopilot_status = 'running'"
+        if audited_chapter is not None:
+            sql += " AND (pending_audit_chapter_number IS NULL OR pending_audit_chapter_number=?)"
+            values.append(audited_chapter)
         return self._queue_sql(sql, values)
 
 
@@ -431,7 +443,7 @@ class DaemonHostMixin:
             return None
 
 
-    def _read_autopilot_status_ephemeral(self, novel_id: NovelId) -> Optional[AutopilotStatus]:
+    def _read_autopilot_status_ephemeral(self, novel_id: NovelId, *, run_epoch=None) -> Optional[AutopilotStatus]:
         """用独立 SQLite 连接读 autopilot_status。
 
         主仓储连接在 asyncio 与 asyncio.to_thread、或后台线程里并发用时，同一 sqlite3 连接
@@ -444,11 +456,13 @@ class DaemonHostMixin:
 
         db = get_database(get_db_path())
         row = db.fetch_one(
-            "SELECT autopilot_status FROM novels WHERE id = ?",
+            "SELECT autopilot_status, autopilot_run_epoch FROM novels WHERE id = ?",
             (novel_id.value,),
         )
         if not row:
             return None
+        if run_epoch is not None and (row["autopilot_run_epoch"] or 0) != run_epoch:
+            return AutopilotStatus.STOPPED
         raw = row["autopilot_status"]
         try:
             return AutopilotStatus(raw)
@@ -457,8 +471,10 @@ class DaemonHostMixin:
 
 
     def _merge_autopilot_status_from_db(self, novel: Novel) -> None:
-        """用户点「停止」只改 DB；写库前必须合并，否则会覆盖 STOPPED。"""
-        status = self._read_autopilot_status_ephemeral(novel.novel_id)
+        """Only the API starts a run. A tick may observe or request a stop."""
+        if novel.autopilot_status != AutopilotStatus.RUNNING:
+            return
+        status = self._read_autopilot_status_ephemeral(novel.novel_id, run_epoch=novel.autopilot_run_epoch)
         if status is not None:
             novel.autopilot_status = status
 
@@ -551,6 +567,7 @@ class DaemonHostMixin:
         patch_fields = dict(
             autopilot_status=novel.autopilot_status,
             current_stage=novel.current_stage,
+            last_audit_issues=novel.last_audit_issues,
             current_act=novel.current_act,
             current_chapter_in_act=novel.current_chapter_in_act,
             current_beat_index=novel.current_beat_index,
@@ -574,7 +591,9 @@ class DaemonHostMixin:
 
         # 🔥 CQRS：优先推持久化队列（零锁竞争），_patch_novel_ephemeral 内部
         # 默认走 _queue_sql → EXECUTE_SQL 命令，由 API 进程消费者串行执行
-        ok = self._patch_novel_ephemeral(novel.novel_id, patch_fields)
+        ok = self._patch_novel_ephemeral(novel.novel_id, patch_fields, run_epoch=novel.autopilot_run_epoch)
+        if not ok:
+            raise RuntimeError(f"无法将小说状态提交给持久化队列：{novel.novel_id.value}")
 
         # 同步阶段、节拍等非聚合字段到共享内存（完稿/书稿/总字数仅在落库与审计节点写入 _cached_*）
         self._cache_stats_to_shared_memory(novel)
@@ -670,6 +689,7 @@ class DaemonHostMixin:
         try:
             self._update_shared_state(
                 nid,
+                autopilot_run_epoch=novel.autopilot_run_epoch,
                 current_stage=novel.current_stage.value,
                 current_act=novel.current_act,
                 current_act_title=current_act_title,
@@ -992,17 +1012,14 @@ class DaemonHostMixin:
 
 
     def _latest_completed_chapter_number(self, novel_id: NovelId) -> Optional[int]:
-        """已完结章节的最大章节号（与故事树全局章节号一致）。
-
-        🔥 性能优化：使用轻量 SQL 查询，不加载章节内容。
-        原来用 list_by_novel 会加载所有章节的 content 字段（可能数百 KB），
-        在 DB 锁竞争时会阻塞很久。
-        """
+        """Return the committed audit target. Older runs without a receipt use the last completed chapter."""
         try:
             db = self.chapter_repository.db if hasattr(self.chapter_repository, 'db') else None
             if db is not None:
                 row = db.fetch_one(
-                    "SELECT MAX(number) as max_num FROM chapters WHERE novel_id = ? AND status = 'completed'",
+                    """SELECT MAX(c.number) AS max_num FROM chapters c JOIN novels n ON n.id=c.novel_id
+                        WHERE n.id=? AND c.status='completed' AND c.manuscript_revision<>''
+                          AND (n.pending_audit_chapter_number IS NULL OR c.number=n.pending_audit_chapter_number)""",
                     (novel_id.value,)
                 )
                 if row and row['max_num']:
@@ -1013,7 +1030,7 @@ class DaemonHostMixin:
 
         # 降级：原来的方法
         chapters = self.chapter_repository.list_by_novel(novel_id)
-        completed = [c for c in chapters if c.status == ChapterStatus.COMPLETED]
+        completed = [c for c in chapters if c.status == ChapterStatus.COMPLETED and (c.content or "").strip()]
         if not completed:
             return None
         return max(c.number for c in completed)
@@ -1030,7 +1047,7 @@ class DaemonHostMixin:
             db = self.chapter_repository.db if hasattr(self.chapter_repository, 'db') else None
             if db is not None:
                 row = db.fetch_one(
-                    "SELECT COUNT(*) as cnt FROM chapters WHERE novel_id = ? AND status = 'completed'",
+                    "SELECT COUNT(*) as cnt FROM chapters WHERE novel_id=? AND status='completed' AND manuscript_revision<>''",
                     (novel_id.value,)
                 )
                 return row['cnt'] if row else 0
@@ -1038,7 +1055,7 @@ class DaemonHostMixin:
             pass
         # 降级：使用原有方法
         chapters = self.chapter_repository.list_by_novel(novel_id)
-        return sum(1 for c in chapters if c.status == ChapterStatus.COMPLETED)
+        return sum(1 for c in chapters if c.status == ChapterStatus.COMPLETED and (c.content or "").strip())
 
 
     def _publish_audit_event(self, novel_id: str, event_type: str, data: Optional[Dict] = None) -> None:
@@ -1078,13 +1095,10 @@ class DaemonHostMixin:
             import sys
             shared = sys.modules.get("__shared_state")
             if shared is not None:
-                key = f"novel:{novel_id}"
-                current = dict(shared.get(key, {}))
-                current.update(fields)
-                current["_updated_at"] = time.time()
+                from application.engine.services.shared_state_repository import merge_novel_state
+                merge_novel_state(shared, novel_id, fields)
                 # 🔥 同时更新守护进程心跳
                 shared["_daemon_heartbeat"] = time.time()
-                shared[key] = current
                 return
         except Exception:
             pass
@@ -1811,7 +1825,10 @@ class DaemonHostMixin:
             raise RuntimeError("autopilot_invocation_unavailable") from exc
 
         novel_id = getattr(novel.novel_id, "value", novel.novel_id)
-        chapter_number = int(getattr(novel, "current_chapter_number", 0) or 0)
+        from application.engine.services.checked_chapter_write import current_writing_session
+        writing_session = current_writing_session.get()
+        chapter_number = (writing_session.target.chapter_number if writing_session is not None
+                          else int(getattr(novel, "current_chapter_number", 0) or 0))
         if chapter_number <= 0:
             chapter_number = int(getattr(novel, "current_auto_chapters", 0) or 0) + 1
         beat_index = int(getattr(novel, "current_beat_index", 0) or 0)
@@ -1873,7 +1890,8 @@ class DaemonHostMixin:
             explicit_variables=variables,
             continuation_handler_key="autopilot_prose_generation",
             policy_hint=policy,
-            metadata={"source": "daemon_host.stream_llm", "context_key": context_key},
+            metadata={"source": "daemon_host.stream_llm", "context_key": context_key,
+                      "writing_binding": writing_session.binding() if writing_session is not None else None},
         )
         orchestrator = get_or_create_autopilot_orchestrator(self)
         prepared = await orchestrator.prepare(intent)
@@ -2147,53 +2165,6 @@ class DaemonHostMixin:
                 sql, [ch_id, novel_id, chapter_number, ch_title, content_str, ch_outline, ch_status, wc]
             )
 
-
-    def _find_parent_volume_for_new_act(
-        self,
-        volume_nodes: list,
-        act_nodes: list,
-        current_auto_chapters: int,
-        target_chapters: int,
-        rec_acts_per_volume: int,
-        novel_id: str,
-    ):
-        """智能选择新幕的父卷。
-
-        核心改进（替代原来的线性均分算法）：
-        1. 统计每个已有卷下已挂载了多少幕
-        2. 优先选择「当前写入卷」（幕数尚未达到 rec_acts_per_volume 的卷）
-        3. 只有当前卷的幕数已经满了，才跳到下一卷
-        4. 这样确保每卷都能写够足够多的幕，而不是写3幕就跑路
-        """
-        if not volume_nodes:
-            logger.warning(f"[{novel_id}] 无可用卷节点，无法确定父卷")
-            return None
-
-        # 统计每个卷下的幕数量
-        volume_act_counts: Dict[int, int] = {}
-        for v in volume_nodes:
-            volume_act_counts[v.number] = sum(
-                1 for a in act_nodes if a.parent_id == v.id
-            )
-
-        # 策略：从第一个卷开始找，返回第一个「幕数 < rec_acts_per_volume」的卷
-        # 如果所有卷都满了，返回最后一个卷（允许超发）
-        for v in volume_nodes:
-            current_count = volume_act_counts.get(v.number, 0)
-            if current_count < rec_acts_per_volume:
-                logger.info(
-                    f"[{novel_id}] 父卷选择：第{v}卷已有{current_count}幕"
-                    f"（上限{rec_acts_per_volume}），继续在本卷创建新幕"
-                )
-                return v
-
-        # 所有卷都已达到建议幕数，挂在最后一个卷上（允许超发）
-        last_volume = volume_nodes[-1]
-        logger.info(
-            f"[{novel_id}] 父卷选择：所有卷已达{rec_acts_per_volume}幕上限"
-            f"，新幕挂到最后一个卷（第{last_volume.number}卷）"
-        )
-        return last_volume
 
     async def _find_next_unwritten_chapter_async(self, novel):
         """找到下一个未写的章节节点

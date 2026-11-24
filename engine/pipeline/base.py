@@ -151,6 +151,8 @@ class BaseStoryPipeline(ABC):
 
             # 4. LLM 生成（整章一次写完）
             self._mark_pipeline_step(ctx, "generate")
+            if ctx.writing_session is not None:
+                ctx.writing_session.submit("validate")
             r = await self._step_generate(ctx)
             step_status["generate"] = "ok" if r.passed else "failed"
             if not r.passed:
@@ -203,6 +205,10 @@ class BaseStoryPipeline(ABC):
             return self._make_result(ctx, success=True, step_status=step_status)
 
         except Exception as e:
+            from domain.structure.narrative_progress import NarrativeProgressError
+            if isinstance(e, NarrativeProgressError):
+                ctx.metadata["writing_target_conflict"] = True
+                self._discard_generation_workspace(ctx)
             logger.error(f"[{ctx.novel_id}] 管线异常: {e}", exc_info=True)
             return self._make_result(ctx, success=False, error=str(e), step_status=step_status)
 
@@ -221,6 +227,13 @@ class BaseStoryPipeline(ABC):
         - 推理引擎要求按时间线顺序写
         """
         self._log_step("find_next_chapter", "定位待写章节")
+
+        if ctx.writing_session is not None:
+            session = ctx.writing_session
+            ctx.chapter_node = session.node
+            ctx.chapter_number = session.target.chapter_number
+            ctx.outline = session.node.outline or session.node.description or session.node.title
+            return StepResult.ok(f"定位到第 {ctx.chapter_number} 章")
 
         if ctx.story_node_repo is None:
             return StepResult.fail("story_node_repo 未设置，无法定位章节")
@@ -242,7 +255,8 @@ class BaseStoryPipeline(ABC):
                         )
                     except Exception:
                         pass
-                if existing is None or getattr(existing, 'status', '') != 'completed':
+                if (existing is None or getattr(existing, 'status', '') != 'completed'
+                        or not str(getattr(existing, 'content', '') or '').strip()):
                     ctx.chapter_node = node
                     ctx.chapter_number = node.number
                     ctx.outline = node.outline or node.description or node.title or ""
@@ -470,8 +484,12 @@ class BaseStoryPipeline(ABC):
                     chapter_node=ctx.chapter_node,
                     current_outline=outline,
                     target_words=ctx.target_word_count,
+                    **({"writing_session": ctx.writing_session} if ctx.writing_session is not None else {}),
                 )
             except Exception as exc:
+                from domain.structure.narrative_progress import NarrativeProgressError
+                if isinstance(exc, NarrativeProgressError):
+                    raise
                 return StepResult.fail(f"章前执行剧本生成失败: {exc}")
             ctx.outline = outline
             ctx.metadata["chapter_plan_mode"] = "chapter_preplan"
@@ -566,6 +584,12 @@ class BaseStoryPipeline(ABC):
                 accumulated_words=len((content or "").strip()),
             )
 
+        if ctx.writing_session is not None:
+            binding = ctx.writing_session.binding()
+            ctx.metadata["writing_binding"] = binding
+            # A reviewed invocation may be adopted on a later run of the same
+            # plan, but a changed chapter or manuscript requires fresh prose.
+            ctx.metadata["writing_input_revision"] = ctx.writing_session.input_revision()
         request = ProseCompositionRequest(
             novel_id=ctx.novel_id,
             chapter_number=ctx.chapter_number,
@@ -696,6 +720,13 @@ class BaseStoryPipeline(ABC):
             chapter_target_words=ctx.target_word_count,
             accumulated_words=ctx.word_count,
         )
+
+        if ctx.writing_session is not None:
+            ctx.writing_session.submit("completed", content=ctx.chapter_content, outline=ctx.outline)
+            ctx.chapter_saved = True
+            ctx.save_method = "queue"
+            self._discard_generation_workspace(ctx)
+            return StepResult.ok()
 
         try:
             # 尝试推持久化队列
@@ -1035,7 +1066,8 @@ class BaseStoryPipeline(ABC):
             if host is not None and hasattr(host, "_patch_novel_ephemeral") and ctx.novel_id:
                 from domain.novel.value_objects.novel_id import NovelId
 
-                host._patch_novel_ephemeral(NovelId(ctx.novel_id), payload)
+                host._patch_novel_ephemeral(NovelId(ctx.novel_id), payload,
+                                            run_epoch=ctx.writing_session.epoch if ctx.writing_session else None)
         except Exception:
             pass
 

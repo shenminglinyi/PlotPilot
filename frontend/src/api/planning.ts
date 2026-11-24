@@ -172,21 +172,15 @@ export interface ContinuePlanningRequest {
 }
 
 export interface ContinuePlanResult {
-  /** 当前幕是否写完 */
-  is_act_complete: boolean
-  /** 是否需要创建下一幕 */
-  needs_next_act: boolean
-  /** 当前幕 story_node id（用于 createNextAct） */
-  current_act_id: string | null
-  /** 当前幕标题 */
-  current_act_title?: string
-  /** 当前章号在幕内的进度说明 */
-  progress_message?: string
-  /** 幕内已写章节数 */
-  completed_chapters?: number
-  /** 幕内总规划章节数 */
-  total_chapters?: number
-  /** 后端原始消息（兜底） */
+  success: boolean
+  act_completed?: boolean
+  suggest_create_next?: boolean
+  current_act?: { id: string; title: string }
+  next_act?: { id: string; title: string }
+  progress?: string
+  target_volume_id?: string
+  chapter_budget?: number
+  plan_revision?: string
   message?: string
   [key: string]: unknown
 }
@@ -522,6 +516,7 @@ export interface ActStreamChunkEvent {
 }
 
 export interface ActStreamDoneEvent {
+  plan_revision?: string | null
   success: boolean
   act_id: string
   chapters: Record<string, unknown>[]
@@ -644,7 +639,7 @@ export const planningApi = {
   generateActChapters: (actId: string, data: ActChaptersRequest) =>
     apiClient.post(`/planning/acts/${actId}/chapters/generate`, data),
 
-  confirmActChapters: (actId: string, data: { chapters: Record<string, unknown>[] }) =>
+  confirmActChapters: (actId: string, data: { chapters: Record<string, unknown>[]; expected_plan_revision?: string }) =>
     apiClient.post(`/planning/acts/${actId}/chapters/confirm`, data),
 
   // ==================== AI 续规划 ====================
@@ -652,8 +647,10 @@ export const planningApi = {
   continuePlanning: (novelId: string, data: ContinuePlanningRequest) =>
     apiClient.post<ContinuePlanResult>(`/planning/novels/${novelId}/continue`, data) as unknown as Promise<ContinuePlanResult>,
 
-  createNextAct: (actId: string) =>
-    apiClient.post<Record<string, unknown>>(`/planning/acts/${actId}/create-next`) as unknown as Promise<Record<string, unknown>>,
+  createNextAct: (actId: string, expectedPlanRevision?: string) =>
+    apiClient.post<Record<string, unknown>>(`/planning/acts/${actId}/create-next`, undefined, {
+      params: { expected_plan_revision: expectedPlanRevision },
+    }) as unknown as Promise<Record<string, unknown>>,
 
   // ==================== 查询 ====================
 

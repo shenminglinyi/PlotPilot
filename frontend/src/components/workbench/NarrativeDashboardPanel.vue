@@ -31,6 +31,7 @@
 
     <!-- ── Body ───────────────────────────────────────────── -->
     <div class="pp-panel-content ndp-body">
+      <NarrativeEvidencePanel :slug="slug" />
       <n-spin :show="loading" size="small" style="min-height: 100px">
 
         <!-- ① 叙事时刻 ─────────────────────────────────────── -->
@@ -252,6 +253,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
+import NarrativeEvidencePanel from './NarrativeEvidencePanel.vue'
 import { RefreshOutline } from '@vicons/ionicons5'
 import { narrativeEngineApi, type StoryEvolutionReadModel } from '@/api/narrativeEngine'
 import { foreshadowApi, type ForeshadowEntry } from '@/api/foreshadow'

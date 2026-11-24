@@ -38,6 +38,7 @@ def find_novels_with_chapters_optimized(db_pool, status: str) -> List[Novel]:
             n.target_chapters,
             n.premise,
             n.autopilot_status,
+            n.autopilot_run_epoch,
             n.auto_approve_mode,
             n.current_stage,
             n.current_act,
@@ -89,6 +90,7 @@ def find_novels_with_chapters_optimized(db_pool, status: str) -> List[Novel]:
                     'target_chapters': row['target_chapters'],
                     'premise': row['premise'],
                     'autopilot_status': row['autopilot_status'],
+                    'autopilot_run_epoch': row['autopilot_run_epoch'],
                     'auto_approve_mode': row['auto_approve_mode'],
                     'current_stage': row['current_stage'],
                     'current_act': row['current_act'],
@@ -201,6 +203,7 @@ def _build_novel_from_dict(data: Dict) -> Novel:
         last_audit_issues=lai,
         target_words_per_chapter=data.get("target_words_per_chapter", 2500),
         audit_progress=data.get("audit_progress"),
+        autopilot_run_epoch=data.get("autopilot_run_epoch", 0),
     )
 
 

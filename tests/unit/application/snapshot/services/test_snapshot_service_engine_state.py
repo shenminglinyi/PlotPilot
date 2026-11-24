@@ -1,7 +1,4 @@
 ﻿"""测试 SnapshotService 的引擎状态支持"""
-import sqlite3
-import tempfile
-from pathlib import Path
 
 import pytest
 
@@ -11,56 +8,11 @@ from infrastructure.persistence.database.sqlite_chapter_repository import Sqlite
 
 
 @pytest.fixture
-def temp_db():
-    """创建临时数据库"""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        db_path = Path(tmpdir) / "test.db"
-
-        # 创建临时数据库文件
-        conn = sqlite3.connect(str(db_path))
-
-        # 创建必要的表
-        conn.executescript("""
-            CREATE TABLE novels (
-                id TEXT PRIMARY KEY,
-                title TEXT NOT NULL,
-                slug TEXT NOT NULL
-            );
-
-            CREATE TABLE chapters (
-                id TEXT PRIMARY KEY,
-                novel_id TEXT NOT NULL,
-                number INTEGER NOT NULL,
-                title TEXT,
-                status TEXT DEFAULT 'draft',
-                word_count INTEGER DEFAULT 0
-            );
-
-            CREATE TABLE novel_snapshots (
-                id TEXT PRIMARY KEY,
-                novel_id TEXT NOT NULL,
-                parent_snapshot_id TEXT,
-                branch_name TEXT DEFAULT 'main',
-                trigger_type TEXT NOT NULL,
-                name TEXT NOT NULL,
-                description TEXT,
-                chapter_pointers TEXT DEFAULT '[]',
-                bible_state TEXT DEFAULT '{}',
-                foreshadow_state TEXT DEFAULT '{}',
-                story_state TEXT DEFAULT '{}',
-                character_masks TEXT DEFAULT '{}',
-                emotion_ledger TEXT DEFAULT '{}',
-                active_foreshadows TEXT DEFAULT '[]',
-                outline TEXT DEFAULT '',
-                recent_chapters_summary TEXT DEFAULT '',
-                created_at TEXT NOT NULL
-            );
-        """)
-        conn.close()
-
-        # 使用 DatabaseConnection 包装器
-        db = DatabaseConnection(str(db_path))
+def temp_db(tmp_path):
+    db = DatabaseConnection(str(tmp_path / "test.db"))
+    try:
         yield db
+    finally:
         db.close()
 
 

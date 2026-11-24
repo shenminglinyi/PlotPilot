@@ -44,6 +44,7 @@ class PipelineContext:
 
     # ═══ 步骤1产出：章节定位 ═══
     chapter_node: Optional[Any] = None           # StoryNode 实例
+    writing_session: Any = None                  # 托管决定及其事务性保存入口
     needs_buffer: bool = False                   # 是否需要余韵章
     buffer_reason: str = ""                      # 余韵章原因
 

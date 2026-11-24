@@ -36,6 +36,13 @@ async def _has_persisted_macro_structure(host: Any, novel_id: str) -> bool:
 
 async def process_novel(host: Any, novel: Novel) -> None:
     """处理单个小说（全流程状态机路由）"""
+    from application.engine.services.shared_state_repository import daemon_novel_run
+
+    with daemon_novel_run(novel.novel_id.value, novel.autopilot_run_epoch):
+        await _process_novel(host, novel)
+
+
+async def _process_novel(host: Any, novel: Novel) -> None:
     try:
         try:
             from application.engine.services.autopilot_recovery_policy import AutopilotRecoveryPolicy
@@ -89,6 +96,14 @@ async def process_novel(host: Any, novel: Novel) -> None:
 
         if not host._is_still_running(novel):
             logger.info("[%s] 用户已停止自动驾驶，跳过本轮", novel.novel_id)
+            return
+
+        if novel.current_stage == NovelStage.COMPLETED:
+            # A legacy count-only completion is not trusted when the user resumes.
+            from engine.runtime.narrative_progress_guard import enforce_progress
+            if not await enforce_progress(host, novel, writing=True):
+                novel.current_stage = NovelStage.WRITING
+                host._flush_novel(novel)
             return
 
         stage_name = novel.current_stage.value

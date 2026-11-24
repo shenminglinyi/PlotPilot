@@ -593,9 +593,8 @@ async def run_chapter_audit(host: Any, novel: Novel) -> None:
         novel.current_stage = NovelStage.WRITING
 
     if book_done and not pause_gate:
-        logger.info(f"[{novel.novel_id}] 全书完成，共 {completed_count} 章")
-        novel.autopilot_status = AutopilotStatus.STOPPED
-        novel.current_stage = NovelStage.COMPLETED
+        from engine.runtime.narrative_progress_guard import enforce_progress
+        await enforce_progress(host, novel, force_limit=True)
     elif book_done and pause_gate:
         logger.info(
             "[%s] 全书已完成 %s 章，但章末闸门打开：保持待审阅，恢复后继续结束流程",
@@ -613,8 +612,8 @@ async def run_chapter_audit(host: Any, novel: Novel) -> None:
             "similarity_score": drift_result.get("similarity_score"),
             "completed_chapters": completed_count,
             "target_chapters": novel.target_chapters,
-            "is_completed": book_done and not pause_gate,
-            "paused_for_review": pause_gate,
+            "is_completed": novel.current_stage == NovelStage.COMPLETED,
+            "paused_for_review": novel.current_stage == NovelStage.PAUSED_FOR_REVIEW,
             "hard_fail": hard_fail,
             "anti_ai_assessment": anti_assessment,
         },
@@ -664,13 +663,16 @@ async def run_chapter_audit(host: Any, novel: Novel) -> None:
     # 🔥 核心修复：novel_repository.save() 改为独立短连接写入
     # 原因：repository.save() 使用线程本地长连接，写锁持有时间不可控
     # 在守护进程（multiprocessing.Process）中，这会阻塞 API 进程的所有 DB 操作
-    host._save_novel_ephemeral(novel)
+    host._save_novel_ephemeral(novel, finishing_audit=True)
     logger.info(f"[{novel.novel_id}] 审计完成，状态已落盘")
 
     # 🔥 审计完成：同步编年史+故事线到共享内存
     # narrative_sync 会更新故事线进度到 DB，这里重新加载确保共享内存同步
     host._sync_chronicles_to_shared_memory(novel.novel_id.value)
     host._sync_storylines_to_shared_memory(novel.novel_id.value)
+
+    if novel.autopilot_status == AutopilotStatus.STOPPED:
+        return
 
     # 🔗 衔接引擎：审计完成后提取章节桥段（供下一章首段衔接使用）
     await host._extract_chapter_bridge(novel.novel_id.value, chapter_num, content)

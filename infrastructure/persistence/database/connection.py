@@ -171,6 +171,7 @@ def _apply_last_chapter_audit_columns(conn: sqlite3.Connection) -> None:
         "last_audit_chapter_number": (
             "ALTER TABLE novels ADD COLUMN last_audit_chapter_number INTEGER"
         ),
+        "pending_audit_chapter_number": "ALTER TABLE novels ADD COLUMN pending_audit_chapter_number INTEGER",
         "last_audit_similarity": "ALTER TABLE novels ADD COLUMN last_audit_similarity REAL",
         "last_audit_drift_alert": (
             "ALTER TABLE novels ADD COLUMN last_audit_drift_alert INTEGER DEFAULT 0"

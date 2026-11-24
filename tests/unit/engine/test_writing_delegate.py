@@ -169,7 +169,9 @@ async def test_run_story_pipeline_writing_all_chapters_done_without_full_act_rep
 
 
 @pytest.mark.asyncio
-async def test_run_writing_dispatches_legacy_when_pipeline_disabled():
+async def test_run_writing_dispatches_legacy_when_pipeline_disabled(monkeypatch):
+    session = MagicMock()
+    monkeypatch.setattr("engine.runtime.writing_delegate._prepare_writing_session", AsyncMock(return_value=session))
     host = MagicMock()
     host.use_story_pipeline_for_writing = False
     novel = MagicMock()
@@ -177,4 +179,4 @@ async def test_run_writing_dispatches_legacy_when_pipeline_disabled():
     with patch("engine.runtime.legacy_writing_delegate.run_legacy_writing", new=AsyncMock()) as legacy:
         await run_writing(host, novel)
 
-    legacy.assert_awaited_once_with(host, novel)
+    legacy.assert_awaited_once_with(host, novel, session=session)
