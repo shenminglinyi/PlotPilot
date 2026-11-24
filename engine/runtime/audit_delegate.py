@@ -612,8 +612,8 @@ async def run_chapter_audit(host: Any, novel: Novel) -> None:
             "similarity_score": drift_result.get("similarity_score"),
             "completed_chapters": completed_count,
             "target_chapters": novel.target_chapters,
-            "is_completed": book_done and not pause_gate,
-            "paused_for_review": pause_gate,
+            "is_completed": novel.current_stage == NovelStage.COMPLETED,
+            "paused_for_review": novel.current_stage == NovelStage.PAUSED_FOR_REVIEW,
             "hard_fail": hard_fail,
             "anti_ai_assessment": anti_assessment,
         },
@@ -670,6 +670,9 @@ async def run_chapter_audit(host: Any, novel: Novel) -> None:
     # narrative_sync 会更新故事线进度到 DB，这里重新加载确保共享内存同步
     host._sync_chronicles_to_shared_memory(novel.novel_id.value)
     host._sync_storylines_to_shared_memory(novel.novel_id.value)
+
+    if novel.autopilot_status == AutopilotStatus.STOPPED:
+        return
 
     # 🔗 衔接引擎：审计完成后提取章节桥段（供下一章首段衔接使用）
     await host._extract_chapter_bridge(novel.novel_id.value, chapter_num, content)

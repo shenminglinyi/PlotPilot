@@ -11,6 +11,9 @@ from typing import Iterable, Mapping
 from domain.structure.story_node import NodeType, StoryNode
 
 
+NARRATIVE_REVIEW_ISSUE = "narrative_progress_review_required"
+
+
 class NarrativeProgressError(ValueError):
     pass
 

@@ -1,7 +1,10 @@
 """Autopilot review-gate presentation rules."""
 from __future__ import annotations
 
+import json
 from typing import Any, Mapping
+
+from domain.structure.narrative_progress import NARRATIVE_REVIEW_ISSUE
 
 
 INVOCATION_WAITING_STATUSES = {
@@ -16,6 +19,23 @@ PENDING_INVOCATION_STATUSES = INVOCATION_WAITING_STATUSES | INVOCATION_FAILED_ST
 
 def stage_needs_human_review(stage: Any) -> bool:
     return str(stage or "").strip().lower() in {"paused_for_review", "reviewing"}
+
+
+def persisted_narrative_review_reason(row: Mapping[str, Any]) -> str:
+    """Restore the durable review decision before any UI memory exists."""
+    if row.get("current_stage") != "paused_for_review" or row.get("autopilot_status") != "stopped":
+        return ""
+    issues = row.get("last_audit_issues")
+    if isinstance(issues, str):
+        try:
+            issues = json.loads(issues)
+        except ValueError:
+            return ""
+    if isinstance(issues, list):
+        for issue in issues:
+            if isinstance(issue, dict) and issue.get("code") == NARRATIVE_REVIEW_ISSUE:
+                return str(issue.get("message") or "")
+    return ""
 
 
 def review_type_for_operation(operation: str, substep: str = "") -> str:
@@ -51,11 +71,17 @@ def _is_initial_macro_review_context(status: Mapping[str, Any]) -> bool:
 
 
 def review_gate_from_status(status: Mapping[str, Any]) -> dict[str, Any] | None:
-    if str(status.get("autopilot_status") or "").strip().lower() in {"stopped", "completed"}:
-        return None
-
     stage = str(status.get("current_stage") or "")
     needs_review = bool(status.get("needs_review")) or stage_needs_human_review(stage)
+    reason = status.get("narrative_review_reason")
+    if reason and stage == "paused_for_review" and status.get("autopilot_status") == "stopped":
+        return {
+            "type": "manual_review", "status": "ready", "artifact_status": "pending",
+            "can_resume": True, "primary_action": "resume", "action_label": "重新检查剧情进度",
+            "message": reason,
+        }
+    if str(status.get("autopilot_status") or "").strip().lower() in {"stopped", "completed"}:
+        return None
     active_session = str(status.get("active_invocation_session_id") or "").strip()
     active_status = str(status.get("active_invocation_status") or "").strip()
     operation = str(status.get("active_invocation_operation") or "")

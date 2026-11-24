@@ -12,10 +12,56 @@
 """
 import logging
 import time
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
+from threading import RLock
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+NOVEL_STATE_LOCK = "_novel_state_lock"
+_local_state_lock = RLock()
+_daemon_run = ContextVar("daemon_novel_run", default=None)
+
+
+@contextmanager
+def daemon_novel_run(novel_id: str, epoch: int):
+    """Bind all stage, progress and invocation updates from this tick to one run."""
+    token = _daemon_run.set((novel_id, epoch))
+    try:
+        yield
+    finally:
+        _daemon_run.reset(token)
+
+
+def merge_novel_state(shared, novel_id: str, fields: dict, *, require_existing=False) -> bool:
+    """Compare and update one mirror atomically across API and daemon processes."""
+    run = _daemon_run.get()
+    epoch = run[1] if run and run[0] == novel_id else fields.get("autopilot_run_epoch")
+    key = f"novel:{novel_id}"
+    with shared.get(NOVEL_STATE_LOCK) or _local_state_lock:
+        current = shared.get(key)
+        if require_existing and current is None:
+            return False
+        current = dict(current or {})
+        if epoch is not None:
+            previous_epoch = current.get("autopilot_run_epoch")
+            if previous_epoch is not None:
+                if epoch < previous_epoch:
+                    return False
+                if epoch == previous_epoch and current.get("autopilot_status") in {"stopped", "error"}:
+                    if fields.get("autopilot_status") == "running":
+                        return False
+                    if fields.get("current_stage", current.get("current_stage")) != current.get("current_stage"):
+                        return False
+        current.update(fields)
+        if epoch is not None:
+            current["autopilot_run_epoch"] = epoch
+        current["novel_id"] = novel_id
+        current["_updated_at"] = time.time()
+        shared[key] = current
+        return True
 
 
 @dataclass
@@ -72,6 +118,7 @@ class NovelState:
     has_active_invocation: bool = False
     requires_ai_review: bool = False
     autopilot_pause_reason: str = ""
+    autopilot_run_epoch: int = 0
     _updated_at: float = field(default_factory=time.time)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -98,6 +145,7 @@ class NovelState:
             "has_active_invocation": self.has_active_invocation,
             "requires_ai_review": self.requires_ai_review,
             "autopilot_pause_reason": self.autopilot_pause_reason,
+            "autopilot_run_epoch": self.autopilot_run_epoch,
             "_updated_at": self._updated_at,
         }
 
@@ -126,6 +174,7 @@ class NovelState:
             has_active_invocation=bool(data.get("has_active_invocation", False)),
             requires_ai_review=data.get("requires_ai_review", False),
             autopilot_pause_reason=data.get("autopilot_pause_reason", ""),
+            autopilot_run_epoch=data.get("autopilot_run_epoch", 0),
             _updated_at=data.get("_updated_at", time.time()),
         )
 
@@ -183,14 +232,12 @@ class SharedStateRepository:
             logger.warning(f"解析小说状态失败: {e}")
             return None
 
-    def set_novel_state(self, novel_id: str, state: NovelState):
+    def set_novel_state(self, novel_id: str, state: NovelState, **fields):
         """设置小说状态"""
         if not self._ensure_state():
             return
 
-        state._updated_at = time.time()
-        key = f"{self.PREFIX_NOVEL}{novel_id}"
-        self._state[key] = state.to_dict()
+        merge_novel_state(self._state, novel_id, {**state.to_dict(), **fields})
 
         # 更新小说列表
         self._update_novel_list(novel_id)
@@ -426,12 +473,8 @@ class SharedStateRepository:
         if not self._ensure_state():
             return False
 
-        key = f"{self.PREFIX_NOVEL}{novel_id}"
-        data = self._state.get(key)
-        if not isinstance(data, dict):
+        if not merge_novel_state(self._state, novel_id, fields, require_existing=True):
             return False
-        data.update(fields)
-        self._state[key] = data
         self._update_novel_list(novel_id)
         return True
 

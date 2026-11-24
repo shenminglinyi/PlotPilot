@@ -6,6 +6,9 @@ import os
 import sqlite3
 import time
 from datetime import datetime
+from functools import wraps
+from uuid import uuid4
+from weakref import WeakValueDictionary
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -14,6 +17,7 @@ from domain.novel.entities.novel import AutopilotStatus, NovelStage
 from domain.novel.entities.chapter import ChapterStatus
 from domain.novel.value_objects.novel_id import NovelId
 from domain.novel.value_objects.word_count import WordCount
+from domain.structure.narrative_progress import NARRATIVE_REVIEW_ISSUE
 from interfaces.api.dependencies import get_novel_repository, get_chapter_repository
 from application.paths import get_db_path
 from application.core.chapter_target_limits import (
@@ -36,6 +40,7 @@ from application.engine.services.autopilot_log_ring import (
     snapshot_for_novel,
 )
 from application.ai_invocation.autopilot.review_gate import (
+    persisted_narrative_review_reason,
     resume_block_reason_from_status,
     stage_needs_human_review,
     with_review_gate,
@@ -122,133 +127,131 @@ def _stage_after_review(novel) -> NovelStage:
     return NovelStage.ACT_PLANNING
 
 
-def _persist_autopilot_running_sync(
-    novel_id: str,
-    *,
-    max_auto_chapters: int,
-    target_chapters: int,
-    target_words_per_chapter: int,
-) -> Dict[str, Any]:
-    """将 RUNNING 写入 DB 并等待持久化队列落盘。
+# One API process owns the SQLite writer and IPC channel. Preserve the order of
+# committed controls all the way through publication, without blocking other books.
+_control_locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
 
-    守护进程仅按 DB autopilot_status=running 捞书；全量 save() 易与首页改篇幅等
-    并发写回 stopped，故用 patch + 兜底 UPDATE。
+
+def _serialize_novel_control(handler):
+    @wraps(handler)
+    async def serialized(novel_id: str, *args, **kwargs):
+        lock = _control_locks.get(novel_id)
+        if lock is None:
+            lock = _control_locks[novel_id] = asyncio.Lock()
+        async with lock:
+            return await handler(novel_id, *args, **kwargs)
+    return serialized
+
+
+def _submit_control_update(sql: str, params: list):
+    from application.engine.services.persistence_queue import get_persistence_queue, PersistenceCommandType
+
+    row = get_persistence_queue().submit_and_wait(
+        PersistenceCommandType.EXECUTE_SQL.value, {"sql": sql, "params": params, "return_row": True},
+        timeout=get_autopilot_runtime_settings().db_persist_timeout_seconds,
+    )
+    if not row:
+        raise HTTPException(409, "书稿运行状态已变化，请刷新后再试")
+    return row
+
+
+def _commit_autopilot_run(novel_id: str, *, epoch: int, next_stage: str,
+                          max_auto_chapters: int, target_chapters: int,
+                          target_words_per_chapter: int, review_act: int | None = None,
+                          recovery_claim: str | None = None) -> int:
+    """Start one run on the SQLite writer. Its stage and epoch become visible together."""
+    sql = """
+        UPDATE novels SET autopilot_status = 'running', autopilot_run_epoch = ?,
+            current_stage = ?, last_stable_stage = ?, current_act = COALESCE(?, current_act),
+            consecutive_error_count = 0, target_chapters = ?, max_auto_chapters = ?,
+            target_words_per_chapter = ?, active_pipeline_step = '', active_pipeline_run_id = '',
+            last_audit_issues = CASE WHEN json_valid(last_audit_issues) THEN COALESCE((
+                SELECT json_remove(novels.last_audit_issues, issue.fullkey)
+                  FROM json_each(novels.last_audit_issues) AS issue
+                 WHERE CASE WHEN issue.type = 'object' THEN json_extract(issue.value, '$.code') END = ?
+                 LIMIT 1
+            ), last_audit_issues) ELSE last_audit_issues END,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND COALESCE(autopilot_run_epoch, 0) = ?
     """
-    from application.engine.services.persistence_queue import get_persistence_queue
+    params = [epoch + 1, next_stage, next_stage, review_act, target_chapters, max_auto_chapters,
+              target_words_per_chapter, NARRATIVE_REVIEW_ISSUE, novel_id, epoch]
+    if review_act is not None:
+        sql += " AND current_stage IN ('paused_for_review','reviewing')"
+    if recovery_claim:
+        sql += " AND active_pipeline_run_id = ? AND autopilot_status = 'stopped'"
+        params.append(recovery_claim)
+    return int(_submit_control_update(sql + " RETURNING autopilot_run_epoch", params)[0])
+
+
+def _persist_autopilot_running_sync(novel_id: str, *, max_auto_chapters: int,
+                                    target_chapters: int | None, target_words_per_chapter: int | None) -> Dict[str, Any]:
     from application.engine.services.autopilot_recovery_policy import AutopilotRecoveryPolicy
     from application.engine.services.chapter_generation_workspace import ChapterGenerationWorkspace
     from infrastructure.persistence.database.connection import get_database
 
-    runtime_settings = get_autopilot_runtime_settings()
-    repo = get_novel_repository()
-    novel = repo.get_by_id(NovelId(novel_id))
+    novel = get_novel_repository().get_by_id(NovelId(novel_id))
     if not novel:
-        return {"decision": None, "run_epoch": None}
-
+        raise HTTPException(404, "小说不存在")
     policy = AutopilotRecoveryPolicy(get_database(), workspace=ChapterGenerationWorkspace())
     decision = policy.decide_on_start(novel_id)
-    policy.apply_transient_cleanup(decision)
-    try:
-        patch_stage = NovelStage(decision.next_stage)
-    except ValueError:
-        patch_stage = NovelStage.MACRO_PLANNING
-
-    repo.patch(
-        NovelId(novel_id),
-        autopilot_status=AutopilotStatus.RUNNING,
-        max_auto_chapters=max_auto_chapters,
-        current_auto_chapters=novel.current_auto_chapters or 0,
-        consecutive_error_count=0,
-        target_chapters=target_chapters,
-        target_words_per_chapter=target_words_per_chapter,
-        current_stage=patch_stage,
-        active_pipeline_step="",
-        active_pipeline_run_id="",
-        last_stable_stage=decision.next_stage,
-    )
-
-    pq = get_persistence_queue()
-    if pq is not None:
-        pq.wait_until_idle(timeout=runtime_settings.persistence_idle_timeout_seconds)
-
-    row = get_database().fetch_one(
-        "SELECT autopilot_status FROM novels WHERE id = ?",
-        (novel_id,),
-    )
-    ap = (row or {}).get("autopilot_status") if row else None
-    if ap != "running":
-        logger.warning(
-            "autopilot persist: novel_id=%s DB 仍为 %r，兜底 UPDATE running",
-            novel_id,
-            ap,
+    claim = None
+    if decision.discard_transient_generation or decision.discard_transient_invocations or decision.clear_pending_invocation:
+        # Keep the daemon idle while interrupted work is reclaimed. A failed
+        # cleanup leaves a stopped book. A later start can acquire a fresh claim.
+        claim = uuid4().hex
+        _submit_control_update(
+            """UPDATE novels SET autopilot_status = 'stopped', active_pipeline_run_id = ?, updated_at = CURRENT_TIMESTAMP
+               WHERE id = ? AND COALESCE(autopilot_run_epoch, 0) = ? AND autopilot_status = ?
+                 AND COALESCE(active_pipeline_run_id, '') = ? RETURNING autopilot_run_epoch""",
+            [claim, novel_id, novel.autopilot_run_epoch, novel.autopilot_status.value, novel.active_pipeline_run_id or ""],
         )
-        get_database().execute(
-            """UPDATE novels SET autopilot_status = 'running', updated_at = CURRENT_TIMESTAMP
-               WHERE id = ?""",
-            (novel_id,),
-        )
-        get_database().commit()
-        if pq is not None:
-            pq.wait_until_idle(timeout=runtime_settings.persistence_fallback_idle_timeout_seconds)
-
-    row = get_database().fetch_one(
-        "SELECT autopilot_run_epoch FROM novels WHERE id = ?",
-        (novel_id,),
-    )
-    old_epoch = int((row or {}).get("autopilot_run_epoch") or 0)
-    new_epoch = old_epoch + 1
-    get_database().execute(
-        """
-        UPDATE novels
-        SET autopilot_run_epoch = ?,
-            active_pipeline_step = '',
-            active_pipeline_run_id = '',
-            last_stable_stage = ?,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-        """,
-        (new_epoch, decision.next_stage, novel_id),
-    )
-    get_database().commit()
-    return {"decision": decision, "run_epoch": new_epoch}
+        policy.apply_transient_cleanup(decision)
+    tc = target_chapters if target_chapters is not None else novel.target_chapters or 1
+    twpc = target_words_per_chapter if target_words_per_chapter is not None else novel.target_words_per_chapter or 2500
+    epoch = _commit_autopilot_run(novel_id, epoch=novel.autopilot_run_epoch, next_stage=decision.next_stage,
+                                  max_auto_chapters=max_auto_chapters, target_chapters=tc,
+                                  target_words_per_chapter=twpc, recovery_claim=claim)
+    return {"decision": decision, "run_epoch": epoch, "novel": novel, "target_chapters": tc,
+            "target_words_per_chapter": twpc}
 
 
-def _persist_autopilot_resume_sync(
-    novel_id: str,
-    *,
-    next_stage: str,
-    current_act: int,
-    max_auto_chapters: int,
-    target_chapters: int,
-    target_words_per_chapter: int,
-) -> Dict[str, Any]:
-    """Persist an explicit review-resume transition.
+def _persist_autopilot_resume_sync(novel_id: str, *, next_stage: str, current_act: int,
+                                   expected_epoch: int | None = None) -> int:
+    novel = get_novel_repository().get_by_id(NovelId(novel_id))
+    if not novel:
+        raise HTTPException(404, "小说不存在")
+    return _commit_autopilot_run(
+        novel_id, epoch=novel.autopilot_run_epoch if expected_epoch is None else expected_epoch,
+        next_stage=next_stage, review_act=current_act,
+        max_auto_chapters=novel.max_auto_chapters, target_chapters=novel.target_chapters,
+        target_words_per_chapter=novel.target_words_per_chapter,
+    )
 
-    Start recovery intentionally preserves ``paused_for_review``. A resume has
-    already validated the review gate and computed the real next stage, so it
-    must write that stage after the generic RUNNING persistence path.
-    """
-    result = _persist_autopilot_running_sync(
-        novel_id,
-        max_auto_chapters=max_auto_chapters,
-        target_chapters=target_chapters,
-        target_words_per_chapter=target_words_per_chapter,
+
+def _persist_autopilot_stop_sync(novel_id: str) -> dict:
+    from infrastructure.persistence.database.connection import get_database
+
+    db = get_database()
+    snapshot = db.fetch_one(
+        """SELECT autopilot_status, COALESCE(autopilot_run_epoch, 0) AS autopilot_run_epoch,
+                  current_stage, last_audit_issues FROM novels WHERE id = ?""", (novel_id,),
     )
-    try:
-        resolved_stage = NovelStage(next_stage)
-    except ValueError:
-        resolved_stage = NovelStage.ACT_PLANNING
-    get_novel_repository().patch(
-        NovelId(novel_id),
-        autopilot_status=AutopilotStatus.RUNNING,
-        current_stage=resolved_stage,
-        current_act=current_act or 0,
-        consecutive_error_count=0,
-        active_pipeline_step="",
-        active_pipeline_run_id="",
-        last_stable_stage=resolved_stage.value,
+    if not snapshot:
+        raise HTTPException(404, "小说不存在")
+    if snapshot["autopilot_status"] == "stopped":
+        return {**snapshot, "already_stopped": True}
+    row = _submit_control_update(
+        """UPDATE novels SET autopilot_status = 'stopped',
+                  autopilot_run_epoch = COALESCE(autopilot_run_epoch, 0) +
+                      CASE WHEN autopilot_status = 'stopped' THEN 0 ELSE 1 END,
+                  updated_at = CURRENT_TIMESTAMP
+           WHERE id = ? AND COALESCE(autopilot_run_epoch, 0) = ?
+           RETURNING autopilot_run_epoch, current_stage, last_audit_issues""",
+        [novel_id, snapshot["autopilot_run_epoch"]],
     )
-    return result
+    return {"autopilot_status": "stopped", "autopilot_run_epoch": row[0], "current_stage": row[1],
+            "last_audit_issues": row[2], "already_stopped": row[0] == snapshot["autopilot_run_epoch"]}
 
 
 def _macro_structure_exists(novel_id: str) -> bool:
@@ -1376,100 +1379,42 @@ class StartRequest(BaseModel):
 
 
 @router.post("/{novel_id}/start")
+@_serialize_novel_control
 async def start_autopilot(novel_id: str, body: StartRequest = StartRequest()):
-    """启动自动驾驶（共享内存先行；目标章数字数原子落库后再发 IPC，避免与 PUT 竞态）。
-
-    架构：
-    1. 解析当前阶段并合并本次请求的 target_chapters / target_words_per_chapter（可选）。
-    2. 立即写入共享内存（含目标字数，供 /status 与前端进度条）。
-    3. await 线程池中的 DB 持久化（RUNNING + 目标字段），再发布 IPC —— 守护进程下一轮读 DB 即可拿到正确每章字数。
-    """
-    runtime_settings = get_autopilot_runtime_settings()
+    """按数据库中的当前运行轮次启动，提交后更新进程间状态。"""
     loop = asyncio.get_running_loop()
 
-    # ── 第一步：从共享内存快速校验小说是否存在（优先）──
-    next_stage = None
-    current_act = 0
-    current_chapter_in_act = 0
-    current_beat_index = 0
-    resolved_tc = 1
-    resolved_twpc = 2500
-    current_stage_str = "macro_planning"
+    def persist_start():
+        return _persist_autopilot_running_sync(
+            novel_id, max_auto_chapters=body.max_auto_chapters,
+            target_chapters=_clamp_autopilot_target_chapters(body.target_chapters) if body.target_chapters is not None else None,
+            target_words_per_chapter=_clamp_autopilot_words_per_chapter(body.target_words_per_chapter)
+            if body.target_words_per_chapter is not None else None,
+        )
 
-    shared = _get_shared_state_for_novel(novel_id)
-    if shared and shared.get("_updated_at"):
-        # 共享内存有数据：零 DB IO 路径
-        current_stage_str = shared.get("current_stage", "macro_planning")
-        current_act = shared.get("current_act", 0) or 0
-        current_chapter_in_act = shared.get("current_chapter_in_act", 0) or 0
-        current_beat_index = int(shared.get("current_beat_index", 0) or 0)
-        resolved_tc = int(shared.get("target_chapters", 1) or 1)
-        resolved_twpc = int(shared.get("target_words_per_chapter") or 2500)
-
-        # 计算下一阶段
-        fresh_stages = {"planning", "macro_planning"}
-        if current_stage_str in fresh_stages:
-            next_stage = NovelStage.MACRO_PLANNING.value
-        elif current_stage_str == "paused_for_review":
-            next_stage = NovelStage.PAUSED_FOR_REVIEW.value
-        else:
-            next_stage = current_stage_str
-    else:
-        # ── 降级路径：共享内存无数据，必须读 DB（在线程池中执行）──
-        def _start_read_sync():
-            repo = get_novel_repository()
-            n = repo.get_by_id(NovelId(novel_id))
-            if not n:
-                return None
-            return {
-                "current_stage": n.current_stage.value if hasattr(n.current_stage, 'value') else str(n.current_stage),
-                "current_act": n.current_act or 0,
-                "current_chapter_in_act": n.current_chapter_in_act or 0,
-                "current_beat_index": getattr(n, "current_beat_index", 0) or 0,
-                "target_chapters": n.target_chapters or 1,
-                "target_words_per_chapter": getattr(n, "target_words_per_chapter", None) or 2500,
-            }
-
-        try:
-            novel_data = await asyncio.wait_for(
-                loop.run_in_executor(_SSE_THREAD_POOL, _start_read_sync),
-                timeout=runtime_settings.db_read_timeout_seconds,
-            )
-        except asyncio.TimeoutError:
-            raise HTTPException(503, "数据库繁忙，请稍后重试")
-
-        if novel_data is None:
-            raise HTTPException(404, "小说不存在")
-
-        current_stage_str = novel_data["current_stage"]
-        current_act = novel_data["current_act"]
-        current_chapter_in_act = novel_data["current_chapter_in_act"]
-        current_beat_index = int(novel_data.get("current_beat_index") or 0)
-        resolved_tc = int(novel_data["target_chapters"])
-        resolved_twpc = int(novel_data.get("target_words_per_chapter") or 2500)
-
-        fresh_stages = {"planning", "macro_planning"}
-        if current_stage_str in fresh_stages:
-            next_stage = NovelStage.MACRO_PLANNING.value
-        elif current_stage_str == "paused_for_review":
-            next_stage = NovelStage.PAUSED_FOR_REVIEW.value
-        else:
-            next_stage = current_stage_str
-
-    if body.target_chapters is not None:
-        resolved_tc = _clamp_autopilot_target_chapters(body.target_chapters)
-    if body.target_words_per_chapter is not None:
-        resolved_twpc = _clamp_autopilot_words_per_chapter(body.target_words_per_chapter)
-
-    # ── 第二步：立即写入共享内存（前端立即可见）──
+    try:
+        persisted = await loop.run_in_executor(_SSE_THREAD_POOL, persist_start)
+    except (RuntimeError, TimeoutError, sqlite3.Error) as exc:
+        raise HTTPException(503, "启动状态未获持久化确认，请刷新后重试") from exc
+    decision = persisted["decision"]
+    next_stage = decision.next_stage
+    run_epoch = persisted["run_epoch"]
+    novel = persisted["novel"]
+    resolved_tc = persisted["target_chapters"]
+    resolved_twpc = persisted["target_words_per_chapter"]
     try:
         from interfaces.runtime_state import update_shared_novel_state
         update_shared_novel_state(novel_id,
             autopilot_status="running",
+            autopilot_run_epoch=run_epoch,
+            active_pipeline_step="",
+            active_pipeline_run_id="",
+            last_stable_stage=next_stage,
+            autopilot_recovery_reason=decision.reason,
             current_stage=next_stage,
-            current_act=current_act,
-            current_chapter_in_act=current_chapter_in_act,
-            current_beat_index=current_beat_index,
+            current_act=novel.current_act,
+            current_chapter_in_act=novel.current_chapter_in_act,
+            current_beat_index=novel.current_beat_index,
             consecutive_error_count=0,
             target_chapters=resolved_tc,
             target_words_per_chapter=resolved_twpc,
@@ -1482,6 +1427,7 @@ async def start_autopilot(novel_id: str, body: StartRequest = StartRequest()):
             active_invocation_status="",
             active_invocation_policy="",
             autopilot_pause_reason="",
+            narrative_review_reason="",
             autopilot_pending_macro_plan=None,
             autopilot_pending_macro_target_chapters=None,
             autopilot_pending_act_plan_id=None,
@@ -1494,55 +1440,6 @@ async def start_autopilot(novel_id: str, body: StartRequest = StartRequest()):
         logger.debug("autopilot start: 已刷新共享内存状态 novel=%s", novel_id)
     except Exception as e:
         logger.debug("刷新共享内存失败（可忽略）: %s", e)
-
-    # ── 第三步：持久化到 DB（await：确保守护进程 wake 时已能读到正确目标字数）──
-    def _start_persist_sync():
-        """线程池中执行：DB 读取 + 写入"""
-        try:
-            result = _persist_autopilot_running_sync(
-                novel_id,
-                max_auto_chapters=body.max_auto_chapters,
-                target_chapters=resolved_tc,
-                target_words_per_chapter=resolved_twpc,
-            )
-            logger.info(
-                "autopilot start: novel_id=%s persisted RUNNING (DB) tc=%s twpc=%s",
-                novel_id,
-                resolved_tc,
-                resolved_twpc,
-            )
-            return result
-        except Exception as e:
-            logger.warning("autopilot start DB 持久化失败（共享内存已生效）: %s", e)
-            return {"decision": None, "run_epoch": None}
-
-    persist_result = {"decision": None, "run_epoch": None}
-    try:
-        persist_result = await asyncio.wait_for(
-            loop.run_in_executor(_SSE_THREAD_POOL, _start_persist_sync),
-            timeout=runtime_settings.db_persist_timeout_seconds,
-        )
-    except asyncio.TimeoutError:
-        logger.warning("autopilot start DB 持久化超时 novel=%s（IPC 仍将发送）", novel_id)
-
-    decision = (persist_result or {}).get("decision")
-    run_epoch = (persist_result or {}).get("run_epoch")
-    if decision is not None:
-        next_stage = decision.next_stage
-        try:
-            from interfaces.runtime_state import update_shared_novel_state
-
-            update_shared_novel_state(
-                novel_id,
-                current_stage=next_stage,
-                active_pipeline_step="",
-                active_pipeline_run_id="",
-                last_stable_stage=decision.next_stage,
-                autopilot_recovery_reason=decision.reason,
-                autopilot_run_epoch=run_epoch,
-            )
-        except Exception:
-            pass
 
     # ── 第四步：发布 IPC 启动信号 ──
     try:
@@ -1564,234 +1461,90 @@ async def start_autopilot(novel_id: str, body: StartRequest = StartRequest()):
 
 
 @router.post("/{novel_id}/stop")
+@_serialize_novel_control
 async def stop_autopilot(novel_id: str):
-    """停止自动驾驶（IPC 零延迟版）
+    """确认目标轮次已在 SQLite 停止，再发布镜像和 IPC 信号。"""
+    from application.engine.services.novel_stop_signal import publish_stop_signal
+    from interfaces.runtime_state import update_shared_novel_state
 
-    双通道停止机制：
-    1. mp.Event.set() → 守护进程亚毫秒级感知（主通道，零 DB 开销）
-    2. DB UPDATE → 降级兜底（守护进程重启后仍能读到 STOPPED）
-
-    SQLite 操作在线程池中执行，不阻塞 uvicorn 事件循环。
-
-    幂等性：如果已经是 stopped 状态，直接返回成功，避免重复发布停止信号和 DB 写入。
-    """
-    # 🔥 幂等保护：检查共享内存状态，已是 stopped 则直接返回
-    # 防止前端因响应延迟重复调 /stop 导致日志刷屏和 DB 竞争
+    loop = asyncio.get_running_loop()
     try:
-        from interfaces.runtime_state import get_shared_novel_state
-        shared = get_shared_novel_state(novel_id)
-        if shared and shared.get("autopilot_status") == "stopped":
-            logger.debug("autopilot stop: novel_id=%s 已是 stopped，跳过重复停止", novel_id)
-            return {"success": True, "message": "自动驾驶已停止（幂等跳过）"}
-    except Exception:
-        pass  # 共享内存不可用时走正常流程
+        saved = await loop.run_in_executor(_SSE_THREAD_POOL, _persist_autopilot_stop_sync, novel_id)
+    except (RuntimeError, TimeoutError, sqlite3.Error) as exc:
+        raise HTTPException(503, "停止状态未获持久化确认，请刷新后重试") from exc
 
-    # 通道 1：IPC 停止信号（亚毫秒级，零 DB 开销）
-    try:
-        from application.engine.services.novel_stop_signal import publish_stop_signal
-        publish_stop_signal(novel_id)
-        logger.info("autopilot stop: novel_id=%s IPC 停止信号已发布", novel_id)
-    except Exception as e:
-        logger.debug("发布 IPC 停止信号失败（将依赖 DB 降级路径）: %s", e)
-
-    # 🔥 关键修复：立即更新共享内存状态，让 SSE 流能检测到状态变化
-    # 否则 SSE 流从共享内存读取时仍看到 running，不会推送 autopilot_complete 事件
-    try:
-        from interfaces.runtime_state import update_shared_novel_state
-        update_shared_novel_state(novel_id,
-            autopilot_status="stopped",
-            needs_review=False,
-            requires_ai_review=False,
-            has_active_invocation=False,
-            active_invocation_session_id="",
-            active_invocation_operation="",
-            active_invocation_node_key="",
-            active_invocation_status="",
-            active_invocation_policy="",
-            autopilot_pause_reason="",
-            autopilot_pending_macro_plan=None,
-            autopilot_pending_macro_target_chapters=None,
-            autopilot_pending_act_plan_id=None,
-            autopilot_pending_act_chapters=None,
-            autopilot_pending_chapter_number=None,
-            autopilot_pending_chapter_plan=None,
-            planned_micro_beats=None,
-            outline_plan_mode="",
-        )
-        logger.debug("autopilot stop: 已更新共享内存状态 novel=%s", novel_id)
-    except Exception as e:
-        logger.debug("更新共享内存失败（可忽略）: %s", e)
-
-    # 通道 2：DB 持久化（降级兜底，守护进程重启后仍能读到 STOPPED）
-    def _stop_sync():
-        from application.paths import get_db_path
-        from application.engine.services.autopilot_recovery_policy import AutopilotRecoveryPolicy
-        from application.engine.services.chapter_generation_workspace import ChapterGenerationWorkspace
-        from infrastructure.persistence.database.connection import get_database
-
-        db = get_database(get_db_path())
-        db.execute(
-            """UPDATE novels SET autopilot_status = 'stopped', updated_at = CURRENT_TIMESTAMP
-               WHERE id = ?""",
-            (novel_id,),
-        )
-        db.commit()
-        logger.info("autopilot stop: novel_id=%s committed STOPPED (DB 兜底)", novel_id)
+    reason = persisted_narrative_review_reason(saved)
+    update_shared_novel_state(
+        novel_id, autopilot_status="stopped", autopilot_run_epoch=saved["autopilot_run_epoch"],
+        current_stage=saved["current_stage"], needs_review=stage_needs_human_review(saved["current_stage"]),
+        narrative_review_reason=reason, autopilot_pause_reason=reason,
+        requires_ai_review=False, has_active_invocation=False, active_invocation_session_id="",
+        active_invocation_operation="", active_invocation_node_key="", active_invocation_status="",
+        active_invocation_policy="", autopilot_pending_macro_plan=None, autopilot_pending_macro_target_chapters=None,
+        autopilot_pending_act_plan_id=None, autopilot_pending_act_chapters=None,
+        autopilot_pending_chapter_number=None, autopilot_pending_chapter_plan=None,
+        planned_micro_beats=None, outline_plan_mode="",
+    )
+    if not saved["already_stopped"]:
         try:
-            policy = AutopilotRecoveryPolicy(db, workspace=ChapterGenerationWorkspace())
-            decision = policy.decide_on_start(novel_id)
-            policy.apply_transient_cleanup(decision)
-        except Exception as cleanup_err:
-            logger.debug("autopilot stop: interrupted artifact cleanup skipped novel=%s: %s", novel_id, cleanup_err)
-
-    try:
-        await asyncio.get_running_loop().run_in_executor(_SSE_THREAD_POOL, _stop_sync)
-        return {"success": True, "message": "自动驾驶已停止"}
-    except Exception as e:
-        logger.warning("autopilot stop DB 写入失败, falling back: %s", e)
-        # 🔥 修复：fallback 路径同样可能 database is locked，
-        # IPC 信号（通道 1）已保证守护进程亚毫秒级停止，
-        # DB 持久化只是兜底，失败时不应阻塞 API 返回
+            publish_stop_signal(novel_id)
+        except Exception as exc:
+            logger.warning("停止状态已持久化，IPC 通知失败 novel=%s: %s", novel_id, exc)
+        def cleanup():
+            from application.engine.services.autopilot_recovery_policy import AutopilotRecoveryPolicy
+            from application.engine.services.chapter_generation_workspace import ChapterGenerationWorkspace
+            from infrastructure.persistence.database.connection import get_database
+            policy = AutopilotRecoveryPolicy(get_database(), workspace=ChapterGenerationWorkspace())
+            policy.apply_transient_cleanup(policy.decide_on_start(novel_id))
         try:
-            repo = get_novel_repository()
-            novel = repo.get_by_id(NovelId(novel_id))
-            if novel:
-                novel.autopilot_status = AutopilotStatus.STOPPED
-                repo.save(novel)
-                logger.info("autopilot stop: novel_id=%s committed STOPPED (fallback)", novel_id)
-        except Exception as fallback_err:
-            # fallback 也失败（大概率也是 database is locked），仅记日志
-            # IPC 通道已确保停止信号送达，DB 兜底可延迟生效
-            logger.warning(
-                "autopilot stop fallback 也失败（IPC 通道已保证停止）: %s", fallback_err
-            )
-        return {"success": True, "message": "自动驾驶已停止（停止信号已通过 IPC 送达）"}
+            await loop.run_in_executor(_SSE_THREAD_POOL, cleanup)
+        except Exception as exc:
+            logger.warning("已停止，临时产物将在下次启动重试清理 novel=%s: %s", novel_id, exc)
+    return {"success": True, "message": "自动驾驶已停止", "autopilot_run_epoch": saved["autopilot_run_epoch"]}
 
 
 @router.post("/{novel_id}/resume")
+@_serialize_novel_control
 async def resume_from_review(novel_id: str):
-    """从人工审阅点恢复（PAUSED_FOR_REVIEW → RUNNING）（非阻塞版）
+    """依据状态接口展示的审阅决定恢复。"""
+    from application.engine.services.query_service import get_query_service
 
-    架构优化：与 start_autopilot 一致
-    1. 先从共享内存校验 + 计算下一阶段
-    2. 立即写入共享内存（前端立即可见）
-    3. 异步持久化到 DB（不阻塞事件循环）
-    4. 发布 IPC 启动信号
-    """
-    runtime_settings = get_autopilot_runtime_settings()
     loop = asyncio.get_running_loop()
+    status = await loop.run_in_executor(_SSE_THREAD_POOL, get_query_service().get_novel_status_dict, novel_id)
+    if status is None:
+        raise HTTPException(404, "小说不存在")
+    current_stage_str = status.get("current_stage")
+    if not stage_needs_human_review(current_stage_str):
+        raise HTTPException(400, f"当前不在审阅等待状态（当前：{current_stage_str}）")
+    gate = status.get("review_gate") or {}
+    if not gate.get("can_resume"):
+        raise HTTPException(409, resume_block_reason_from_status(status) or "当前没有可确认的审阅事项")
+    current_act = status.get("current_act") or 0
 
-    # ── 第一步：从共享内存校验当前状态 ──
-    current_act = 0
-    current_stage_str = ""
-
-    shared = _get_shared_state_for_novel(novel_id)
-    if shared and shared.get("_updated_at"):
-        current_stage_str = shared.get("current_stage", "")
-        current_act = shared.get("current_act", 0) or 0
-
-        if not stage_needs_human_review(current_stage_str):
-            raise HTTPException(400, f"当前不在审阅等待状态（当前：{current_stage_str}）")
-
-        shared_status = with_review_gate(
-            {
-                "current_stage": current_stage_str,
-                "needs_review": stage_needs_human_review(current_stage_str),
-                "current_act": current_act,
-                "current_auto_chapters": shared.get("current_auto_chapters", 0),
-                "current_chapter_number": shared.get("current_chapter_number") or shared.get("_cached_current_chapter_number"),
-                "autopilot_pending_macro_plan": shared.get("autopilot_pending_macro_plan"),
-                "macro_structure_ready": shared.get("macro_structure_ready"),
-                "active_invocation_session_id": shared.get("active_invocation_session_id", ""),
-                "active_invocation_operation": shared.get("active_invocation_operation", ""),
-                "active_invocation_node_key": shared.get("active_invocation_node_key", ""),
-                "active_invocation_status": shared.get("active_invocation_status", ""),
-                "active_invocation_policy": shared.get("active_invocation_policy", ""),
-                "has_active_invocation": bool(shared.get("has_active_invocation", False)),
-                "requires_ai_review": bool(shared.get("requires_ai_review", False)),
-                "autopilot_pause_reason": shared.get("autopilot_pause_reason", ""),
-                "writing_substep": shared.get("writing_substep", ""),
-            }
-        )
-        block_reason = resume_block_reason_from_status(shared_status)
-        if block_reason:
-            raise HTTPException(409, block_reason)
-    else:
-        # 降级路径：共享内存无数据，读 DB（在线程池中）
-        def _resume_read_sync():
-            repo = get_novel_repository()
-            n = repo.get_by_id(NovelId(novel_id))
-            if not n:
-                return None
-            return {
-                "current_stage": n.current_stage.value if hasattr(n.current_stage, 'value') else str(n.current_stage),
-                "current_act": n.current_act or 0,
-            }
-
-        try:
-            novel_data = await asyncio.wait_for(
-                loop.run_in_executor(_SSE_THREAD_POOL, _resume_read_sync),
-                timeout=runtime_settings.db_read_timeout_seconds,
-            )
-        except asyncio.TimeoutError:
-            raise HTTPException(503, "数据库繁忙，请稍后重试")
-
-        if novel_data is None:
-            raise HTTPException(404, "小说不存在")
-
-        current_stage_str = novel_data["current_stage"]
-        current_act = novel_data["current_act"]
-
-        if not stage_needs_human_review(current_stage_str):
-            raise HTTPException(400, f"当前不在审阅等待状态（当前：{current_stage_str}）")
-
-    # 计算下一阶段
+    # 剧情复核走下一轮幕规划或写作的开场检查，即使结构被删除也能重新给出审核结论。
+    narrative_review = bool(status.get("narrative_review_reason")) and status.get("autopilot_status") == "stopped"
     if _has_chapter_nodes_under_current_act(novel_id, current_act):
         next_stage = NovelStage.WRITING.value
         msg = "已恢复：当前幕已有章节规划，进入正文撰写"
     else:
-        if not _macro_structure_exists(novel_id):
+        if not narrative_review and not _macro_structure_exists(novel_id):
             raise HTTPException(409, "宏观结构尚未生成，不能继续自动驾驶。请先重新生成并确认结构树。")
         next_stage = NovelStage.ACT_PLANNING.value
         msg = "已恢复：继续幕级规划"
 
-    # ── 第二步：立即写入共享内存（前端立即可见）──
     try:
-        from interfaces.runtime_state import update_shared_novel_state
-        update_shared_novel_state(novel_id,
-            autopilot_status="running",
-            current_stage=next_stage,
-            current_act=current_act,
+        run_epoch = await loop.run_in_executor(
+            _SSE_THREAD_POOL,
+            lambda: _persist_autopilot_resume_sync(novel_id, next_stage=next_stage, current_act=current_act,
+                                                    expected_epoch=status.get("autopilot_run_epoch")),
         )
-    except Exception as e:
-        logger.debug("刷新共享内存失败（可忽略）: %s", e)
+    except (RuntimeError, TimeoutError, sqlite3.Error) as exc:
+        raise HTTPException(503, "恢复状态未获持久化确认，请刷新后重试") from exc
 
-    # ── 第三步：异步持久化到 DB ──
-    def _resume_persist_sync():
-        try:
-            repo = get_novel_repository()
-            novel = repo.get_by_id(NovelId(novel_id))
-            if not novel:
-                return
-            _persist_autopilot_resume_sync(
-                novel_id,
-                next_stage=next_stage,
-                current_act=current_act,
-                max_auto_chapters=getattr(novel, "max_auto_chapters", 9999) or 9999,
-                target_chapters=novel.target_chapters or 1,
-                target_words_per_chapter=getattr(novel, "target_words_per_chapter", None) or 2500,
-            )
-            logger.info("autopilot resume: novel_id=%s persisted (DB)", novel_id)
-        except Exception as e:
-            logger.warning("autopilot resume DB 持久化失败（共享内存已生效）: %s", e)
-
-    try:
-        await asyncio.wait_for(
-            loop.run_in_executor(_SSE_THREAD_POOL, _resume_persist_sync),
-            timeout=runtime_settings.db_persist_timeout_seconds,
-        )
-    except asyncio.TimeoutError:
-        logger.warning("autopilot resume DB 持久化超时 novel=%s", novel_id)
+    from interfaces.runtime_state import update_shared_novel_state
+    update_shared_novel_state(novel_id, autopilot_status="running", current_stage=next_stage,
+                              current_act=current_act, autopilot_run_epoch=run_epoch,
+                              needs_review=False, autopilot_pause_reason="", narrative_review_reason="")
 
     # ── 第四步：发布 IPC 启动信号 ──
     try:
@@ -1801,7 +1554,7 @@ async def resume_from_review(novel_id: str):
         logger.debug("发布启动信号失败（可忽略）: %s", e)
 
     logger.info("autopilot resume novel=%s -> %s", novel_id, next_stage)
-    return {"success": True, "message": msg, "current_stage": next_stage}
+    return {"success": True, "message": msg, "current_stage": next_stage, "autopilot_run_epoch": run_epoch}
 
 
 @router.get("/{novel_id}/status")

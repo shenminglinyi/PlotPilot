@@ -36,6 +36,13 @@ async def _has_persisted_macro_structure(host: Any, novel_id: str) -> bool:
 
 async def process_novel(host: Any, novel: Novel) -> None:
     """处理单个小说（全流程状态机路由）"""
+    from application.engine.services.shared_state_repository import daemon_novel_run
+
+    with daemon_novel_run(novel.novel_id.value, novel.autopilot_run_epoch):
+        await _process_novel(host, novel)
+
+
+async def _process_novel(host: Any, novel: Novel) -> None:
     try:
         try:
             from application.engine.services.autopilot_recovery_policy import AutopilotRecoveryPolicy

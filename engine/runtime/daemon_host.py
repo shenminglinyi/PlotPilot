@@ -246,13 +246,8 @@ class DaemonHostMixin:
             "audit_progress": getattr(novel, 'audit_progress', None),
         }
 
-        set_clauses = [f"{k} = ?" for k in fields.keys()]
-        set_clauses.append("updated_at = CURRENT_TIMESTAMP")
-        sql = f"UPDATE novels SET {', '.join(set_clauses)} WHERE id = ?"
-        params = list(fields.values()) + [novel.novel_id.value]
-
         # CQRS：全部由 API 消费者串行落库，守护进程不再直连写第二路
-        ok = self._queue_sql(sql, params)
+        ok = self._patch_novel_ephemeral(novel.novel_id, fields, run_epoch=novel.autopilot_run_epoch)
         if not ok:
             logger.warning("持久化队列写入失败 novel=%s（无短连接兜底）", novel.novel_id.value)
         return ok
@@ -325,12 +320,10 @@ class DaemonHostMixin:
         self,
         novel_id: NovelId,
         fields: Dict[str, Any],
-        **kwargs: Any,
+        *, run_epoch: int | None = None,
     ) -> bool:
         """增量 UPDATE novels——统一持久化队列，与单写者内核一致。"""
         from domain.novel.entities.novel import AutopilotStatus as _APS, NovelStage as _NS
-
-        _ = kwargs
 
         if not fields:
             return True
@@ -356,6 +349,13 @@ class DaemonHostMixin:
         values = list(processed.values()) + [novel_id.value]
 
         sql = f"UPDATE novels SET {', '.join(set_clauses)} WHERE id = ?"
+        if run_epoch is not None:
+            # Evaluate this when the queued UPDATE executes. An older daemon tick
+            # must not restart a stopped run or overwrite an explicitly resumed run.
+            # A terminal tick can finish saving its audit snapshot after its own stop.
+            sql += (" AND COALESCE(autopilot_run_epoch, 0) = ?"
+                    " AND (autopilot_status = 'running' OR (autopilot_status = ? AND current_stage = ?))")
+            values.extend([run_epoch, processed["autopilot_status"], processed["current_stage"]])
         return self._queue_sql(sql, values)
 
 
@@ -431,7 +431,7 @@ class DaemonHostMixin:
             return None
 
 
-    def _read_autopilot_status_ephemeral(self, novel_id: NovelId) -> Optional[AutopilotStatus]:
+    def _read_autopilot_status_ephemeral(self, novel_id: NovelId, *, run_epoch=None) -> Optional[AutopilotStatus]:
         """用独立 SQLite 连接读 autopilot_status。
 
         主仓储连接在 asyncio 与 asyncio.to_thread、或后台线程里并发用时，同一 sqlite3 连接
@@ -444,11 +444,13 @@ class DaemonHostMixin:
 
         db = get_database(get_db_path())
         row = db.fetch_one(
-            "SELECT autopilot_status FROM novels WHERE id = ?",
+            "SELECT autopilot_status, autopilot_run_epoch FROM novels WHERE id = ?",
             (novel_id.value,),
         )
         if not row:
             return None
+        if run_epoch is not None and (row["autopilot_run_epoch"] or 0) != run_epoch:
+            return AutopilotStatus.STOPPED
         raw = row["autopilot_status"]
         try:
             return AutopilotStatus(raw)
@@ -457,8 +459,10 @@ class DaemonHostMixin:
 
 
     def _merge_autopilot_status_from_db(self, novel: Novel) -> None:
-        """用户点「停止」只改 DB；写库前必须合并，否则会覆盖 STOPPED。"""
-        status = self._read_autopilot_status_ephemeral(novel.novel_id)
+        """Only the API starts a run. A tick may observe or request a stop."""
+        if novel.autopilot_status != AutopilotStatus.RUNNING:
+            return
+        status = self._read_autopilot_status_ephemeral(novel.novel_id, run_epoch=novel.autopilot_run_epoch)
         if status is not None:
             novel.autopilot_status = status
 
@@ -551,6 +555,7 @@ class DaemonHostMixin:
         patch_fields = dict(
             autopilot_status=novel.autopilot_status,
             current_stage=novel.current_stage,
+            last_audit_issues=novel.last_audit_issues,
             current_act=novel.current_act,
             current_chapter_in_act=novel.current_chapter_in_act,
             current_beat_index=novel.current_beat_index,
@@ -574,7 +579,9 @@ class DaemonHostMixin:
 
         # 🔥 CQRS：优先推持久化队列（零锁竞争），_patch_novel_ephemeral 内部
         # 默认走 _queue_sql → EXECUTE_SQL 命令，由 API 进程消费者串行执行
-        ok = self._patch_novel_ephemeral(novel.novel_id, patch_fields)
+        ok = self._patch_novel_ephemeral(novel.novel_id, patch_fields, run_epoch=novel.autopilot_run_epoch)
+        if not ok:
+            raise RuntimeError(f"无法将小说状态提交给持久化队列：{novel.novel_id.value}")
 
         # 同步阶段、节拍等非聚合字段到共享内存（完稿/书稿/总字数仅在落库与审计节点写入 _cached_*）
         self._cache_stats_to_shared_memory(novel)
@@ -670,6 +677,7 @@ class DaemonHostMixin:
         try:
             self._update_shared_state(
                 nid,
+                autopilot_run_epoch=novel.autopilot_run_epoch,
                 current_stage=novel.current_stage.value,
                 current_act=novel.current_act,
                 current_act_title=current_act_title,
@@ -1078,13 +1086,10 @@ class DaemonHostMixin:
             import sys
             shared = sys.modules.get("__shared_state")
             if shared is not None:
-                key = f"novel:{novel_id}"
-                current = dict(shared.get(key, {}))
-                current.update(fields)
-                current["_updated_at"] = time.time()
+                from application.engine.services.shared_state_repository import merge_novel_state
+                merge_novel_state(shared, novel_id, fields)
                 # 🔥 同时更新守护进程心跳
                 shared["_daemon_heartbeat"] = time.time()
-                shared[key] = current
                 return
         except Exception:
             pass

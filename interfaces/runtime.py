@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict
 
 from application.core.config.config_loader import get_config
+from application.engine.services.shared_state_repository import NOVEL_STATE_LOCK, merge_novel_state
 from application.core.config.runtime_settings_utils import (
     positive_float,
     positive_int,
@@ -86,18 +87,12 @@ class AppRuntime:
         if self._shared_state is not None:
             return self._shared_state
         self._mp_manager = multiprocessing.Manager()
-        self._shared_state = self._mp_manager.dict()
+        self._shared_state = self._mp_manager.dict({NOVEL_STATE_LOCK: self._mp_manager.RLock()})
         self._logger.info("Startup: multiprocessing shared state initialized")
         return self._shared_state
 
     def update_shared_novel_state(self, novel_id: str, **fields: Any) -> None:
-        state = self.get_shared_state()
-        key = f"novel:{novel_id}"
-        current = dict(state.get(key, {}))
-        fields["novel_id"] = novel_id
-        current.update(fields)
-        current["_updated_at"] = time.time()
-        state[key] = current
+        merge_novel_state(self.get_shared_state(), novel_id, fields)
 
     def get_shared_novel_state(self, novel_id: str) -> Dict[str, Any]:
         state = self.get_shared_state()
