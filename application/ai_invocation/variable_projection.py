@@ -88,10 +88,17 @@ def _character_line(character: Mapping[str, Any]) -> str:
     keys = (
         "role",
         "description",
+        "gender",
+        "age",
+        "appearance",
+        "personality",
+        "background",
         "public_profile",
         "core_belief",
         "core_motivation",
         "inner_lack",
+        "verbal_tic",
+        "idle_behavior",
     )
     parts = [str(character.get(key) or "").strip() for key in keys]
     parts = [part for part in parts if part]
@@ -116,6 +123,11 @@ def _character_card(value: Any) -> str:
         ("name", "姓名"),
         ("role", "角色"),
         ("description", "定位"),
+        ("gender", "性别/呈现"),
+        ("age", "年龄"),
+        ("appearance", "外貌"),
+        ("personality", "性格"),
+        ("background", "背景"),
         ("public_profile", "公开身份"),
         ("hidden_profile", "隐藏信息"),
         ("core_belief", "核心信念"),
@@ -139,6 +151,9 @@ def _character_card(value: Any) -> str:
     wounds = value.get("active_wounds")
     if isinstance(wounds, list) and wounds:
         lines.append(f"- 创伤触发: {_to_prompt_text(wounds)}")
+    taboos = value.get("moral_taboos")
+    if isinstance(taboos, list) and taboos:
+        lines.append(f"- 行为禁忌: {_to_prompt_text(taboos)}")
     return "\n".join(lines)
 
 

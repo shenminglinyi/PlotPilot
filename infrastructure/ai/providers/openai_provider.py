@@ -281,27 +281,66 @@ class OpenAIProvider(BaseProvider):
         request_kwargs = self._build_responses_request_kwargs(prompt, config)
         response = await self.async_client.responses.create(**request_kwargs)
 
-        output = getattr(response, "output", None)
-        content_parts: list[str] = []
-        if output:
-            for item in output:
-                if getattr(item, "type", "") == "message":
-                    for part in getattr(item, "content", []):
-                        if getattr(part, "type", "") == "text":
-                            piece = str(getattr(part, "text", "")).strip()
-                            if piece:
-                                content_parts.append(piece)
-        content = "\n".join(content_parts).strip()
+        content = self._extract_text_from_responses_response(response)
         if not content:
-            raise RuntimeError("Responses API returned empty content")
+            status = self._response_field(response, "status", "unknown")
+            incomplete = self._response_field(response, "incomplete_details", None)
+            reason = self._response_field(incomplete, "reason", "") if incomplete else ""
+            details = f"status={status}"
+            if reason:
+                details += f", incomplete_reason={reason}"
+            raise RuntimeError(f"Responses API returned empty content ({details})")
 
-        input_tokens = response.usage.prompt_tokens if response.usage else 0
-        output_tokens = response.usage.completion_tokens if response.usage else 0
+        usage = self._response_field(response, "usage", None)
+        input_tokens = self._usage_tokens(usage, "input_tokens", "prompt_tokens")
+        output_tokens = self._usage_tokens(usage, "output_tokens", "completion_tokens")
 
         return GenerationResult(
             content=content,
             token_usage=TokenUsage(input_tokens=input_tokens, output_tokens=output_tokens)
         )
+
+    @staticmethod
+    def _response_field(value: Any, name: str, default: Any = None) -> Any:
+        if isinstance(value, dict):
+            return value.get(name, default)
+        return getattr(value, name, default)
+
+    @classmethod
+    def _extract_text_from_responses_response(cls, response: Any) -> str:
+        """Extract user-visible text from official SDK and compatible gateways.
+
+        The Responses API uses ``output_text`` content parts.  Some compatible
+        gateways still emit the older ``text`` spelling, so both are accepted.
+        The SDK's aggregate ``response.output_text`` is preferred when present.
+        """
+        aggregate = cls._response_field(response, "output_text", "")
+        if isinstance(aggregate, str) and aggregate.strip():
+            return aggregate.strip()
+
+        content_parts: list[str] = []
+        for item in cls._response_field(response, "output", None) or []:
+            if cls._response_field(item, "type", "") != "message":
+                continue
+            for part in cls._response_field(item, "content", None) or []:
+                if cls._response_field(part, "type", "") not in {"output_text", "text"}:
+                    continue
+                piece = cls._response_field(part, "text", "")
+                if isinstance(piece, str) and piece.strip():
+                    content_parts.append(piece.strip())
+        return "\n".join(content_parts).strip()
+
+    @classmethod
+    def _usage_tokens(cls, usage: Any, primary_name: str, legacy_name: str) -> int:
+        if usage is None:
+            return 0
+        value = cls._response_field(usage, primary_name, None)
+        if value is None:
+            value = cls._response_field(usage, legacy_name, 0)
+        try:
+            return int(value or 0)
+        except (TypeError, ValueError):
+            return 0
 
     @staticmethod
     def _extract_text_from_responses_chunk(chunk: Any) -> str:
@@ -314,7 +353,7 @@ class OpenAIProvider(BaseProvider):
                     return delta
             elif event_type in ("response.content_part.added", "response.content_part.delta"):
                 part = getattr(chunk, "part", None)
-                if part and getattr(part, "type", "") == "text":
+                if part and getattr(part, "type", "") in {"output_text", "text"}:
                     return getattr(part, "text", "")
                 delta = getattr(chunk, "delta", None)
                 if isinstance(delta, str):

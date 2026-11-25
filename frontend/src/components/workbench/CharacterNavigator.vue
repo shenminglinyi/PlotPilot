@@ -1,5 +1,5 @@
 <template>
-  <div class="cn">
+  <div class="cn" :class="`cn--${layout}`">
     <div class="cn-header">
       <span class="cn-header-title">角色导航</span>
       <span v-if="characters.length > 0" class="cn-header-count">{{ characters.length }}</span>
@@ -50,7 +50,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue'
+import { ref, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import { bibleApi, type CharacterDTO } from '@/api/bible'
 import { useWorkbenchDeskTickReload } from '@/composables/useWorkbenchNarrativeSync'
@@ -65,9 +65,12 @@ import {
 interface Props {
   slug: string
   selectedCharacterId: string | null
+  layout?: 'column' | 'rail'
 }
 
-const props = defineProps<Props>()
+const props = withDefaults(defineProps<Props>(), {
+  layout: 'column',
+})
 const emit  = defineEmits<{ 'select-character': [characterId: string | null] }>()
 
 const message    = useMessage()
@@ -117,7 +120,6 @@ async function loadCharacters() {
 }
 
 watch(() => props.slug, () => void loadCharacters(), { immediate: true })
-onMounted(() => { void loadCharacters() })
 useWorkbenchDeskTickReload(() => void loadCharacters())
 
 defineExpose({ loadCharacters })
@@ -131,6 +133,57 @@ defineExpose({ loadCharacters })
   overflow: hidden;
   background: var(--app-surface);
   border-right: 1px solid var(--plotpilot-split-border);
+}
+
+.cn--rail {
+  flex-shrink: 0;
+  height: auto;
+  max-height: 104px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: stretch;
+  border-right: 0;
+  border-bottom: 1px solid var(--plotpilot-split-border);
+}
+
+.cn--rail .cn-header {
+  border-bottom: 0;
+  border-right: 1px solid var(--plotpilot-split-border);
+  padding: 8px 12px;
+}
+
+.cn--rail .cn-spin,
+.cn--rail .cn-spin :deep(.n-spin-container),
+.cn--rail .cn-spin :deep(.n-spin-content) {
+  min-width: 0;
+  height: 100%;
+}
+
+.cn--rail .cn-list {
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex-direction: row;
+  align-items: center;
+  padding: 7px 8px;
+}
+
+.cn--rail .cn-item {
+  flex: 0 0 auto;
+  min-width: 124px;
+  max-width: 180px;
+  padding: 7px 9px;
+}
+
+.cn--rail .cn-item--active {
+  border-left-width: 1px;
+  border-bottom: 3px solid var(--color-brand, #2563eb) !important;
+  padding-left: 9px;
+  padding-bottom: 5px;
+}
+
+.cn--rail .cn-avatar {
+  width: 28px;
+  height: 28px;
 }
 
 /* ── Header ──────────────────────────────────────────────────────── */

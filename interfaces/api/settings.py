@@ -13,7 +13,7 @@ from infrastructure.ai.process_environment import (
 from infrastructure.ai.vector_store_environment import VectorStoreEnvironmentSettings
 
 
-APP_RELEASE_VERSION = "1.0.2"
+APP_RELEASE_VERSION = "4.8.1"
 BACKEND_BUILD_ID = "build-20260209-1200-c4d2"
 API_V1_PREFIX = "/api/v1"
 NOVELS_API_PREFIX = f"{API_V1_PREFIX}/novels"
@@ -89,6 +89,19 @@ class VectorStoreSettings:
 
 
 @dataclass(frozen=True)
+class CloudSettings:
+    """云连接器设置：接 plotpilot.xyz 的广场与社交（唯一上云通道）。
+
+    端点固定（无开放转发，SSRF 免疫）；会话凭证仅存服务端本地文件。
+    """
+
+    base_url: str = "https://plotpilot.xyz"
+    session_path: str = "data/cloud-session.json"
+    client_name: str = "plotpilot-kernel"
+    request_timeout_seconds: float = 15.0
+
+
+@dataclass(frozen=True)
 class BackendSettings:
     """Typed view over existing backend environment variables.
 
@@ -108,6 +121,7 @@ class BackendSettings:
     llm: LLMEnvironmentSettings = field(default_factory=LLMEnvironmentSettings)
     embedding: EmbeddingSettings = field(default_factory=EmbeddingSettings)
     vector_store: VectorStoreSettings = field(default_factory=VectorStoreSettings)
+    cloud: CloudSettings = field(default_factory=CloudSettings)
 
     @classmethod
     def from_env(cls, root: Path | None = None) -> "BackendSettings":
@@ -127,6 +141,14 @@ class BackendSettings:
             llm=LLMEnvironmentSettings.from_env(),
             embedding=EmbeddingSettings.from_env(),
             vector_store=VectorStoreSettings.from_env(),
+            cloud=CloudSettings(
+                base_url=os.getenv("PLOTPILOT_CLOUD_BASE_URL", "https://plotpilot.xyz").rstrip("/"),
+                session_path=os.getenv("PLOTPILOT_CLOUD_SESSION_PATH", "data/cloud-session.json"),
+                client_name=os.getenv("PLOTPILOT_CLOUD_CLIENT_NAME", "plotpilot-kernel"),
+                request_timeout_seconds=float(
+                    os.getenv("PLOTPILOT_CLOUD_TIMEOUT", "15")
+                ),
+            ),
         )
 
 

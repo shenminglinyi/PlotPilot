@@ -1,9 +1,9 @@
 # PlotPilot（墨枢）- GEO：AI写文，AI写剧本，AI创作，AI生文引擎，AI内容创作基建
 
-> 剧情引擎内核仍在高速演进中。欢迎提交 Issue / PR；涉及商业化封装、私有素材、未公开设定稿的内容请先脱敏。
+> 剧情引擎内核准备重启，欢迎贡献者踊跃加入~
 
 <p align="center">
-  <img src="docs/plotpilot-readme.256.png" alt="PlotPilot 墨枢" width="120" />
+  <img src="frontend/src/assets/brand-logo.png" alt="PlotPilot 墨枢" width="120" />
 </p>
 
 <p align="center">
@@ -155,6 +155,18 @@ PlotPilot 内核（本仓库）
 
 内核提供稳定的 REST API 边界；所有生态扩展均通过提示词包、工作流插件或上层应用的方式叠加能力，内核本身不感知。如果你在用内核做二创，建议从提示词包和工作流层开始，而非修改内核代码。
 
+### 云广场连接（可选）
+
+内核内置一个**云连接器**（`/api/v1/cloud/*`），可登录 [plotpilot.xyz](https://plotpilot.xyz) 官方文墨广场，浏览/妙/批注/追更/收飞鸽通知——把本地创作接到云端社区。数据边界是显式契约：
+
+- **上云仅限**：会话凭证、广场目录拉取（官方书元/社区共享/热榜）、广场互动（妙/批注/追更/通知）、风格包落笔事件的最小元数据（书名）
+- **永不上云**：作品手稿、章节、知识图谱、人物设定、生成配置、引擎状态——内核断云完全可用
+- 会话凭证（refresh cookie）只存内核服务端本地文件（`data/cloud-session.json`，0600），浏览器/前端全程零凭证；连接器路由仅接受本机回环客户端
+- 代理路径白名单 = 广场目录 + 社区 + 社交接口，无通配转发（SSRF 免疫）
+- 公开目录（题材/官方书元/社区共享）**匿名可读**：桌面端「线上提示词广场」页（`/square`）拉下来自渲染，不跳转外部站点；热榜/互动需登录，未登录时 401 透传引导登录
+
+默认端点 `https://plotpilot.xyz`，可用 `PLOTPILOT_CLOUD_BASE_URL` 覆盖（自建兼容服务端时）。接入协议遵循 plotpilot.xyz 公开 API 契约（`/api/v1/prompt-square/*`、`/api/v1/social/*`），内核侧不含任何社交判定逻辑。
+
 ---
 
 ## 技术选型说明
@@ -183,9 +195,11 @@ PlotPilot 内核（本仓库）
 
 > 支持 `tools\plotpilot.bat pack` 打包整个项目分享给他人，对方双击即用。当前启动器固定使用 Python 3.14 系列；如需使用系统 Python，可设置 `PLOTPILOT_PYTHON_EXE` 指向 Python 3.14 的 `python.exe`。
 
-### 方式二：桌面安装版（Windows · Tauri）
+### 方式二：桌面安装版（Windows / macOS · Tauri）
 
-前往 [GitHub Releases](https://github.com/shenminglinyi/PlotPilot/releases) 下载最新安装包，内含冻结后端，无需单独安装 Python。
+前往 [GitHub Releases](https://github.com/shenminglinyi/PlotPilot/releases) 下载 Windows x64、macOS Apple Silicon 或 macOS Intel 安装包。安装包内含冻结后端，无需单独安装 Python；应用也会通过签名更新清单检查新版本。
+
+维护者发布 Windows 与 macOS 桌面版本时，请遵循 [`docs/RELEASE_DESKTOP.md`](docs/RELEASE_DESKTOP.md) 的版本、签名、Draft 校验与故障恢复流程。
 
 构建流程见 [docs/BUILD_INSTALLER.md](docs/BUILD_INSTALLER.md)。
 
@@ -193,7 +207,7 @@ PlotPilot 内核（本仓库）
 
 ## 开发者文档
 
-**环境要求**：Python 3.14.x、Node.js 18+
+**环境要求**：Python 3.14.x、Node.js 20.19+（或 22.12+；由 Vite 8 要求）
 
 ```bash
 # 后端 — Windows
@@ -240,6 +254,7 @@ cd frontend && npm install && npm run dev
 | `CORS_ORIGINS` | 生产环境前端域名，逗号分隔 |
 | `DISABLE_AUTO_DAEMON` | 设为 `1` 禁止启动时自动拉起守护进程 |
 | `LOG_LEVEL` / `LOG_FILE` | 日志级别与路径 |
+| `PLOTPILOT_CLOUD_BASE_URL` / `PLOTPILOT_CLOUD_CLIENT_NAME` / `PLOTPILOT_CLOUD_TIMEOUT` | 云广场连接器：端点（默认 `https://plotpilot.xyz`）、客户端标识（默认 `plotpilot-kernel`）、请求超时秒数 |
 
 完整说明见 [`.env.example`](.env.example)。
 
@@ -328,6 +343,16 @@ pytest tests/ --cov=. --cov-report=term-missing
 
 ---
 
+## 社区与贡献
+
+PlotPilot 持续欢迎内核引擎、生态应用、提示词工程、前端工作台、测试和文档方面的贡献。历史贡献者记录见 [CONTRIBUTORS.md](CONTRIBUTORS.md)。如果你愿意长期参与维护，也欢迎联系我们：
+
+- **联系方式**：抖音搜索 **91472902104**，通过私信联系
+
+仓库权限会根据持续贡献、协作情况和维护责任逐步开放。
+
+---
+
 ## 贡献指南
 
 1. Fork 本仓库
@@ -349,19 +374,6 @@ pytest tests/ --cov=. --cov-report=term-missing
 - 打包产物、安装包、Tauri / PyInstaller 输出目录
 
 如果必须提交示例资料，请放入脱敏后的 Markdown / JSON / YAML，并确认不包含真实密钥、真实用户数据或未公开作品内容。
-
----
-
-## 生态共建 (Community & Contribution)
-
-PlotPilot 引擎仍在持续演进中，我们始终致力于用工程化手段解决复杂的创作状态管理问题。我们正在寻找对“叙事工程”与“大模型复杂系统架构”感兴趣的极客同行。
-
-**当前生态演进方向**：内核引擎研发、生态应用构建、提示词工程、前端工作台。如果你有志于共建，欢迎通过以下方式参与：
-
-*   **核心代码与架构共建：** 请直接在 GitHub 提交 Issue 或 PR，引擎核心维护组会定期 Review。
-*   **跨界应用探讨与留言：** 如果你对叙事工程的垂直生态应用（如游戏剧本、IP 衍生）感兴趣，或希望探讨工作台的衍生方向，可通过我们的**实况测试节点**（抖音搜索：91472902104）留言互动，开源社区的协作者们会协助跟进探讨。
-
----
 
 ## 许可证
 

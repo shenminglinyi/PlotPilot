@@ -24,6 +24,7 @@ class CharacterDTO:
     name: str
     description: str
     relationships: List[Any]
+    role: str = ""
     gender: str = ""
     age: str = ""
     appearance: str = ""
@@ -63,6 +64,7 @@ class CharacterDTO:
             name=character.name,
             description=character.description,
             relationships=character.relationships.copy(),
+            role=getattr(character, 'role', ''),
             gender=getattr(character, 'gender', ''),
             age=getattr(character, 'age', ''),
             appearance=getattr(character, 'appearance', ''),

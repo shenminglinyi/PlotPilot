@@ -1,4 +1,4 @@
-from application.ai.llm_control_service import LLMControlService, LLMProfile
+from application.ai.llm_control_service import LLMControlConfig, LLMControlService, LLMProfile
 from domain.ai.services.llm_service import DEFAULT_MAX_OUTPUT_TOKENS
 from infrastructure.ai.llm_environment import (
     ARK_DEFAULT_BASE_URL,
@@ -158,3 +158,57 @@ def test_row_to_profile_preserves_max_tokens_above_global_floor():
     profile = LLMControlService()._row_to_profile(row)
 
     assert profile.max_tokens == DEFAULT_MAX_OUTPUT_TOKENS + 1000
+
+
+def _role_config(*, cheap_model: str = "cheap-model") -> LLMControlConfig:
+    return LLMControlConfig(
+        active_profile_id="main",
+        endpoint_mode="independent",
+        profiles=[
+            LLMProfile(
+                id="main",
+                name="主力模型",
+                api_key="main-key",
+                base_url="https://gateway.example/v1",
+                model="main-model",
+            ),
+            LLMProfile(
+                id="cheap",
+                name="经济模型",
+                api_key="",
+                base_url="",
+                model=cheap_model,
+            ),
+        ],
+    )
+
+
+def test_independent_role_inherits_main_credentials_and_compatible_gateway():
+    resolved = LLMControlService().resolve_role_profile("cheap", _role_config())
+
+    assert resolved is not None
+    assert resolved.id == "cheap"
+    assert resolved.model == "cheap-model"
+    assert resolved.api_key == "main-key"
+    assert resolved.base_url == "https://gateway.example/v1"
+
+
+def test_incomplete_independent_role_falls_back_to_main_profile():
+    resolved = LLMControlService().resolve_role_profile(
+        "cheap",
+        _role_config(cheap_model=""),
+    )
+
+    assert resolved is not None
+    assert resolved.id == "main"
+    assert resolved.model == "main-model"
+
+
+def test_unified_mode_ignores_independent_role_profile():
+    config = _role_config()
+    config.endpoint_mode = "unified"
+
+    resolved = LLMControlService().resolve_role_profile("cheap", config)
+
+    assert resolved is not None
+    assert resolved.id == "main"

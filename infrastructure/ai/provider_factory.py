@@ -12,12 +12,12 @@ from application.ai.trace_context import (
     prompt_preview,
     prompt_to_hash_payload,
 )
+from domain.ai.errors import LLMNotConfiguredError
 from domain.ai.services.llm_service import GenerationConfig, GenerationResult, LLMService
 from domain.ai.value_objects.prompt import Prompt
 from infrastructure.ai.config.settings import Settings
 from infrastructure.ai.providers.anthropic_provider import AnthropicProvider
 from infrastructure.ai.providers.gemini_provider import GeminiProvider
-from infrastructure.ai.providers.mock_provider import MockProvider
 from infrastructure.ai.providers.openai_provider import OpenAIProvider
 from infrastructure.ai.trace_recorder import get_trace_recorder
 from infrastructure.ai.url_utils import (
@@ -35,12 +35,19 @@ class LLMProviderFactory:
         self.control_service = control_service or LLMControlService()
 
     def create_from_profile(self, profile: Optional[LLMProfile]) -> LLMService:
+        # 不再退回 MockProvider：未配置时直接报错，让失败冒到调用方，
+        # 避免「生成完成」的假象（mock 只保留给测试/离线评估脚本显式使用）
         if profile is None:
-            return MockProvider()
+            raise LLMNotConfiguredError(
+                "未找到任何 LLM 配置：请在前台「LLM 控制」中添加并激活一个模型档案"
+            )
 
         resolved = self.control_service.resolve_profile(profile)
         if not resolved.api_key.strip() or not resolved.model.strip():
-            return MockProvider()
+            raise LLMNotConfiguredError(
+                f"当前激活配置「{resolved.name}」缺少 API Key 或模型名，无法创建 Provider；"
+                "请在前台「LLM 控制」中补全后重试"
+            )
 
         settings = self._profile_to_settings(resolved)
         if resolved.protocol == "anthropic":
@@ -53,12 +60,14 @@ class LLMProviderFactory:
         return self.create_from_profile(self.control_service.resolve_active_profile())
 
     def create_from_profile_id(self, profile_id: str) -> LLMService:
-        """根据档案 ID 创建 Provider；未找到时退回 MockProvider。"""
+        """根据档案 ID 创建 Provider；未找到时直接报错（不再退回 mock）。"""
         try:
             config = self.control_service.get_config()
             profile = next((p for p in config.profiles if p.id == profile_id), None)
         except Exception:
             profile = None
+        if profile is None:
+            raise LLMNotConfiguredError(f"未找到 LLM 档案 {profile_id}，无法创建独立 Provider")
         return self.create_from_profile(profile)
 
     def _profile_to_settings(self, profile: LLMProfile) -> Settings:
@@ -117,9 +126,16 @@ class DynamicLLMService(LLMService):
         self._cached_provider: Optional[LLMService] = None
         self._cached_key: Optional[str] = None
 
-    async def _resolve_provider(self) -> LLMService:
-        profile = self.factory.control_service.resolve_active_profile()
-        key = _make_cache_key(profile) if profile else "__mock__"
+    async def _resolve_provider(self, config: Optional[GenerationConfig] = None) -> LLMService:
+        # 多角色端点路由：config.model_role 指定 cheap/knowledge 时解析对应
+        # 档案（未配置/统一模式自动回退主力，见 resolve_role_profile）；
+        # 缓存按 (role, 档案指纹) 区分，避免切角色后串用旧 Provider
+        role = (getattr(config, "model_role", None) or "main").strip() or "main"
+        if role == "main":
+            profile = self.factory.control_service.resolve_active_profile()
+        else:
+            profile = self.factory.control_service.resolve_role_profile(role)
+        key = f"{role}|{_make_cache_key(profile) if profile else '__mock__'}"
 
         if key == self._cached_key and self._cached_provider is not None:
             return self._cached_provider
@@ -130,7 +146,8 @@ class DynamicLLMService(LLMService):
         self._cached_provider = provider
         self._cached_key = key
         logger.debug(
-            "Provider 缓存未命中，创建新实例: protocol=%s model=%s",
+            "Provider 缓存未命中，创建新实例: role=%s protocol=%s model=%s",
+            role,
             getattr(profile, "protocol", "?"),
             getattr(profile, "model", "?"),
         )
@@ -190,6 +207,7 @@ class DynamicLLMService(LLMService):
             max_tokens=max_tokens,
             temperature=temperature,
             response_format=config.response_format,
+            model_role=config.model_role,
         )
 
     @staticmethod
@@ -216,7 +234,7 @@ class DynamicLLMService(LLMService):
         return provider_label, generation_profile, model, metadata
 
     async def generate(self, prompt: Prompt, config: GenerationConfig) -> GenerationResult:
-        provider = await self._resolve_provider()
+        provider = await self._resolve_provider(config)
         effective_config = self._merge_config(config, provider)
         trace = ensure_trace(operation="llm_generate", metadata={"entry": "DynamicLLMService.generate"})
         request_span_id = trace.new_span_id("llm-request")
@@ -278,7 +296,7 @@ class DynamicLLMService(LLMService):
         return result
 
     async def stream_generate(self, prompt: Prompt, config: GenerationConfig) -> AsyncIterator[str]:
-        provider = await self._resolve_provider()
+        provider = await self._resolve_provider(config)
         effective_config = self._merge_config(config, provider)
         trace = ensure_trace(
             operation="llm_stream_generate",

@@ -1,14 +1,14 @@
-# Checkpoint to Snapshot Migration Scripts
+# Checkpoint → Snapshot 数据迁移
 
 ## Overview
 
 These scripts migrate data from the `checkpoints` table to the `novel_snapshots` table as part of unifying the Checkpoint and Snapshot systems for the Story Evolution Tab feature.
 
-## Files Created
+## 相关文件
 
-1. **scripts/migrate_checkpoints_to_snapshots.py** - Main migration script
-2. **scripts/verify_migration.py** - Verification script
-3. **scripts/test_migration_scripts.py** - Integration test script
+1. `scripts/migrate_checkpoints_to_snapshots.py`：迁移入口
+2. `scripts/verify_migration.py`：迁移前后验证
+3. `scripts/test_migration_scripts.py`：独立集成测试
 
 ## Migration Mapping
 
@@ -52,7 +52,7 @@ python scripts/verify_migration.py --env development
 
 This will check:
 - Checkpoints table structure
-- Novel_snapshots table structure (including engine state fields from Task 1)
+- Novel_snapshots table structure (including engine state fields)
 - Data integrity
 - Engine state data format
 
@@ -127,9 +127,7 @@ This creates a temporary test database and runs through the complete migration f
 
 ## Prerequisites
 
-Before running migration:
-1. Task 1 must be completed: `novel_snapshots` table must have engine state fields
-2. Run `infrastructure/persistence/database/migrations/add_engine_state_to_snapshots.sql`
+运行前确认 `novel_snapshots` 已包含引擎状态字段。旧数据库如果缺少这些字段，先备份数据库，再执行 `infrastructure/persistence/database/migrations/add_engine_state_to_snapshots.sql`。新建数据库无需重复执行历史迁移。
 
 ## Output Examples
 
@@ -178,7 +176,7 @@ novel_snapshots 表结构: ✓ 通过
 
 ### Error: "novel_snapshots 表缺少引擎状态字段"
 
-**Solution**: Run Task 1 migration first:
+**Solution**: Back up the database, then add the required snapshot fields:
 ```bash
 sqlite3 database.db < infrastructure/persistence/database/migrations/add_engine_state_to_snapshots.sql
 ```
@@ -199,10 +197,10 @@ python scripts/migrate_checkpoints_to_snapshots.py --db path/to/database.db
 - Create missing novel records
 - Skip migration for orphaned checkpoints
 
-## Next Steps
+## 迁移完成后
 
 After successful migration:
 1. Verify application functionality
 2. Test Story Evolution Tab features
 3. Monitor for any data inconsistencies
-4. Eventually remove checkpoints table (in future cleanup task)
+4. 保留备份直到完成一轮真实数据验证；不要仅因脚本成功就立即删除旧表或备份

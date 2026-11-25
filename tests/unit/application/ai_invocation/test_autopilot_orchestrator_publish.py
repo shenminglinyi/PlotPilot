@@ -51,6 +51,11 @@ class _LLM:
         yield "generated"
 
 
+class _FailingLLM:
+    async def generate(self, prompt, config):
+        raise RuntimeError("provider returned empty content")
+
+
 class _Publisher:
     def __init__(self):
         self.events = []
@@ -116,6 +121,63 @@ async def test_autopilot_direct_request_publishes_active_session_before_completi
     assert last_payload["active_invocation_session_id"] == first_payload["active_invocation_session_id"]
     assert last_payload["has_active_invocation"] is False
     assert last_payload["active_invocation_status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_autopilot_provider_exception_publishes_failed_terminal_state():
+    variable_repo = InMemoryVariableHubRepository()
+    variable_repo.set_bindings(
+        "input",
+        "node",
+        [
+            VariableBinding(alias="outline", required=True),
+            VariableBinding(alias="role", default="writer"),
+        ],
+    )
+    publisher = _Publisher()
+    failing_llm = _FailingLLM()
+    orchestrator = AutopilotInvocationOrchestrator(
+        spec_service=InvocationSpecService(
+            InMemoryInvocationSpecRepository(
+                [
+                    InvocationSpec(
+                        operation="autopilot.test",
+                        node_key="node",
+                        prompt_node_version_id="node-v1",
+                        input_binding_set_id="input",
+                        default_policy=InvocationPolicy.DIRECT,
+                    )
+                ]
+            )
+        ),
+        variable_resolver=VariableResolver(variable_repo),
+        prompt_assembler=CPMSPromptAssembler(registry=_Registry(), template_engine=_TemplateEngine()),
+        llm_service=failing_llm,
+        publisher=publisher,
+        session_service=InvocationSessionService(),
+        attempt_service=AttemptService(failing_llm),
+        adoption_service=AdoptionService(),
+        commit_service=AdoptionCommitService(variable_hub_repository=variable_repo),
+    )
+
+    outcome = await orchestrator.request(
+        AutopilotInvocationIntent(
+            novel_id="novel-1",
+            stage="planning",
+            operation="autopilot.test",
+            node_key="node",
+            explicit_variables={"outline": "outline"},
+            policy_hint=InvocationPolicy.DIRECT,
+        )
+    )
+
+    assert outcome.status == "failed"
+    assert outcome.next_action == "failed"
+    assert outcome.payload["attempt"].error == "provider returned empty content"
+    last_payload = publisher.events[-1][1]
+    assert last_payload["active_invocation_status"] == "failed"
+    assert last_payload["has_active_invocation"] is True
+    assert last_payload["autopilot_pause_reason"] == "ai_invocation_retry_required"
 
 
 def test_autopilot_session_publisher_uses_shared_state_without_importing_interfaces_main(monkeypatch):

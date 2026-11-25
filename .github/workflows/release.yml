@@ -1,0 +1,210 @@
+name: Release desktop updater
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PYTHONUTF8: "1"
+  PYTHONIOENCODING: "utf-8"
+
+jobs:
+  prepare:
+    name: Prepare draft release
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.release.outputs.id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Require updater signing secrets
+        env:
+          SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          test -n "$SIGNING_PRIVATE_KEY" || { echo "TAURI_SIGNING_PRIVATE_KEY is not configured"; exit 1; }
+          test -n "$SIGNING_PRIVATE_KEY_PASSWORD" || { echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD is not configured"; exit 1; }
+
+      - name: Validate tag and synchronized version
+        run: |
+          python scripts/sync_release_version.py --check
+          version="$(tr -d '\r\n' < VERSION)"
+          test "v$version" = "${{ github.ref_name }}"
+
+      - name: Create or reuse draft release
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "${{ github.ref_name }}" >/dev/null 2>&1; then
+            test "$(gh release view "${{ github.ref_name }}" --json isDraft --jq .isDraft)" = "true"
+          else
+            gh release create "${{ github.ref_name }}" --draft \
+              --title "PlotPilot ${{ github.ref_name }}" \
+              --notes "PlotPilot desktop release ${{ github.ref_name }}."
+          fi
+          id="$(gh release view "${{ github.ref_name }}" --json databaseId --jq .databaseId)"
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.name }}
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            release_arch: x64
+            args: --bundles nsis
+          - name: macOS Apple Silicon
+            os: macos-latest
+            target: aarch64-apple-darwin
+            release_arch: aarch64
+            args: --bundles app,dmg --target aarch64-apple-darwin
+          - name: macOS Intel
+            os: macos-15-intel
+            target: x86_64-apple-darwin
+            release_arch: x64
+            args: --bundles app,dmg --target x86_64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: requirements-nsis.txt
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: frontend/src-tauri
+          key: ${{ matrix.target }}
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frozen backend
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller
+          python -m pip install -r requirements-nsis.txt
+          python scripts/build_backend_pyinstaller.py --force
+
+      - name: Build and upload signed desktop bundles
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ startsWith(matrix.os, 'macos-') && '-' || '' }}
+        with:
+          projectPath: frontend
+          tauriScript: npm run tauri
+          releaseId: ${{ needs.prepare.outputs.release_id }}
+          releaseDraft: true
+          uploadUpdaterJson: false
+          uploadUpdaterSignatures: true
+          releaseAssetNamePattern: PlotPilot_[version]_[arch][setup].[ext]
+          retryAttempts: 2
+          args: ${{ matrix.args }}
+
+      - name: Upload macOS updater archive
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          archive_list="$(find frontend/src-tauri/target -type f -name '*.app.tar.gz')"
+          archive_count="$(printf '%s\n' "$archive_list" | awk 'NF { count++ } END { print count + 0 }')"
+          test "$archive_count" -eq 1 || {
+            printf 'Expected one macOS updater archive, found %s\n' "$archive_count"
+            printf '%s\n' "$archive_list"
+            exit 1
+          }
+          source_archive="$archive_list"
+          source_signature="$source_archive.sig"
+          test -s "$source_signature"
+
+          version="$(tr -d '\r\n' < VERSION)"
+          release_name="PlotPilot_${version}_${{ matrix.release_arch }}.app.tar.gz"
+          release_archive="$RUNNER_TEMP/$release_name"
+          cp "$source_archive" "$release_archive"
+          cp "$source_signature" "$release_archive.sig"
+          gh release upload "${{ github.ref_name }}" \
+            "$release_archive" "$release_archive.sig" --clobber
+
+  publish:
+    name: Verify and publish release
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download and verify every release asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          release_dir="$RUNNER_TEMP/plotpilot-release"
+          mkdir -p "$release_dir"
+          gh release download "${{ github.ref_name }}" --dir "$release_dir"
+
+          version="$(tr -d '\r\n' < VERSION)"
+          python scripts/build_updater_manifest.py \
+            --assets-dir "$release_dir" \
+            --output "$release_dir/latest.json" \
+            --repository "${{ github.repository }}" \
+            --tag "${{ github.ref_name }}" \
+            --version "$version" \
+            --notes "PlotPilot $version：Windows 与 macOS 双平台发布。"
+          python scripts/validate_updater_manifest.py \
+            --manifest "$release_dir/latest.json" \
+            --version "$version" \
+            --tag "${{ github.ref_name }}" \
+            --repository "${{ github.repository }}" \
+            --assets-dir "$release_dir"
+          gh release upload "${{ github.ref_name }}" "$release_dir/latest.json" --clobber
+
+      - name: Publish verified release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="$(tr -d '\r\n' < VERSION)"
+          notes_file="$RUNNER_TEMP/release-notes.md"
+          cat > "$notes_file" <<EOF
+          ## PlotPilot $version
+
+          - Windows x64 安装包
+          - macOS Apple Silicon 安装包
+          - macOS Intel 安装包
+          - 三个平台均支持签名自动更新
+
+          macOS 版本使用 ad-hoc 代码签名，首次打开时可能需要在“系统设置 → 隐私与安全性”中允许。
+          EOF
+          gh release edit "${{ github.ref_name }}" \
+            --notes-file "$notes_file" \
+            --draft=false --latest

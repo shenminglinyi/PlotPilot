@@ -9,6 +9,41 @@
       </div>
     </div>
 
+    <div class="update-panel">
+      <div class="update-copy">
+        <span class="info-label">应用更新</span>
+        <strong>当前版本 {{ currentVersion || '开发模式' }}</strong>
+        <span class="update-status">{{ updateStatusText }}</span>
+      </div>
+      <n-space v-if="desktopRuntime" :size="8" align="center">
+        <n-button
+          v-if="status === 'available'"
+          size="small"
+          type="primary"
+          secondary
+          @click="downloadUpdate"
+        >
+          下载 {{ availableVersion }}
+        </n-button>
+        <n-button
+          v-else-if="status === 'ready'"
+          size="small"
+          type="primary"
+          @click="installAndRestart"
+        >
+          安装并重启
+        </n-button>
+        <n-button
+          v-else
+          size="small"
+          :loading="status === 'checking' || status === 'downloading' || status === 'installing'"
+          @click="checkForUpdate({ manual: true })"
+        >
+          检查更新
+        </n-button>
+      </n-space>
+    </div>
+
     <div class="info-grid">
       <div class="info-item">
         <span class="info-label">产品定位</span>
@@ -36,7 +71,34 @@
 </template>
 
 <script setup lang="ts">
+import { computed, onMounted } from 'vue'
+import { storeToRefs } from 'pinia'
 import { BRAND } from '@/constants/brand'
+import { useAppUpdateStore } from '@/stores/appUpdateStore'
+
+const updater = useAppUpdateStore()
+const {
+  status,
+  currentVersion,
+  availableVersion,
+  errorText,
+} = storeToRefs(updater)
+const { checkForUpdate, downloadUpdate, initialize, installAndRestart } = updater
+const desktopRuntime = updater.desktopRuntime
+
+const updateStatusText = computed(() => {
+  if (!desktopRuntime) return '自动更新仅在桌面安装版中启用'
+  if (status.value === 'checking') return '正在检查新版本…'
+  if (status.value === 'available') return `发现新版本 ${availableVersion.value}`
+  if (status.value === 'downloading') return `正在下载 ${availableVersion.value}`
+  if (status.value === 'ready') return `${availableVersion.value} 已下载，等待安装`
+  if (status.value === 'installing') return '正在安全退出并安装…'
+  if (status.value === 'up-to-date') return '当前已是最新版本'
+  if (status.value === 'error') return errorText.value || '检查更新失败'
+  return '启动后自动检查，也可以手动检查'
+})
+
+onMounted(() => { void initialize() })
 </script>
 
 <style scoped>
@@ -100,6 +162,34 @@ import { BRAND } from '@/constants/brand'
   gap: 0.75rem;
 }
 
+.update-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.875rem;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-surface);
+}
+
+.update-copy {
+  min-width: 0;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.update-copy strong {
+  font-size: var(--font-size-base);
+}
+
+.update-status {
+  color: var(--app-text-muted);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-ui);
+  overflow-wrap: anywhere;
+}
+
 .info-item {
   min-width: 0;
   padding: 0.875rem;
@@ -140,8 +230,14 @@ import { BRAND } from '@/constants/brand'
 
 @media (max-width: 640px) {
   .brand-panel,
-  .info-grid {
+  .info-grid,
+  .update-panel {
     grid-template-columns: 1fr;
+  }
+
+  .update-panel {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .brand-mark {

@@ -160,35 +160,23 @@ class AutopilotInvocationOrchestrator:
                     "variable_plan": prepared_result.variable_plan,
                 },
             )
-        attempt = await self._gateway._attempt_service.generate(
-            session=session,
-            prompt_snapshot=prepared_result.prompt_snapshot,
-            config=self._build_config(intent),
-        )
-        if attempt.status != InvocationAttemptStatus.SUCCEEDED:
-            if session.status != InvocationSessionStatus.CANCELLED:
-                session.status = InvocationSessionStatus.FAILED
-            result = replace(prepared_result, attempt=attempt)
-            self._save_result(result)
-            self._publish(intent, result)
-            return AutopilotInvocationOutcome(
-                session_id=session.id,
-                status=session.status.value if hasattr(session.status, "value") else str(session.status),
-                next_action="failed",
-                accepted_content="",
-                attempt_id=attempt.id,
-                node_key=session.node_key,
-                operation=session.operation,
-                autopilot_pause_reason="ai_invocation_retry_required",
-                payload={
-                    "session": session,
-                    "attempt": attempt,
-                    "decision": None,
-                    "commit": None,
-                    "prompt_snapshot": prepared_result.prompt_snapshot,
-                    "variable_plan": prepared_result.variable_plan,
-                },
+        try:
+            attempt = await self._gateway._attempt_service.generate(
+                session=session,
+                prompt_snapshot=prepared_result.prompt_snapshot,
+                config=self._build_config(intent),
             )
+        except Exception:
+            # AttemptService has already recorded the provider error on the
+            # attempt and moved the session to FAILED. Persist and publish that
+            # terminal state before returning control to the runtime; otherwise
+            # the panel keeps seeing the earlier prompt_compiled session forever.
+            attempt = self._latest_attempt(session)
+            if attempt is None:
+                raise
+            return self._finish_failed_attempt(intent, prepared_result, attempt)
+        if attempt.status != InvocationAttemptStatus.SUCCEEDED:
+            return self._finish_failed_attempt(intent, prepared_result, attempt)
         if session.policy == InvocationPolicy.REVIEW_AFTER_CALL:
             session.status = InvocationSessionStatus.AWAITING_ACCEPTANCE
             result = replace(prepared_result, attempt=attempt)
@@ -235,6 +223,40 @@ class AutopilotInvocationOrchestrator:
                 "attempt": attempt,
                 "decision": decision,
                 "commit": commit,
+                "prompt_snapshot": prepared_result.prompt_snapshot,
+                "variable_plan": prepared_result.variable_plan,
+            },
+        )
+
+    def _latest_attempt(self, session):
+        if not session.attempts:
+            return None
+        try:
+            return self._gateway._attempt_service.get(session.attempts[-1])
+        except (KeyError, IndexError):
+            return None
+
+    def _finish_failed_attempt(self, intent, prepared_result, attempt) -> AutopilotInvocationOutcome:
+        session = prepared_result.session
+        if session.status != InvocationSessionStatus.CANCELLED:
+            session.status = InvocationSessionStatus.FAILED
+        result = replace(prepared_result, attempt=attempt)
+        self._save_result(result)
+        self._publish(intent, result)
+        return AutopilotInvocationOutcome(
+            session_id=session.id,
+            status=session.status.value if hasattr(session.status, "value") else str(session.status),
+            next_action="cancelled" if session.status == InvocationSessionStatus.CANCELLED else "failed",
+            accepted_content="",
+            attempt_id=attempt.id,
+            node_key=session.node_key,
+            operation=session.operation,
+            autopilot_pause_reason="ai_invocation_retry_required",
+            payload={
+                "session": session,
+                "attempt": attempt,
+                "decision": None,
+                "commit": None,
                 "prompt_snapshot": prepared_result.prompt_snapshot,
                 "variable_plan": prepared_result.variable_plan,
             },

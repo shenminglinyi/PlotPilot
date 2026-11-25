@@ -15,11 +15,15 @@ class GenerationConfig:
         max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
         temperature: float = 1.0,
         response_format: Optional[Dict] = None,
+        model_role: Optional[str] = None,
     ):
         self.model = model
         self.max_tokens = max_tokens
         self.temperature = temperature
         self.response_format = response_format
+        # 多角色端点路由：'main'（默认）| 'cheap'（批量/轻量）| 'knowledge'（结构化抽取）。
+        # None = 主力模型；未配置分角色档案时运行时自动回退主力（见 resolve_role_profile）
+        self.model_role = model_role
         self.__post_init__()
 
     def __post_init__(self):

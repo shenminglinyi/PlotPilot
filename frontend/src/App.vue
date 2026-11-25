@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { NConfigProvider, NMessageProvider, NDialogProvider, zhCN, dateZhCN, darkTheme } from 'naive-ui'
 import AppSettingsModal from './components/settings/AppSettingsModal.vue'
+import AppUpdateChecker from './components/global/AppUpdateChecker.vue'
 import AIInvocationReviewPanel from './components/ai-invocation/AIInvocationReviewPanel.vue'
 import { featureFlags } from './config/features'
 import type { GlobalThemeOverrides } from 'naive-ui'
@@ -79,6 +80,7 @@ function naiveShapeOverrides(fz: FontSizePreset): GlobalThemeOverrides {
   const sb = scaledUiPx(NAIVE_DENSITY_BASE.scrollbarWidth, fz)
   return {
     common: {
+      fontFamily: 'var(--font-sans)',
       borderRadius: r,
       borderRadiusSmall: rs,
       fontSize: scaledUiPx(NAIVE_DENSITY_BASE.fontSize, fz),
@@ -172,6 +174,7 @@ const themeOverrides = computed<GlobalThemeOverrides>(() => {
         </router-view>
         <AIInvocationReviewPanel v-if="featureFlags.aiInvocationDebug" />
         <AppSettingsModal />
+        <AppUpdateChecker />
       </n-dialog-provider>
     </n-message-provider>
   </n-config-provider>
